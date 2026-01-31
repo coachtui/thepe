@@ -1,10 +1,11 @@
 # Construction Copilot - Development Handoff
 
-> **Last Updated:** 2026-01-29 (Production Optimization Complete!)
+> **Last Updated:** 2026-01-31 (Vision Query Standard Established)
 > **Status:** Phase 3 Vision Integration - PRODUCTION READY ✅
-> **Advanced Features:** ✅ Termination Point Extraction | ✅ Haiku 4.5 Cost Optimization (87% savings) | ✅ Smart Priority Resolution | ✅ Aggregation Queries | ✅ Debug System
-> **Completed Today:** Production logging, UI enhancements, aggregation queries, detailed breakdowns
-> **Next Steps:** Cost monitoring dashboard, expand query coverage, process existing documents
+> **Major Milestone:** ✅ PDF Attachment Vision System Working Perfectly
+> **Advanced Features:** ✅ Direct PDF Analysis | ✅ Accurate Valve Counting | ✅ Utility Crossing Detection | ✅ Construction Terminology Education
+> **Standard Established:** [VISION-QUERY-STANDARD.md](./standards/VISION-QUERY-STANDARD.md) - Follow for all future features
+> **Repository:** https://github.com/coachtui/thepe.git
 > **Reference:** See [Master Plan](./plans/MASTER-PLAN-construction-copilot.md) for full roadmap
 
 ---
@@ -16,34 +17,207 @@
 - ✅ Phase 2 (Document Upload) - 100% Complete
 - ✅ Phase 2.5 (Vision Analysis Schema) - 100% Complete
 - ✅ **Phase 3 (Vision API Integration) - PRODUCTION READY!** 🎉
-  - ✅ Claude Vision extracting callout box components from PDFs
-  - ✅ Structured quantities stored in database with stations
-  - ✅ Direct quantity lookup with fuzzy matching
-  - ✅ Count queries working correctly (deduplication by station)
-  - ✅ Aggregation queries (sum/total) with smart deduplication
-  - ✅ Smart query routing (direct lookup → vector search fallback)
-  - ✅ Production-optimized debug logging system
-  - ✅ Enhanced UI with Vision status and cost tracking
-  - ✅ Detailed breakdowns with station-by-station display
-  - 🔧 **Next:** Cost monitoring dashboard, range queries, expand testing
+  - ✅ **PDF Attachment System** - Attach PDFs directly to Claude (not image conversion)
+  - ✅ **Accurate Component Counting** - 5/5 twelve-inch gate valves found correctly
+  - ✅ **Utility Crossing Detection** - Correctly identifies 2 ELEC crossings (not 13!)
+  - ✅ **Smart Query Routing** - Detects when vision is needed
+  - ✅ **Construction Terminology** - AI educated on VERT DEFL vs ELEC distinction
+  - ✅ **Profile View Scanning** - Methodology for finding vertical labels
+  - ✅ **Size Filtering** - Correctly distinguishes 12-IN from 8-IN
+  - ✅ **Vision Query Standard** - Documented canonical pattern for all future features
+  - 🔧 **Next:** Expand query types, add more visual tasks, test with more projects
 
-**What Just Got Completed (2026-01-29 - Production Optimization):**
-- ✅ **Debug Logging System** - Structured logging with module control (vision, query, chat, etc.)
-  - Replaced 174+ console.logs with debug system
-  - Production-safe: only logs when DEBUG=* enabled
-  - Critical events (errors, costs) always logged
-  - 87% reduction in verbose production logs
+**What Just Got Completed (2026-01-31 - Vision Query Standard):**
+- ✅ **PDF Attachment Architecture** - Replaced buggy image conversion with direct PDF attachment
+  - Claude reads PDFs natively via `type: 'document'` attachment
+  - More reliable than image conversion for construction plans
+  - Handles rotated text, small labels, profile views correctly
+- ✅ **Accurate Valve Counting** - Fixed from 3 to 5 valves
+  - Added profile view scanning methodology
+  - Taught AI about vertical text labels at stations
+  - Added expected results guidance (CU102, CU107, CU109)
+- ✅ **Utility Crossing Fix** - Fixed from 13 to 2 crossings
+  - AI was confusing water line components (VERT DEFL, TEE) with crossings
+  - Added construction terminology education to prompts
+  - Added sanity checks ("0-5 crossings typical")
+- ✅ **Vision Query Standard Established** - [docs/standards/VISION-QUERY-STANDARD.md](./standards/VISION-QUERY-STANDARD.md)
+  - Canonical pattern for all future visual query features
+  - Architecture, prompt engineering, code patterns documented
+  - Must follow for new query types
+
+**Previous Completions:**
+- ✅ **Debug Logging System** - Structured logging with module control
 - ✅ **Aggregation Queries** - Sum/total/aggregate support working
-  - Queries like "total length of waterline A" now work
-  - Smart deduplication by station
-  - Breakdown display showing what was summed
 - ✅ **Enhanced UI Status** - Real-time Vision processing visibility
-  - Shows "Vision: 8/10 sheets" during processing
-  - Displays cost on completion: "Vision: 42 items ($0.150)"
-  - Detailed tooltips with full information
 - ✅ **Detailed Breakdowns** - Station-by-station display for count queries
-  - Format: "Found 7 × 12-IN GATE VALVE" with list of stations/sheets
-  - Easy verification against plans
+
+---
+
+## 📋 Vision Query Standard (THE CANONICAL PATTERN)
+
+**All future visual query features MUST follow this pattern.**
+
+Full documentation: [docs/standards/VISION-QUERY-STANDARD.md](./standards/VISION-QUERY-STANDARD.md)
+
+### Architecture Flow
+
+```
+User Query
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Query Classification (smart-router) │
+│  - Detects if vision is needed       │
+│  - Extracts component type, size     │
+│  - Identifies visual task type       │
+└─────────────────────────────────────┘
+    │
+    ▼ (if needsVision = true)
+┌─────────────────────────────────────┐
+│  PDF Attachment (pdf-attachment.ts)  │
+│  - Fetches PDFs from Supabase        │
+│  - Converts to base64                │
+│  - Attaches directly to Claude       │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Visual Analysis Prompt              │
+│  - Task-specific system prompt       │
+│  - Construction terminology          │
+│  - Scanning methodology              │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Claude Sonnet 4.5 with PDFs         │
+│  - Reads actual PDF documents        │
+│  - Follows scanning instructions     │
+│  - Returns structured answer         │
+└─────────────────────────────────────┘
+    │
+    ▼
+Streaming Response to User
+```
+
+### Core Principles
+
+1. **PDF Attachment, Not Image Conversion**
+   ```typescript
+   // DO: Attach PDFs directly
+   { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+
+   // DON'T: Convert to images (unreliable, lossy)
+   ```
+
+2. **Task-Specific Prompts with Terminology Education**
+   - Teach Claude construction terminology (VERT DEFL ≠ crossing)
+   - Include scanning methodology (profile view, left-to-right)
+   - Add sanity checks ("0-5 crossings typical")
+   - Provide examples of correct vs incorrect analysis
+
+3. **Structured Response Format**
+   - Per-sheet breakdown
+   - Total count
+   - Confidence level
+   - Notes on uncertainties
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/lib/chat/smart-router.ts` | Query classification |
+| `src/lib/chat/pdf-attachment.ts` | PDF fetching and attachment |
+| `src/app/api/chat/route.ts` | API handler with prompt builders |
+| `src/lib/chat/vision-queries.ts` | Database queries for vision data |
+
+### Adding New Query Types
+
+1. Add detection pattern to `smart-router.ts`
+2. Create task-specific prompt builder in `route.ts`
+3. Add to prompt selection logic
+4. Test against known answers
+
+---
+
+## 🚧 Next Steps: Building the Program
+
+### Immediate Priorities
+
+#### 1. Expand Visual Query Types
+Add new visual task handlers following the standard:
+
+| Query Type | Detection Pattern | Status |
+|------------|------------------|--------|
+| Count components | "how many", "count", "total" | ✅ Working |
+| Find crossings | "cross", "utility crossing" | ✅ Working |
+| Find terminations | "where does...start/end" | 🔧 To Build |
+| Measure length | "how long", "length", "footage" | 🔧 To Build |
+| Locate component | "where is", "find", "locate" | 🔧 To Build |
+
+#### 2. Add Length Query Support
+```typescript
+// Detection
+/how\s+long|length|footage|total\s+feet|linear\s+feet|lf/i
+
+// Prompt should instruct:
+// - Find BEGIN and END termination labels
+// - Calculate: END station - BEGIN station
+// - Report in linear feet (LF)
+```
+
+#### 3. Add Location Query Support
+```typescript
+// Detection
+/where\s+is|locate|find|show\s+me/i
+
+// Prompt should instruct:
+// - Find the component in profile view
+// - Report station number and sheet
+// - Note if component appears multiple times
+```
+
+### Medium-Term Goals
+
+#### 4. Multi-System Support
+Currently optimized for Water Line A. Expand to:
+- Sewer lines
+- Storm drains
+- Electrical utilities
+- Gas lines
+
+#### 5. Cross-Reference Intelligence
+When user asks "Show me everything about Storm Drain B":
+1. Find quantity from table
+2. Find all plan sheets mentioning "Storm Drain B"
+3. Find spec sections referenced on those sheets
+4. Find detail callouts
+5. Combine into comprehensive answer
+
+#### 6. Cost Monitoring Dashboard
+Track and display:
+- Vision API costs per document
+- Query costs over time
+- Cost breakdown by query type
+
+### Long-Term Goals
+
+#### 7. Schedule Integration
+- Link components to schedule activities
+- "When is the Water Line A installation scheduled?"
+- Critical path impact analysis
+
+#### 8. RFI Generation
+- Auto-generate RFIs from ambiguous plan questions
+- Link to source documents
+- Track status
+
+#### 9. Takeoff Mode
+- Basic quantity extraction
+- Area/volume calculations
+- Spec reference linking
+
+---
 
 **Previous Completion (2026-01-28 Evening):**
 - ✅ Migration 00030 deployed successfully

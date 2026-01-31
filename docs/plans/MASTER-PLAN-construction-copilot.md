@@ -2,8 +2,10 @@
 
 > **Document Type:** Master Architecture & Implementation Plan
 > **Created:** 2025-01-27
-> **Status:** Approved
+> **Last Updated:** 2026-01-31
+> **Status:** Phase 3 Complete - Vision Query Standard Established ✅
 > **Target:** Solo Founder, 8-month timeline
+> **Vision Standard:** See [VISION-QUERY-STANDARD.md](../standards/VISION-QUERY-STANDARD.md) for canonical query pattern
 
 ---
 
@@ -283,37 +285,39 @@ CREATE INDEX idx_schedule_activities_critical ON schedule_activities(is_critical
 
 ## Part 3: Implementation Phases
 
-### Phase 0: Setup (1 week)
-- [ ] Initialize Next.js project with TypeScript
-- [ ] Configure Supabase project
-- [ ] Set up development environment
-- [ ] Deploy base infrastructure to Vercel
+### Phase 0: Setup (1 week) ✅ COMPLETE
+- [x] Initialize Next.js project with TypeScript
+- [x] Configure Supabase project
+- [x] Set up development environment
+- [x] Deploy base infrastructure to Vercel
 
-### Phase 1: Auth & Projects (2 weeks)
-- [ ] Supabase Auth integration
-- [ ] Base database schema deployment
-- [ ] RLS policies for multi-tenancy
-- [ ] Project CRUD operations
-- [ ] Basic dashboard UI
+### Phase 1: Auth & Projects (2 weeks) ✅ COMPLETE
+- [x] Supabase Auth integration
+- [x] Base database schema deployment
+- [x] RLS policies for multi-tenancy
+- [x] Project CRUD operations
+- [x] Basic dashboard UI
 
-### Phase 2: Document Upload (3 weeks)
-- [ ] Document upload UI (drag-drop)
-- [ ] Supabase Storage integration
-- [ ] LlamaParse integration for PDF processing
-- [ ] Document chunking logic
-- [ ] Embedding generation (OpenAI)
-- [ ] Document listing and preview
+### Phase 2: Document Upload (3 weeks) ✅ COMPLETE
+- [x] Document upload UI (drag-drop)
+- [x] Supabase Storage integration
+- [x] LlamaParse integration for PDF processing
+- [x] Document chunking logic
+- [x] Embedding generation (OpenAI)
+- [x] Document listing and preview
 
-### Phase 3: Basic Q&A (4 weeks)
-- [ ] Vector similarity search
-- [ ] Query orchestrator (document mode)
-- [ ] Chat UI with streaming responses
-- [ ] Source citations
-- [ ] Query history tracking
+### Phase 3: Basic Q&A + Vision (4 weeks) ✅ COMPLETE
+- [x] Vector similarity search
+- [x] Query orchestrator (document mode)
+- [x] Chat UI with streaming responses
+- [x] Source citations
+- [x] Query history tracking
+- [x] **PDF Attachment Vision System** (see Part 3.5)
+- [x] **Vision Query Standard Established** ([VISION-QUERY-STANDARD.md](../standards/VISION-QUERY-STANDARD.md))
 
-**MVP CHECKPOINT - Week 10**
+**MVP CHECKPOINT - ACHIEVED ✅**
 
-### Phase 4: Schedule Basic (3 weeks)
+### Phase 4: Schedule Basic (3 weeks) 🔧 NEXT
 - [ ] Schedule database schema
 - [ ] CSV/Excel import
 - [ ] Basic schedule queries
@@ -346,12 +350,11 @@ CREATE INDEX idx_schedule_activities_critical ON schedule_activities(is_critical
 - [ ] Browser TTS for responses
 - [ ] Mobile-responsive UI
 
-### Phase 9: Vision Analysis & Smart Query Routing (5 weeks) 🆕
-- [ ] Vision API integration for critical sheets
-- [ ] Structured quantity extraction
-- [ ] Query classification and routing
-- [ ] Direct SQL lookup for quantities
-- [ ] Station-aware vector search
+### Phase 9: Expand Visual Query Types (3 weeks) 🔧 QUEUED
+Following the [VISION-QUERY-STANDARD.md](../standards/VISION-QUERY-STANDARD.md):
+- [ ] Length queries ("how long is water line A")
+- [ ] Location queries ("where is the fire hydrant")
+- [ ] Multi-system support (sewer, storm, gas)
 - [ ] Cross-reference intelligence
 
 ### Phase 10: Polish (4 weeks)
@@ -365,78 +368,167 @@ CREATE INDEX idx_schedule_activities_critical ON schedule_activities(is_critical
 
 ---
 
-## Part 3.5: Vision Analysis & Smart Query Routing 🆕
+## Part 3.5: Vision Analysis & Smart Query Routing ✅ COMPLETE
 
-### Problem Statement
+> **Status:** PRODUCTION READY - Vision Query Standard Established
+> **Standard Document:** [VISION-QUERY-STANDARD.md](../standards/VISION-QUERY-STANDARD.md)
 
-**Current AI Response**: Finds station numbers scattered across chunks, tries to do math (STA 36+00 minus STA 13+68.83 = 2,231 LF), gives uncertain answer.
+### Problem Statement (SOLVED ✅)
 
-**What's Actually Happening**:
-- LlamaParse extracts station callouts as isolated text snippets
-- Can't see the plan view showing the continuous waterline alignment
-- Misses the quantity table (usually on title/summary sheet) that has the actual answer
-- Doesn't understand spatial relationships between station references
+**Old AI Response**: Finds station numbers scattered across chunks, tries to do math, gives uncertain answer, confuses components with crossings.
 
-**What Should Happen**:
-AI should find and cite the exact source (e.g., "Per the Quantity Summary on Sheet C-001, Water Line A is 2,450 LF total")
+**Working Solution**: Direct PDF attachment to Claude with task-specific prompts that include construction terminology education and scanning methodology.
 
-### Implementation Strategy
+### The Working Architecture
 
-Build a construction project copilot that answers ANY query accurately by:
-1. Understanding what type of question is being asked
-2. Routing to the best data source(s)
-3. Combining multiple sources when needed
-4. Citing sources clearly
-
-### PHASE 1: Vision API for Sheets with Answers (START HERE)
-
-The answer to "total length of waterline A" is almost certainly on:
-- Title sheet (project summary table)
-- General notes sheet (quantities listed)
-- A dedicated "Quantities" or "Summary" sheet
-- Possibly in a table on the first plan sheet
-
-**Implementation Steps:**
-
-#### 1. Create Vision Analysis Module
-```typescript
-// File: src/lib/vision/claude-vision.ts
-function analyzeSheetWithVision(imageBuffer, sheetType, sheetNumber)
+```
+User Query: "How many 12 inch gate valves are there?"
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Query Classification (smart-router) │
+│  - needsVision: true                 │
+│  - componentType: "gate valve"       │
+│  - sizeFilter: "12-IN"               │
+│  - visualTask: "count_components"    │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  PDF Attachment (pdf-attachment.ts)  │
+│  - Fetch PDFs from Supabase storage  │
+│  - Convert to base64                 │
+│  - Attach directly to Claude API     │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Task-Specific Visual Prompt         │
+│  - Construction terminology          │
+│  - Profile view scanning method      │
+│  - Size filtering instructions       │
+│  - Sanity checks & examples          │
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Claude Sonnet 4.5 with PDFs         │
+│  - Reads actual PDF documents        │
+│  - Scans profile view left-to-right  │
+│  - Finds vertical text labels        │
+│  - Returns per-sheet breakdown       │
+└─────────────────────────────────────┘
+    │
+    ▼
+Response: "5 twelve-inch gate valves"
+- CU102: 1 (STA 0+00)
+- CU107: 2 (STA 24+93, STA 25+98)
+- CU109: 2 (STA 32+44, STA 32+62)
 ```
 
-#### 2. Identify High-Value Sheets During Upload
+### Core Implementation (WORKING)
+
+#### 1. PDF Attachment (Not Image Conversion)
 ```typescript
-const criticalSheets = {
-  title: /title|cover|index/i,
-  summary: /summary|quantities|general.*notes/i,
-  legend: /legend|symbols|abbreviations/i,
-  details: /details/i,
-  firstSheet: pageNumber === 1 // Often has summary table
-};
+// src/lib/chat/pdf-attachment.ts
+export function buildMessageWithPdfAttachments(
+  attachments: PdfAttachment[],
+  userQuery: string
+) {
+  const content = [];
+
+  // Attach each PDF directly
+  for (const attachment of attachments) {
+    content.push({
+      type: 'document',
+      source: {
+        type: 'base64',
+        media_type: 'application/pdf',
+        data: attachment.base64
+      }
+    });
+  }
+
+  // Add the user query
+  content.push({
+    type: 'text',
+    text: `**Documents Attached:**\n${labels}\n\n**Question:** ${userQuery}`
+  });
+
+  return content;
+}
 ```
 
-#### 3. Vision Prompt - Optimized for Quantities
+#### 2. Task-Specific Prompts with Terminology Education
 ```typescript
-const visionPrompt = `You are analyzing a construction plan sheet. Extract:
+// src/app/api/chat/route.ts
+function buildVisualCountingPrompt(componentType, sizeFilter, visualTask) {
+  if (visualTask === 'find_crossings') {
+    return buildCrossingAnalysisPrompt(); // Separate prompt for crossings
+  }
 
-CRITICAL - QUANTITY TABLES:
-- Any tables with columns like: Item, Description, Quantity, Unit, Length, etc.
-- Preserve exact numbers and units
-- Note which row corresponds to which item (e.g., "Water Line A: 2,450 LF")
+  return `## CONSTRUCTION PLAN ANALYSIS ASSISTANT
 
-SPATIAL INFORMATION:
-- Station numbers and their spatial positions (top/bottom/left/right of sheet)
-- Line labels (Water Line A, Storm Drain B, etc.) and what they connect to
-- Profile views showing elevation and station relationships
+**CRITICAL: Read the actual PDFs attached. COUNT WHAT YOU SEE.**
 
-CROSS-REFERENCES:
-- Any text like "See Sheet X", "Detail Y/Z", "Typical Section A"
+## SHEET LAYOUT
+- PLAN VIEW (Top 50-60%): Aerial view, callout boxes
+- PROFILE VIEW (Bottom 40-50%): Station scale, VERTICAL TEXT LABELS
 
-TEXT AT ALL ANGLES:
-- Extract text even if rotated 90°, 180°, 270°, or vertical
-- Preserve relationships (what label goes with what line/feature)
+## SCANNING METHOD
+1. Look at PROFILE VIEW (bottom section)
+2. Start LEFT, scan slowly RIGHT
+3. Look for VERTICAL TEXT along utility line
+4. Each "12-IN GATE VALVE" label = 1 component
+5. Record station from scale below
 
-Return as structured JSON or clear markdown that preserves table formatting.`;
+## SIZE FILTERING
+- "12-IN" = twelve inch ✓ COUNT
+- "8-IN" = eight inch ✗ EXCLUDE
+- "1-1/2-IN" = NOT twelve inch ✗ EXCLUDE
+
+## CONSTRUCTION TERMINOLOGY (CRITICAL!)
+**WATER LINE COMPONENTS (NOT crossings):**
+- VERT DEFL = Vertical deflection fitting
+- TEE = Tee fitting
+- GATE VALVE, BEND, CAP = Water line parts
+
+**ACTUAL UTILITY CROSSINGS:**
+- ELEC = Electrical line
+- SS = Sanitary Sewer
+- STM = Storm Drain
+
+**Test:** Contains "12-IN" or "8-IN" → Part of water line → NOT crossing
+...`;
+}
+```
+
+#### 3. Crossing Analysis Prompt (Separate)
+```typescript
+function buildCrossingAnalysisPrompt() {
+  return `## UTILITY CROSSING ANALYSIS
+
+**CRITICAL:** Understand what IS and IS NOT a crossing.
+
+## WHAT IS A UTILITY CROSSING?
+A crossing = DIFFERENT utility (not Water Line A) crosses over/under.
+
+Pattern in profile view:
+ELEC        ← Utility label
+28.71±      ← Reference elevation
+  |         ← Crossing line
+════╪════   ← Water Line A
+
+## WHAT IS NOT A CROSSING
+❌ VERT DEFL = Vertical deflection (part of water line!)
+❌ 12-IN X 8-IN TEE = Tee fitting (part of water line!)
+❌ Any label with "12-IN" or "8-IN" = Water line component!
+
+## SANITY CHECK
+- Projects typically have 0-5 crossings
+- Finding 10+ means you're counting water line fittings by mistake
+...`;
+}
 ```
 
 #### 4. Storage Strategy (✅ COMPLETED)
