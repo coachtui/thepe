@@ -1,0 +1,58 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Pre-commit hook - Validate Vision AI Standards
+# Reference: docs/plans/VISION-AI.md
+
+echo "🔍 Checking for Vision AI standards compliance..."
+
+# Check if vision-related files are being committed
+VISION_FILES=$(git diff --cached --name-only | grep -E "src/lib/(vision|chat)/")
+
+if [ -n "$VISION_FILES" ]; then
+  echo "📋 Vision-related files detected in commit:"
+  echo "$VISION_FILES" | sed 's/^/  - /'
+
+  echo ""
+  echo "⚠️  Running Vision AI standards validation..."
+
+  # Run validation script
+  npx tsx scripts/validate-vision-standards.ts
+
+  VALIDATION_EXIT=$?
+
+  if [ $VALIDATION_EXIT -ne 0 ]; then
+    echo ""
+    echo "❌ Vision AI standards validation FAILED"
+    echo "Fix errors above or reference docs/plans/VISION-AI.md"
+    echo ""
+    echo "To bypass this check (NOT RECOMMENDED):"
+    echo "  git commit --no-verify"
+    exit 1
+  fi
+
+  echo "✅ Vision AI standards validation PASSED"
+fi
+
+# Check if VISION-AI.md is being modified
+VISION_DOC_MODIFIED=$(git diff --cached --name-only | grep "docs/plans/VISION-AI.md")
+
+if [ -n "$VISION_DOC_MODIFIED" ]; then
+  echo ""
+  echo "⚠️  WARNING: You are modifying VISION-AI.md"
+  echo "This is the SOURCE OF TRUTH for Vision AI implementation."
+  echo ""
+  echo "After committing:"
+  echo "  1. Update src/lib/vision/constants.ts if needed"
+  echo "  2. Run: npx tsx scripts/validate-vision-standards.ts"
+  echo "  3. Update related code to match new standards"
+  echo ""
+  read -p "Continue with commit? (y/n) " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Commit cancelled."
+    exit 1
+  fi
+fi
+
+echo "✅ Pre-commit checks passed"

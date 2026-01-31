@@ -1,0 +1,19 @@
+# CODEOWNERS - Protect Critical Documentation
+#
+# These files require explicit review before changes
+# Reference: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Vision AI Standards - SOURCE OF TRUTH
+# ⚠️ Changes to this file require careful review
+# All vision-related code must comply with these standards
+/docs/plans/VISION-AI.md @yourusername
+
+# Master Plan - Overall Architecture
+/docs/plans/MASTER-PLAN-construction-copilot.md @yourusername
+
+# Handoff Documentation - Current Status
+/docs/HANDOFF.md @yourusername
+
+# Vision Constants - Extracted from VISION-AI.md
+# Changes here must be reflected in documentation
+/src/lib/vision/constants.ts @yourusername

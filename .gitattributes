@@ -1,0 +1,12 @@
+# Git Attributes - File Handling Rules
+
+# Vision AI Standards - Mark as documentation (binary-like treatment for diffs)
+# This doesn't prevent changes but highlights them in git
+docs/plans/VISION-AI.md text linguist-documentation
+
+# Mark critical documentation
+docs/plans/MASTER-PLAN-construction-copilot.md text linguist-documentation
+docs/HANDOFF.md text linguist-documentation
+
+# Vision constants - Must stay in sync with VISION-AI.md
+src/lib/vision/constants.ts text linguist-generated=false
