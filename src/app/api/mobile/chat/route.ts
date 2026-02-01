@@ -1,22 +1,19 @@
 /**
- * API Route: Chat with Claude
- * Phase 3: AI Chat Assistant with Smart RAG
+ * Mobile API Route: Chat with Claude (Bearer Token Auth)
  *
- * This endpoint uses intelligent query routing to:
- * 1. Classify query intent
- * 2. Route to best data source (direct lookup, vector search, or hybrid)
- * 3. Combine results with boosting and re-ranking
- * 4. Stream response from Claude with optimized context
+ * This is an isolated mobile endpoint that handles Bearer token authentication
+ * while maintaining the exact same vision query logic as the web endpoint.
  *
- * QUANTITATIVE QUERIES: Attaches project PDFs directly to Claude for
- * accurate visual analysis - no database extraction needed.
+ * CRITICAL: This file does NOT share code with web - it's a separate path
+ * to avoid breaking the working web functionality.
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic'
 import Anthropic from '@anthropic-ai/sdk'
 import { streamText } from 'ai'
 import { NextRequest } from 'next/server'
-import { createClient } from '@/lib/db/supabase/server'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/lib/db/supabase/types'
 import { routeQuery, buildSystemPrompt, logQueryRouting } from '@/lib/chat/smart-router'
 import {
   requiresVisualAnalysis,
@@ -30,12 +27,10 @@ import {
 } from '@/lib/chat/pdf-attachment'
 
 // Initialize Anthropic clients
-// Vercel AI SDK client for standard streaming
 const anthropicAI = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-// Direct Anthropic SDK for PDF document attachments
 const anthropicDirect = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
@@ -145,10 +140,8 @@ Be accurate. Only count DIFFERENT utilities crossing the water line.`;
 
 /**
  * Build system prompt for direct PDF analysis
- * This prompt instructs Claude to analyze the attached PDF documents
  */
 function buildVisualCountingPrompt(componentType?: string, sizeFilter?: string, visualTask?: string): string {
-  // Add specific instructions for crossing queries
   const isCrossingQuery = visualTask === 'find_crossings';
 
   if (isCrossingQuery) {
@@ -268,18 +261,46 @@ ELEC        ← Utility label (NOT "VERT DEFL")
 **Sanity check:** Projects typically have 0-5 crossings. Finding 10+ means I'm probably counting water line fittings by mistake.`
 }
 
+/**
+ * Create authenticated Supabase client from Bearer token
+ */
+function createAuthenticatedClient(token: string) {
+  return createSupabaseClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    }
+  )
+}
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify user is authenticated
-    const supabase = await createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Extract Bearer token from Authorization header
+    const authHeader = request.headers.get('authorization')
 
-    if (!user) {
-      return new Response('Unauthorized', { status: 401 })
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response('Unauthorized - Bearer token required', { status: 401 })
     }
+
+    const token = authHeader.slice(7) // Remove 'Bearer ' prefix
+
+    // Create authenticated Supabase client
+    const supabase = createAuthenticatedClient(token)
+
+    // Verify authentication
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      console.error('[Mobile Chat] Auth error:', authError?.message)
+      return new Response('Unauthorized - Invalid token', { status: 401 })
+    }
+
+    console.log('[Mobile Chat] Authenticated user:', user.id)
 
     // Get request parameters
     const { messages, projectId } = await request.json()
@@ -292,7 +313,7 @@ export async function POST(request: NextRequest) {
       return new Response('Project ID is required', { status: 400 })
     }
 
-    // Get the latest user message for RAG search
+    // Get the latest user message
     const latestMessage = messages[messages.length - 1]
     if (latestMessage.role !== 'user') {
       return new Response('Last message must be from user', { status: 400 })
@@ -300,28 +321,80 @@ export async function POST(request: NextRequest) {
 
     const userQuery = latestMessage.content
 
-    console.log(`[Chat API] Processing query: "${userQuery}"`)
-    console.log(`[Chat API] Project ID: ${projectId}`)
+    console.log(`[Mobile Chat] Processing query: "${userQuery}"`)
+    console.log(`[Mobile Chat] Project ID: ${projectId}`)
 
     // CHECK: Does this query need direct visual analysis?
     const needsVision = requiresVisualAnalysis(userQuery)
 
     if (needsVision) {
-      console.log(`[Chat API] 📄 PDF ANALYSIS MODE - Attaching project PDFs directly to Claude`)
+      console.log(`[Mobile Chat] 📄 PDF ANALYSIS MODE - Attaching project PDFs directly to Claude`)
 
       // Get visual task details
       const visualTask = determineVisualTask(userQuery)
       const componentType = extractComponentType(userQuery)
       const sizeFilter = extractSizeFilter(userQuery)
 
-      console.log(`[Chat API] Visual task:`, { visualTask, componentType, sizeFilter })
+      console.log(`[Mobile Chat] Visual task:`, { visualTask, componentType, sizeFilter })
 
-      // Get project PDFs as attachments
-      const pdfResult = await getProjectPdfAttachments(projectId, 8)
+      // Get project PDFs as attachments (using authenticated mobile client)
+      // Note: Can't use shared getProjectPdfAttachments() because it creates cookie-based client
+      const { data: documents, error: docsError } = await supabase
+        .from('documents')
+        .select('id, filename, file_path, sheet_number, document_type')
+        .eq('project_id', projectId)
+        .order('filename')
+
+      if (docsError || !documents || documents.length === 0) {
+        console.log(`[Mobile Chat] No documents found:`, docsError?.message)
+        // Fall through to standard routing
+      }
+
+      const pdfDocuments = documents ? documents.filter(doc => doc.filename.toLowerCase().endsWith('.pdf')) : []
+      const docsToProcess = pdfDocuments.slice(0, 8)
+
+      const attachments: Array<{ filename: string; sheetNumber: string; base64: string; sizeBytes: number }> = []
+      let totalSizeBytes = 0
+
+      for (const doc of docsToProcess) {
+        try {
+          const { data: fileData, error: downloadError } = await supabase.storage
+            .from('documents')
+            .download(doc.file_path)
+
+          if (downloadError || !fileData) {
+            console.error(`[Mobile Chat] Error downloading ${doc.filename}:`, downloadError)
+            continue
+          }
+
+          const arrayBuffer = await fileData.arrayBuffer()
+          const buffer = Buffer.from(arrayBuffer)
+          const base64 = buffer.toString('base64')
+
+          attachments.push({
+            filename: doc.filename,
+            sheetNumber: doc.sheet_number || doc.filename.replace('.pdf', ''),
+            base64,
+            sizeBytes: buffer.length
+          })
+
+          totalSizeBytes += buffer.length
+          console.log(`[Mobile Chat] Added ${doc.filename} (${(buffer.length / 1024).toFixed(0)} KB)`)
+        } catch (err) {
+          console.error(`[Mobile Chat] Error processing ${doc.filename}:`, err)
+        }
+      }
+
+      const pdfResult = {
+        success: attachments.length > 0,
+        attachments,
+        documentsIncluded: attachments.map(a => a.sheetNumber),
+        totalSizeBytes
+      }
 
       if (pdfResult.success && pdfResult.attachments.length > 0) {
-        console.log(`[Chat API] Attached ${pdfResult.attachments.length} PDFs: ${pdfResult.documentsIncluded.join(', ')}`)
-        console.log(`[Chat API] Total PDF size: ${(pdfResult.totalSizeBytes / 1024 / 1024).toFixed(2)} MB`)
+        console.log(`[Mobile Chat] Attached ${pdfResult.attachments.length} PDFs: ${pdfResult.documentsIncluded.join(', ')}`)
+        console.log(`[Mobile Chat] Total PDF size: ${(pdfResult.totalSizeBytes / 1024 / 1024).toFixed(2)} MB`)
 
         // Build system prompt for PDF analysis
         const visualSystemPrompt = buildVisualCountingPrompt(componentType, sizeFilter, visualTask)
@@ -409,17 +482,17 @@ export async function POST(request: NextRequest) {
           },
         })
       } else {
-        console.log(`[Chat API] Failed to get PDFs, falling back to standard routing: ${pdfResult.error}`)
+        console.log(`[Mobile Chat] Failed to get PDFs, falling back to standard routing: ${pdfResult.error}`)
       }
     }
 
     // STANDARD ROUTING: Use the intelligent query routing system
     const routingResult = await routeQuery(userQuery, projectId, {
-      includeMetadata: false, // Don't include boost scores in context for cleaner output
+      includeMetadata: false,
       maxResults: 15
     })
 
-    console.log(`[Chat API] Routing result:`, {
+    console.log(`[Mobile Chat] Routing result:`, {
       type: routingResult.classification.type,
       method: routingResult.method,
       totalResults: routingResult.metadata.totalResults,
@@ -428,18 +501,10 @@ export async function POST(request: NextRequest) {
       visualAnalysisTask: routingResult.visualAnalysisTask
     })
 
-    // Log visual analysis recommendation if applicable
-    if (routingResult.needsVisualAnalysis) {
-      console.log(`[Chat API] Visual analysis recommended:`, {
-        task: routingResult.visualAnalysisTask,
-        params: routingResult.visualAnalysisParams
-      })
-    }
-
-    // Build optimized system prompt based on query type and results
+    // Build optimized system prompt
     const systemPrompt = buildSystemPrompt(routingResult)
 
-    // Stream response from Claude with full conversation history
+    // Stream response from Claude
     const result = streamText({
       model: anthropicAI('claude-sonnet-4-5-20250929'),
       system: systemPrompt,
@@ -450,20 +515,20 @@ export async function POST(request: NextRequest) {
       temperature: 0.7,
     })
 
-    // Log query for analytics (async, don't await)
+    // Log query for analytics
     logQueryRouting(
       projectId,
       user.id,
       userQuery,
       routingResult,
-      undefined, // Response text will be added later if needed
+      undefined,
       true
     ).catch(err => console.error('Error logging query:', err))
 
     // Return streaming response
     return result.toTextStreamResponse()
   } catch (error) {
-    console.error('[Chat API] Error:', error)
+    console.error('[Mobile Chat] Error:', error)
     return new Response(
       error instanceof Error ? error.message : 'Chat request failed',
       { status: 500 }
