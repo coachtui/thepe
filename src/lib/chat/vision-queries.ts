@@ -89,15 +89,73 @@ export interface LengthQueryResult {
  * Common component patterns for detection
  */
 const COMPONENT_PATTERNS: Record<string, RegExp[]> = {
+  // Valves
   valve: [/valve/i, /gate\s*valve/i, /butterfly\s*valve/i, /ball\s*valve/i, /check\s*valve/i, /air\s*valve/i, /prv/i],
+
+  // Fire hydrants
   hydrant: [/hydrant/i, /fire\s*hydrant/i],
-  fitting: [/fitting/i, /tee/i, /elbow/i, /bend/i, /reducer/i, /cap/i, /plug/i],
-  manhole: [/manhole/i, /mh/i, /junction\s*structure/i],
-  cleanout: [/cleanout/i, /c\.?o\.?/i],
+
+  // Fittings (general)
+  fitting: [/fitting/i, /reducer/i, /cap\b/i, /plug\b/i],
+
+  // Tees (including ARV tees)
+  tee: [/\btee\b/i, /arv\s*tee/i, /air\s*release\s*valve\s*tee/i, /air\s*release\s*tee/i],
+
+  // Bends/Elbows with angle support
+  // Supports: 90º, 45º, 22.5º, 11.25º, ¼, ⅛, 1/16, 1/32
+  bend: [
+    /\bbend\b/i,
+    /\belbow\b/i,
+    /90\s*[°º]?\s*bend/i,
+    /45\s*[°º]?\s*bend/i,
+    /22\.?5\s*[°º]?\s*bend/i,
+    /11\.?25\s*[°º]?\s*bend/i,
+    /[¼¹⁄₄]\s*bend/i,              // Quarter bend (90°)
+    /[⅛]\s*bend/i,                  // Eighth bend (45°)
+    /1\/16\s*bend/i,                // 1/16 bend (22.5°)
+    /1\/32\s*bend/i,                // 1/32 bend (11.25°)
+    /quarter\s*bend/i,
+    /eighth\s*bend/i,
+    /horizontal\s*bend/i,
+    /vertical\s*bend/i,
+  ],
+
+  // Manholes
+  manhole: [/manhole/i, /\bmh\b/i, /m\.h\./i, /junction\s*structure/i, /access\s*structure/i],
+
+  // Catch basins (storm drain inlets)
+  catch_basin: [/catch\s*basin/i, /\bcb\b/i, /c\.b\./i, /storm\s*inlet/i, /inlet\s*structure/i, /drain\s*inlet/i],
+
+  // Air Release Valves (ARV)
+  arv: [/\barv\b/i, /air\s*release\s*valve/i, /air\s*valve/i, /air\s*vent/i, /vacuum\s*release/i],
+
+  // Deflection couplings
+  deflection: [
+    /defl(ection)?\s*coupling/i,
+    /vert(ical)?\s*defl(ection)?/i,
+    /\bvert\s*defl\b/i,
+    /horiz(ontal)?\s*defl(ection)?/i,
+    /deflection\s*fitting/i,
+    /flex(ible)?\s*coupling/i,
+  ],
+
+  // Tapping sleeves (for hot taps on existing lines)
+  tapping_sleeve: [/tapping\s*sleeve/i, /tap\s*sleeve/i, /\bt\.?s\.?\b/i, /hot\s*tap/i, /tapping\s*saddle/i],
+
+  // Couplings (general)
+  coupling: [/coupling/i, /connect(or|ion)?/i, /adaptor/i, /adapter/i, /joint/i],
+
+  // Cleanouts
+  cleanout: [/cleanout/i, /clean\s*out/i, /c\.?o\.?\b/i],
+
+  // Meters
   meter: [/meter/i, /metering/i],
-  box: [/valve\s*box/i, /meter\s*box/i, /box/i],
-  coupling: [/coupling/i, /connect/i, /adaptor/i, /adapter/i],
-  pipe: [/pipe/i, /main/i, /lateral/i, /service/i, /line/i],
+
+  // Boxes
+  box: [/valve\s*box/i, /meter\s*box/i, /\bbox\b/i],
+
+  // Pipe/line
+  pipe: [/pipe/i, /main/i, /lateral/i, /service/i, /\bline\b/i],
 };
 
 /**

@@ -84,16 +84,55 @@ interface SheetInfo {
 }
 
 /**
+ * Component keywords for visual analysis triggers
+ * Includes: valves, tees, fittings, hydrants, manholes, catch basins, ARVs, deflection couplings, bends
+ */
+const COMPONENT_KEYWORDS = [
+  'valve',
+  'tee',
+  'fitting',
+  'hydrant',
+  'cap',
+  'plug',
+  'bend',
+  'elbow',
+  'manhole',
+  'mh',
+  'catch\\s*basin',
+  'cb',
+  'arv',
+  'air\\s*release',
+  'defl(ection)?',
+  'vert\\s*defl',
+  'coupling',
+  'reducer',
+  'tapping\\s*sleeve',
+  'tap\\s*sleeve',
+  't\\.?s\\.?',
+  'hot\\s*tap',
+].join('|');
+
+/**
  * Check if a query requires visual analysis
  */
 export function requiresVisualAnalysis(query: string): boolean {
+  // Build regex pattern with component keywords
+  const componentPattern = new RegExp(`(${COMPONENT_KEYWORDS})`, 'i');
+
   const visualTriggers = [
-    // Component counting
-    /how many.*(valve|tee|fitting|hydrant|cap|bend|elbow)/i,
-    /count.*(valve|tee|fitting|hydrant|cap|bend|elbow)/i,
-    /number of.*(valve|tee|fitting|hydrant|cap|bend|elbow)/i,
-    /total.*(valve|tee|fitting|hydrant|cap|bend|elbow)/i,
-    /\d+.?in(ch)?.*(valve|tee|fitting|hydrant|cap|bend|elbow)/i,
+    // Component counting with all supported types
+    new RegExp(`how many.*(${COMPONENT_KEYWORDS})`, 'i'),
+    new RegExp(`count.*(${COMPONENT_KEYWORDS})`, 'i'),
+    new RegExp(`number of.*(${COMPONENT_KEYWORDS})`, 'i'),
+    new RegExp(`total.*(${COMPONENT_KEYWORDS})`, 'i'),
+    new RegExp(`list.*(${COMPONENT_KEYWORDS})`, 'i'),
+    new RegExp(`\\d+.?in(ch)?.*(${COMPONENT_KEYWORDS})`, 'i'),
+
+    // Bend angle queries (90º, 45º, 22.5º, 11.25º, ¼, ⅛, etc.)
+    /\d+(\.\d+)?\s*[°º]?\s*bend/i,
+    /quarter\s*bend|eighth\s*bend/i,
+    /[¼⅛]\s*bend/i,
+    /1\/16\s*bend|1\/32\s*bend/i,
 
     // Utility crossings
     /what.*(cross|crossing)/i,
@@ -123,7 +162,20 @@ export function requiresVisualAnalysis(query: string): boolean {
 export function determineVisualTask(query: string): VisualAnalysisTask {
   const lowerQuery = query.toLowerCase();
 
-  if (/valve|tee|fitting|hydrant|cap|bend|elbow|component/i.test(lowerQuery)) {
+  // Component counting - expanded list including new types
+  const componentKeywords = [
+    'valve', 'tee', 'fitting', 'hydrant', 'cap', 'plug', 'bend', 'elbow',
+    'manhole', 'mh', 'catch basin', 'cb', 'arv', 'air release',
+    'deflection', 'defl', 'vert defl', 'coupling', 'reducer', 'component',
+    'tapping sleeve', 'tap sleeve', 't.s.', 'hot tap'
+  ];
+
+  if (componentKeywords.some(kw => lowerQuery.includes(kw))) {
+    return 'count_components';
+  }
+
+  // Also check for bend angle patterns
+  if (/\d+(\.\d+)?\s*[°º]?\s*bend|quarter\s*bend|eighth\s*bend|[¼⅛]\s*bend|1\/16\s*bend|1\/32\s*bend/i.test(lowerQuery)) {
     return 'count_components';
   }
 
@@ -147,16 +199,50 @@ export function determineVisualTask(query: string): VisualAnalysisTask {
  */
 export function extractComponentType(query: string): string | undefined {
   const patterns = [
+    // Specific valve types (check before generic "valve")
     { pattern: /gate\s*valve/i, type: 'gate valve' },
     { pattern: /butterfly\s*valve/i, type: 'butterfly valve' },
     { pattern: /check\s*valve/i, type: 'check valve' },
-    { pattern: /air\s*release\s*valve|arv/i, type: 'air release valve' },
+    { pattern: /air\s*release\s*valve|arv\b/i, type: 'air release valve' },
     { pattern: /blow.?off/i, type: 'blow-off' },
+
+    // Fire hydrant
     { pattern: /fire\s*hydrant|fh\b/i, type: 'fire hydrant' },
-    { pattern: /tee\b/i, type: 'tee' },
-    { pattern: /cap\b/i, type: 'cap' },
+
+    // Manholes
+    { pattern: /manhole|\bmh\b|m\.h\./i, type: 'manhole' },
+
+    // Catch basins
+    { pattern: /catch\s*basin|\bcb\b|c\.b\.|storm\s*inlet|drain\s*inlet/i, type: 'catch basin' },
+
+    // ARV Tees (specific tee type - check before generic tee)
+    { pattern: /arv\s*tee|air\s*release\s*(valve\s*)?tee/i, type: 'arv tee' },
+
+    // Generic tee
+    { pattern: /\btee\b/i, type: 'tee' },
+
+    // Deflection couplings
+    { pattern: /defl(ection)?\s*coupling|vert(ical)?\s*defl|horiz(ontal)?\s*defl|\bvert\s*defl\b/i, type: 'deflection' },
+
+    // Bends with angle support (90º, 45º, 22.5º, 11.25º, ¼, ⅛, 1/16, 1/32)
+    { pattern: /90\s*[°º]?\s*bend|quarter\s*bend|[¼]\s*bend/i, type: '90° bend' },
+    { pattern: /45\s*[°º]?\s*bend|eighth\s*bend|[⅛]\s*bend/i, type: '45° bend' },
+    { pattern: /22\.?5\s*[°º]?\s*bend|1\/16\s*bend/i, type: '22.5° bend' },
+    { pattern: /11\.?25\s*[°º]?\s*bend|1\/32\s*bend/i, type: '11.25° bend' },
     { pattern: /bend|elbow/i, type: 'bend' },
-    { pattern: /valve/i, type: 'valve' }, // Generic valve (last)
+
+    // Tapping sleeves
+    { pattern: /tapping\s*sleeve|tap\s*sleeve|t\.?s\.?\b|hot\s*tap|tapping\s*saddle/i, type: 'tapping sleeve' },
+
+    // Couplings
+    { pattern: /coupling|flex\s*coupling/i, type: 'coupling' },
+
+    // Cap and plug
+    { pattern: /\bcap\b/i, type: 'cap' },
+    { pattern: /\bplug\b/i, type: 'plug' },
+
+    // Generic valve (last - catch-all)
+    { pattern: /valve/i, type: 'valve' },
   ];
 
   for (const { pattern, type } of patterns) {
