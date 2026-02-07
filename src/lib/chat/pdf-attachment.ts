@@ -260,6 +260,8 @@ export async function getProjectPdfAttachments(
     // Download and convert each document
     const attachments: PdfAttachment[] = [];
     let totalSizeBytes = 0;
+    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB per file (Anthropic limit)
+    const MAX_TOTAL_SIZE = 25 * 1024 * 1024; // 25 MB total (safe limit for 32MB API max)
 
     for (const doc of docsToProcess) {
       try {
@@ -279,6 +281,26 @@ export async function getProjectPdfAttachments(
         // Convert to base64
         const arrayBuffer = await fileData.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
+
+        // Check individual file size
+        if (buffer.length > MAX_FILE_SIZE) {
+          console.warn(
+            `[PDF Attachment] Skipping ${doc.filename} - too large (${(buffer.length / 1024 / 1024).toFixed(1)} MB > 5 MB limit)`
+          );
+          console.warn(
+            `   Large multi-page PDFs should be split into individual sheets for accurate analysis`
+          );
+          continue;
+        }
+
+        // Check total size budget
+        if (totalSizeBytes + buffer.length > MAX_TOTAL_SIZE) {
+          console.warn(
+            `[PDF Attachment] Stopping at ${attachments.length} PDFs - reached ${(totalSizeBytes / 1024 / 1024).toFixed(1)} MB size budget`
+          );
+          break;
+        }
+
         const base64 = buffer.toString('base64');
 
         attachments.push({

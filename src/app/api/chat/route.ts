@@ -430,11 +430,12 @@ export async function POST(request: NextRequest) {
       const utilityName = extractUtilityName(userQuery)
 
       // For material takeoffs, increase the document limit to capture all relevant sheets
-      // 80 sheets = Claude's 200k token limit (physical maximum)
+      // Note: Anthropic API has ~32MB request size limit (not just token limit)
+      // Typical construction PDF: 200-500KB → max ~30-40 PDFs per request
       const isTakeoff = visualTask === 'material_takeoff'
-      const pdfLimit = isTakeoff ? 80 :  // Claude's physical token limit (max possible)
-                       visualTask === 'find_crossings' ? 80 : // Crossings span many sheets
-                       20  // Component counting (be more generous)
+      const pdfLimit = isTakeoff ? 30 :  // API request size limit (~30 PDFs × 500KB = 15MB)
+                       visualTask === 'find_crossings' ? 30 : // Same limit
+                       15  // Component counting
 
       console.log(`[Chat API] Visual task:`, { visualTask, componentType, sizeFilter, utilityName, pdfLimit })
 

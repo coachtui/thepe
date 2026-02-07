@@ -1,10 +1,10 @@
 # Construction Copilot - Development Handoff
 
-> **Last Updated:** 2026-01-31 (Vision Query Standard Established)
-> **Status:** Phase 3 Vision Integration - PRODUCTION READY ✅
-> **Major Milestone:** ✅ PDF Attachment Vision System Working Perfectly
-> **Advanced Features:** ✅ Direct PDF Analysis | ✅ Accurate Valve Counting | ✅ Utility Crossing Detection | ✅ Construction Terminology Education
-> **Standard Established:** [VISION-QUERY-STANDARD.md](./standards/VISION-QUERY-STANDARD.md) - Follow for all future features
+> **Last Updated:** 2026-01-31 (Phase 4 Testing)
+> **Status:** Phase 4 In Testing - Auth & Data Working 🟡
+> **Direction:** Mobile-first field app with voice (Expo/React Native)
+> **Web MVP:** ✅ Complete (Phases 1-3: Auth, Documents, Vision)
+> **Mobile App:** 🟡 Auth ✅ Projects ✅ Documents ✅ Chat 🔧
 > **Repository:** https://github.com/coachtui/thepe.git
 > **Reference:** See [Master Plan](./plans/MASTER-PLAN-construction-copilot.md) for full roadmap
 
@@ -16,40 +16,41 @@
 - ✅ Phase 1 (Auth & Projects) - 100% Complete
 - ✅ Phase 2 (Document Upload) - 100% Complete
 - ✅ Phase 2.5 (Vision Analysis Schema) - 100% Complete
-- ✅ **Phase 3 (Vision API Integration) - PRODUCTION READY!** 🎉
-  - ✅ **PDF Attachment System** - Attach PDFs directly to Claude (not image conversion)
-  - ✅ **Accurate Component Counting** - 5/5 twelve-inch gate valves found correctly
-  - ✅ **Utility Crossing Detection** - Correctly identifies 2 ELEC crossings (not 13!)
-  - ✅ **Smart Query Routing** - Detects when vision is needed
-  - ✅ **Construction Terminology** - AI educated on VERT DEFL vs ELEC distinction
-  - ✅ **Profile View Scanning** - Methodology for finding vertical labels
-  - ✅ **Size Filtering** - Correctly distinguishes 12-IN from 8-IN
-  - ✅ **Vision Query Standard** - Documented canonical pattern for all future features
-  - 🔧 **Next:** Expand query types, add more visual tasks, test with more projects
+- ✅ Phase 3 (Vision API Integration) - 100% Complete
+- 🟡 **Phase 4 (Mobile Foundation) - CORE COMPLETE** 📱
 
-**What Just Got Completed (2026-01-31 - Vision Query Standard):**
-- ✅ **PDF Attachment Architecture** - Replaced buggy image conversion with direct PDF attachment
-  - Claude reads PDFs natively via `type: 'document'` attachment
-  - More reliable than image conversion for construction plans
-  - Handles rotated text, small labels, profile views correctly
-- ✅ **Accurate Valve Counting** - Fixed from 3 to 5 valves
-  - Added profile view scanning methodology
-  - Taught AI about vertical text labels at stations
-  - Added expected results guidance (CU102, CU107, CU109)
-- ✅ **Utility Crossing Fix** - Fixed from 13 to 2 crossings
-  - AI was confusing water line components (VERT DEFL, TEE) with crossings
-  - Added construction terminology education to prompts
-  - Added sanity checks ("0-5 crossings typical")
-- ✅ **Vision Query Standard Established** - [docs/standards/VISION-QUERY-STANDARD.md](./standards/VISION-QUERY-STANDARD.md)
-  - Canonical pattern for all future visual query features
-  - Architecture, prompt engineering, code patterns documented
-  - Must follow for new query types
+**Phase 4 Accomplishments (2026-01-31):**
+- ✅ Expo project created in `pe/mobile/`
+- ✅ Supabase auth with SecureStore
+- ✅ Projects screen with pull-to-refresh
+- ✅ Chat screen with streaming responses
+- ✅ Documents screen with status badges
+- ✅ Settings screen with sign out
+- ✅ API client connecting to existing backend
+- 🔧 **Next:** Device testing, then Phase 5 (Voice)
 
-**Previous Completions:**
-- ✅ **Debug Logging System** - Structured logging with module control
-- ✅ **Aggregation Queries** - Sum/total/aggregate support working
-- ✅ **Enhanced UI Status** - Real-time Vision processing visibility
-- ✅ **Detailed Breakdowns** - Station-by-station display for count queries
+**Architecture:**
+```
+Mobile App (Expo) → Next.js API (existing) → Supabase
+```
+
+**Mobile App Structure:**
+```
+mobile/
+├── app/(auth)/sign-in.tsx, sign-up.tsx
+├── app/(tabs)/index.tsx, chat.tsx, documents.tsx, settings.tsx
+├── lib/supabase.ts, api.ts
+├── hooks/useAuth.ts, useProjects.ts, useChat.ts
+└── stores/appStore.ts
+```
+
+**To Test:**
+```bash
+cd mobile && npx expo start
+# Update .env with local IP for device testing
+```
+
+**Mobile MVP Target:** ~6-8 weeks remaining (Phases 5-6)
 
 ---
 
@@ -140,65 +141,70 @@ Streaming Response to User
 
 ---
 
-## 🚧 Next Steps: Building the Program
+## 🚧 Next Steps: Mobile-First Development
 
-### Immediate Priorities
+### Phase 4: Mobile Foundation (Current - 3-4 weeks)
 
-#### 1. Expand Visual Query Types
-Add new visual task handlers following the standard:
-
-| Query Type | Detection Pattern | Status |
-|------------|------------------|--------|
-| Count components | "how many", "count", "total" | ✅ Working |
-| Find crossings | "cross", "utility crossing" | ✅ Working |
-| Find terminations | "where does...start/end" | 🔧 To Build |
-| Measure length | "how long", "length", "footage" | 🔧 To Build |
-| Locate component | "where is", "find", "locate" | 🔧 To Build |
-
-#### 2. Add Length Query Support
-```typescript
-// Detection
-/how\s+long|length|footage|total\s+feet|linear\s+feet|lf/i
-
-// Prompt should instruct:
-// - Find BEGIN and END termination labels
-// - Calculate: END station - BEGIN station
-// - Report in linear feet (LF)
+#### 1. Expo Project Setup
+```bash
+# Create new Expo project in /mobile directory
+npx create-expo-app mobile --template tabs
+cd mobile
+npx expo install @supabase/supabase-js expo-secure-store
 ```
 
-#### 3. Add Location Query Support
-```typescript
-// Detection
-/where\s+is|locate|find|show\s+me/i
+#### 2. Core Screens to Build
+| Screen | Priority | Description |
+|--------|----------|-------------|
+| Login/Signup | 🔴 Week 1 | Supabase auth with secure token storage |
+| Projects List | 🔴 Week 1 | Pull-to-refresh, project selection |
+| Chat | 🔴 Week 2 | Mobile chat UI, streaming responses |
+| Documents | 🟡 Week 3 | Document list, PDF viewer |
+| Settings | 🟢 Week 4 | Profile, logout, preferences |
 
-// Prompt should instruct:
-// - Find the component in profile view
-// - Report station number and sheet
-// - Note if component appears multiple times
+#### 3. API Connection
+- Connect to existing Next.js API endpoints
+- Handle auth headers (Bearer token)
+- Error handling for network issues
+
+### Phase 5: Voice + Offline (3-4 weeks)
+
+#### Voice Integration
+```typescript
+// Speech-to-text (Whisper API)
+import * as Speech from 'expo-speech';
+// Push-to-talk button → record → send to Whisper → get text
+
+// Text-to-speech (native)
+Speech.speak(response, { language: 'en' });
 ```
 
-### Medium-Term Goals
+#### Offline Support
+- Cache project metadata (MMKV)
+- Store recent chat history offline
+- PDF caching for key documents
+- Background sync when online
 
-#### 4. Multi-System Support
-Currently optimized for Water Line A. Expand to:
-- Sewer lines
-- Storm drains
-- Electrical utilities
-- Gas lines
+### Phase 6: Performance & Polish (2-3 weeks)
 
-#### 5. Cross-Reference Intelligence
-When user asks "Show me everything about Storm Drain B":
-1. Find quantity from table
-2. Find all plan sheets mentioning "Storm Drain B"
-3. Find spec sections referenced on those sheets
-4. Find detail callouts
-5. Combine into comprehensive answer
+- Cold start < 2 seconds
+- Native gestures (swipe, pull-to-refresh)
+- Push notifications
+- Dark mode for field use
+- Haptic feedback
 
-#### 6. Cost Monitoring Dashboard
-Track and display:
-- Vision API costs per document
-- Query costs over time
-- Cost breakdown by query type
+**MOBILE MVP CHECKPOINT** 📱
+
+---
+
+### Post-Mobile MVP: Feature Expansion
+
+| Feature | Phase | Description |
+|---------|-------|-------------|
+| Schedule queries | 7 | "When is X activity?" via voice |
+| RFI generation | 9 | Voice-to-RFI creation |
+| Visual query expansion | 11 | Length, location, multi-system |
+| App Store launch | 12 | iOS App Store, Google Play |
 
 ### Long-Term Goals
 
@@ -678,7 +684,8 @@ CREATE TABLE utility_termination_points (
 User Query: "What is the total length of Water Line A?"
 
 Vision Processing:
-  ✓ Sheet C-002: Detected "BEGIN WATER LINE 'A' STA 13+00"
+  ✓ Sheet C-002: Detected "BEGIN WATER LINE 'A' STA 0
+  +00"
   ✓ Sheet C-005: Detected "END WATER LINE 'A' STA 32+62.01"
   ✓ Stored in utility_termination_points table
 
@@ -1050,11 +1057,11 @@ These three features work together seamlessly:
 - [ ] Implement retry logic for failed Vision processing
 - [ ] Add rate limiting for Vision API calls (avoid Claude API limits)
 
-#### 2. **Cost Management** 💰 PARTIALLY COMPLETE
+#### 2. **Cost Management** 💰 COMPLETE
 - ✅ Monitor Vision API costs per document (UI displays cost)
 - ✅ Track costs in `documents` table (`vision_cost_usd` column)
 - ✅ Cost logging in production logs
-- [ ] **TODO: Cost monitoring dashboard** (high priority)
+- ✅ **Cost monitoring dashboard** at `/usage` route (2026-01-31)
 - [ ] Implement selective processing strategy:
   - Process title/summary sheets (high value)
   - Skip profile sheets initially (lower value for quantity queries)
@@ -2509,8 +2516,10 @@ Proceed with **Phase 2: Document Management & RAG**
 - [Success Metrics](./plans/MASTER-PLAN-construction-copilot.md#part-6-success-metrics) - What good looks like
 - [Key Decisions](./plans/MASTER-PLAN-construction-copilot.md#key-decisions) - Architecture choices made
 - [Milestones](./plans/MASTER-PLAN-construction-copilot.md#milestones) - Timeline checkpoints
+- [Vision Queries](.plans/standards/VISION-QUERY-STANDARDS.md) -
+Vision Query Standard
 
 ---
 
-**Last Updated:** 2026-01-28 (Evening)
-**Next Review:** After Phase 2 testing complete (est. 2026-02-02)
+**Last Updated:** 2026-01-31 (Daytime)
+**Next Review:** After Phase 3 testing complete (est. 2026-02-02)

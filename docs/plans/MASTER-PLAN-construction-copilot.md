@@ -3,8 +3,10 @@
 > **Document Type:** Master Architecture & Implementation Plan
 > **Created:** 2025-01-27
 > **Last Updated:** 2026-01-31
-> **Status:** Phase 3 Complete - Vision Query Standard Established ✅
-> **Target:** Solo Founder, 8-month timeline
+> **Status:** Phase 4 Core Complete - Testing Required 🟡
+> **Target:** Solo Founder, mobile-first field app
+> **Architecture:** Expo/React Native + Next.js API backend
+> **Mobile App:** `pe/mobile/` - Expo SDK 54, Zustand, SecureStore
 > **Vision Standard:** See [VISION-QUERY-STANDARD.md](../standards/VISION-QUERY-STANDARD.md) for canonical query pattern
 
 ---
@@ -70,16 +72,19 @@
 
 | Layer | Technology | Rationale |
 |-------|------------|-----------|
-| Frontend | Next.js 14 (App Router) | SSR, API routes, unified codebase |
-| UI | shadcn/ui + Tailwind | Fast development, accessible |
-| Backend | Next.js API Routes | Single deployment |
+| **Mobile App** | Expo / React Native | Native iOS/Android, single codebase |
+| Mobile UI | React Native Paper / Tamagui | Native components, fast |
+| Backend API | Next.js API Routes | Existing infrastructure |
 | Database | Supabase (PostgreSQL) | RLS, real-time, storage, auth |
 | Vector DB | pgvector (via Supabase) | Native PostgreSQL, no extra service |
 | AI/LLM | Claude 3.5 Sonnet | Best reasoning for construction |
 | Embeddings | OpenAI text-embedding-ada-002 | Cost-effective |
 | Doc Parsing | LlamaParse | $0.003/page, handles tables |
-| Voice | Whisper API + Browser TTS | Simple, works |
-| Hosting | Vercel + Supabase | Minimal DevOps |
+| **Voice Input** | Whisper API | Speech-to-text for field |
+| **Voice Output** | expo-speech | Native TTS |
+| **Offline** | MMKV + AsyncStorage | Fast local caching |
+| Hosting | Vercel + Supabase | API backend |
+| App Distribution | Expo EAS | TestFlight, Play Store |
 
 ### 1.3 Project Structure
 
@@ -285,6 +290,8 @@ CREATE INDEX idx_schedule_activities_critical ON schedule_activities(is_critical
 
 ## Part 3: Implementation Phases
 
+### Completed Phases (Web Foundation)
+
 ### Phase 0: Setup (1 week) ✅ COMPLETE
 - [x] Initialize Next.js project with TypeScript
 - [x] Configure Supabase project
@@ -315,56 +322,104 @@ CREATE INDEX idx_schedule_activities_critical ON schedule_activities(is_critical
 - [x] **PDF Attachment Vision System** (see Part 3.5)
 - [x] **Vision Query Standard Established** ([VISION-QUERY-STANDARD.md](../standards/VISION-QUERY-STANDARD.md))
 
-**MVP CHECKPOINT - ACHIEVED ✅**
+**WEB MVP CHECKPOINT - ACHIEVED ✅**
 
-### Phase 4: Schedule Basic (3 weeks) 🔧 NEXT
+---
+
+### Mobile-First Phases (Current Focus)
+
+### Phase 4: Mobile Foundation (3-4 weeks) 🟡 CORE COMPLETE
+**Goal:** Native iOS/Android app with core functionality
+**Status:** Core built, device testing required
+
+- [x] Expo/React Native project setup (`pe/mobile/`)
+- [x] Navigation structure (tabs: Projects, Chat, Documents, Settings)
+- [x] Supabase Auth integration (expo-secure-store)
+- [x] Connect to existing Next.js API endpoints
+- [x] Project list screen with pull-to-refresh
+- [x] Chat interface with streaming responses
+- [x] Document list with status badges
+- [x] Settings screen with sign out
+- [ ] Device testing (iOS/Android)
+- [ ] PDF viewer implementation
+- [ ] TestFlight build
+
+### Phase 5: Voice + Offline (3-4 weeks) 🔴 CRITICAL
+**Goal:** Hands-free operation for field workers
+
+**Voice:**
+- [ ] Whisper API integration (speech-to-text)
+- [ ] Voice activation button (push-to-talk)
+- [ ] Text-to-speech for responses (expo-speech)
+- [ ] Voice feedback (beeps, confirmations)
+
+**Offline:**
+- [ ] Document metadata caching (AsyncStorage/MMKV)
+- [ ] Recent chats available offline
+- [ ] PDF caching for key documents
+- [ ] Background sync when connection restored
+- [ ] Offline indicator UI
+
+### Phase 6: Performance & Polish (2-3 weeks) 🔴 CRITICAL
+**Goal:** Fast, reliable, field-ready
+
+- [ ] Cold start < 2 seconds
+- [ ] Optimistic UI updates
+- [ ] Image/PDF lazy loading
+- [ ] Native gestures (swipe, pull-to-refresh)
+- [ ] Push notifications (new responses, sync complete)
+- [ ] Error handling (graceful offline degradation)
+- [ ] Haptic feedback
+- [ ] Dark mode (for indoor/outdoor)
+
+**MOBILE MVP CHECKPOINT 📱**
+
+---
+
+### Feature Expansion Phases (Post Mobile MVP)
+
+### Phase 7: Schedule Integration (3 weeks)
 - [ ] Schedule database schema
-- [ ] CSV/Excel import
-- [ ] Basic schedule queries
+- [ ] CSV/Excel import via mobile
+- [ ] "When is X activity?" voice queries
+- [ ] 3-week lookahead view
 - [ ] Schedule mode in orchestrator
-- [ ] "When is X activity?" queries
-- [ ] 2-week lookahead report
 
-### Phase 5: Schedule Advanced (4 weeks)
-- [ ] XER import (p6-xer-reader library)
+### Phase 8: Advanced Schedule (4 weeks)
+- [ ] XER import (p6-xer-reader)
 - [ ] Critical path display
-- [ ] Activity-document linking (manual)
+- [ ] Activity-document linking
 - [ ] Schedule impact calculations
-- [ ] RFI schedule impact
 
-### Phase 6: RFI Generation (3 weeks)
+### Phase 9: RFI Generation (3 weeks)
 - [ ] RFI mode in orchestrator
-- [ ] RFI CRUD operations
+- [ ] Voice-to-RFI creation
 - [ ] Auto-generate RFI from question
 - [ ] Link to source documents
+- [ ] Photo attachment from field
 
-### Phase 7: Takeoff (4 weeks)
+### Phase 10: Takeoff (4 weeks)
 - [ ] Takeoff mode in orchestrator
-- [ ] Basic quantity extraction
+- [ ] Quantity extraction queries
 - [ ] Area/volume calculations
 - [ ] Spec reference linking
 
-### Phase 8: Voice (3 weeks)
-- [ ] Whisper speech-to-text
-- [ ] Voice query processing
-- [ ] Browser TTS for responses
-- [ ] Mobile-responsive UI
-
-### Phase 9: Expand Visual Query Types (3 weeks) 🔧 QUEUED
+### Phase 11: Visual Query Expansion (3 weeks)
 Following the [VISION-QUERY-STANDARD.md](../standards/VISION-QUERY-STANDARD.md):
 - [ ] Length queries ("how long is water line A")
 - [ ] Location queries ("where is the fire hydrant")
 - [ ] Multi-system support (sewer, storm, gas)
 - [ ] Cross-reference intelligence
 
-### Phase 10: Polish (4 weeks)
-- [ ] Error handling
+### Phase 12: Enterprise Polish (4 weeks)
+- [ ] Advanced error handling
 - [ ] Performance optimization
 - [ ] Security audit
-- [ ] Usage analytics
-- [ ] User onboarding flow
+- [ ] Usage analytics dashboard
+- [ ] Team onboarding flow
+- [ ] App Store / Play Store submission
 
-**FULL LAUNCH - Week 36**
+**FULL LAUNCH**
 
 ---
 
@@ -873,16 +928,16 @@ After implementation:
 3. **User onboarding** - Must be self-service
 
 ### What to Defer
-1. Perfect UI (functional > beautiful)
-2. MS Project support
-3. Earned value features
-4. Real-time collaboration
+1. MS Project support
+2. Earned value features
+3. Real-time collaboration
+4. Web app polish (mobile-first)
 
 ### What to Skip Entirely
-1. Mobile app (responsive web is fine)
-2. Offline mode
-3. Custom CPM engine
-4. Self-hosted LLMs
+1. Custom CPM engine
+2. Self-hosted LLMs
+3. Complex admin dashboards
+4. Multi-language support (initially)
 
 ### Weekly Rhythm
 
