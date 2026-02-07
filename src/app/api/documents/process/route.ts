@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
       if (shouldProcess && document.project_id) {
         console.log(`[Document Process] Triggering automatic vision processing for ${documentId}`);
         triggerVisionProcessingAsync(documentId, document.project_id, {
-          maxSheets: 50  // Process all pages for construction plans
+          maxSheets: 200  // Process up to 200 pages automatically (uses strategic sampling for mega-projects)
         });
       } else {
         console.log(`[Document Process] Skipping automatic vision processing (not a PDF, already processed, or missing project_id)`);
