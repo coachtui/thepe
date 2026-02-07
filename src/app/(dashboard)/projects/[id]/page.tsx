@@ -85,6 +85,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
       const response = await fetch(`/api/projects/${params.id}/analyze-complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
       })
 
       const result = await response.json()
