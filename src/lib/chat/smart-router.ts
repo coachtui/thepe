@@ -199,6 +199,53 @@ export async function routeQuery(
       needsDirectLookup: classification.needsDirectLookup
     });
 
+    // STEP 1.1: CHECK FOR PROJECT SUMMARY QUERY (highest priority)
+    if (classification.type === 'project_summary') {
+      console.log('[Smart Router] Project summary query detected - querying aggregated data...');
+
+      const { createClient } = await import('@/lib/db/supabase/server');
+      const supabase = await createClient();
+
+      // Query the project_quantity_summary view (pre-aggregated data)
+      const { data: summary, error } = await supabase
+        .from('project_quantity_summary')
+        .select('*')
+        .eq('project_id', projectId);
+
+      if (!error && summary && summary.length > 0) {
+        console.log(`[Smart Router] Found ${summary.length} item types in project summary`);
+
+        // Build context from summary
+        const context = buildProjectSummaryContext(summary, projectId);
+        const processingTimeMs = Date.now() - startTime;
+
+        return {
+          classification,
+          context,
+          formattedContext: context,
+          method: 'direct_only',
+          directLookup: {
+            success: true,
+            answer: context,
+            source: 'project_quantity_summary view (aggregated from vision-extracted data)',
+            confidence: 0.95,
+            method: 'direct_lookup',
+            data: summary
+          },
+          vectorResults: [],
+          metadata: {
+            totalResults: summary.length,
+            directLookupUsed: true,
+            vectorSearchUsed: false,
+            processingTimeMs
+          }
+        };
+      } else {
+        console.log('[Smart Router] No project summary data found - project may not be vision-processed yet');
+        // Fall through to standard routing
+      }
+    }
+
     // STEP 1.25: CHECK IF VISUAL ANALYSIS IS NEEDED
     // This detects if the user wants real-time visual inspection of plans
     const needsVisual = requiresVisualAnalysis(query);
@@ -1363,6 +1410,54 @@ export interface QueryRoutingStats {
   byMethod: Record<string, number>;
   avgProcessingTime: number;
   successRate: number;
+}
+
+/**
+ * Log query routing for analytics (call from chat API)
+ */
+/**
+ * Build context from project summary view
+ */
+function buildProjectSummaryContext(
+  summary: any[],
+  projectId: string
+): string {
+  const parts: string[] = [];
+
+  parts.push('**COMPLETE PROJECT SUMMARY**\n');
+  parts.push('This data was aggregated from vision-extracted quantities across all processed sheets.\n\n');
+
+  if (summary.length === 0) {
+    return 'No project summary data available. The project may not have been vision-processed yet.';
+  }
+
+  // Group by item type
+  const byType = new Map<string, any[]>();
+  summary.forEach(item => {
+    const type = item.item_type || 'Other';
+    if (!byType.has(type)) {
+      byType.set(type, []);
+    }
+    byType.get(type)!.push(item);
+  });
+
+  // Build organized summary by type
+  parts.push('| Item Type | Count | Documents | Avg Confidence |\n');
+  parts.push('|-----------|-------|-----------|----------------|\n');
+
+  for (const [type, items] of byType.entries()) {
+    const totalCount = items.reduce((sum, item) => sum + (item.item_count || 0), 0);
+    const docCount = items[0]?.document_count || 0;
+    const avgConf = items[0]?.avg_confidence || 0;
+
+    parts.push(`| ${type} | ${totalCount} | ${docCount} | ${(avgConf * 100).toFixed(0)}% |\n`);
+  }
+
+  parts.push('\n**Note:** This is aggregated data from vision processing. ');
+  parts.push('For detailed sheet-by-sheet breakdowns, ask specific questions like ');
+  parts.push('"Waterline takeoff" or "Electrical takeoff for Building A".\n');
+
+  return parts.join('');
 }
 
 /**

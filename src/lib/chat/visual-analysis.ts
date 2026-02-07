@@ -29,6 +29,7 @@ export type VisualAnalysisTask =
   | 'find_crossings'      // Find utility crossings
   | 'verify_length'       // Verify utility length from termination points
   | 'locate_feature'      // Find specific feature location
+  | 'material_takeoff'    // Complete material takeoff for a system
   | 'general_inspection'; // General visual inspection
 
 /**
@@ -128,6 +129,14 @@ export function requiresVisualAnalysis(query: string): boolean {
     new RegExp(`list.*(${COMPONENT_KEYWORDS})`, 'i'),
     new RegExp(`\\d+.?in(ch)?.*(${COMPONENT_KEYWORDS})`, 'i'),
 
+    // Material takeoff queries - CRITICAL for large plan sets
+    /takeoff/i,
+    /material\s+(?:list|schedule|summary)/i,
+    /(?:all|every|complete)\s+(?:fittings?|components?|materials?|valves?)/i,
+    /(?:include|list|show)\s+all\s+(?:fittings?|components?|materials?)/i,
+    /(?:bill\s+of\s+materials?|bom)\b/i,
+    /(?:complete|full|detailed)\s+(?:takeoff|material)/i,
+
     // Bend angle queries (90º, 45º, 22.5º, 11.25º, ¼, ⅛, etc.)
     /\d+(\.\d+)?\s*[°º]?\s*bend/i,
     /quarter\s*bend|eighth\s*bend/i,
@@ -161,6 +170,14 @@ export function requiresVisualAnalysis(query: string): boolean {
  */
 export function determineVisualTask(query: string): VisualAnalysisTask {
   const lowerQuery = query.toLowerCase();
+
+  // Material takeoff - check FIRST (highest priority for broad queries)
+  if (/takeoff/i.test(lowerQuery) ||
+      /(?:all|every|complete)\s+(?:fittings?|components?|materials?)/i.test(lowerQuery) ||
+      /(?:bill\s+of\s+materials?|bom)\b/i.test(lowerQuery) ||
+      /material\s+(?:list|schedule|summary)/i.test(lowerQuery)) {
+    return 'material_takeoff';
+  }
 
   // Component counting - expanded list including new types
   const componentKeywords = [
@@ -272,6 +289,7 @@ export function extractSizeFilter(query: string): string | undefined {
 export function extractUtilityName(query: string): string | undefined {
   const patterns = [
     /water\s*line\s*['"]?([a-z])/i,
+    /waterline\s*['"]?([a-z])/i,
     /wl\s*['"]?([a-z])/i,
     /storm\s*drain\s*['"]?([a-z])/i,
     /sd\s*['"]?([a-z])/i,
@@ -294,8 +312,9 @@ export function extractUtilityName(query: string): string | undefined {
     }
   }
 
-  // Generic patterns
+  // Generic patterns (handle both "water line" and "waterline")
   if (/water\s*line/i.test(query)) return 'Water Line';
+  if (/waterline/i.test(query)) return 'Water Line';
   if (/storm\s*drain/i.test(query)) return 'Storm Drain';
   if (/sewer/i.test(query)) return 'Sewer';
 

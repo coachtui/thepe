@@ -616,6 +616,55 @@ function generateSystemNameVariations(systemName: string): string[] {
 }
 
 /**
+ * Check if a chunk contains ONLY match line references and sheet navigation text
+ * with no actual component or construction data.
+ *
+ * Match-line-only chunks look like:
+ * "MATCH LINE - WATER LINE 'A' STA 4+38.83 SEE SHEET CU102 PLAN - WATER LINE 'A' PROFILE - WATER LINE 'A'"
+ *
+ * These are useless for material takeoffs and should be filtered out.
+ */
+function isMatchLineOnlyChunk(content: string): boolean {
+  const upper = content.toUpperCase();
+
+  // Must contain match line indicator
+  const hasMatchLine = /MATCH\s*LINE/i.test(upper);
+
+  // Check for actual component data (these indicate useful content)
+  const componentIndicators = [
+    /\d+\s*-\s*\d+.*(?:VALVE|TEE|BEND|CAP|COUPLING|REDUCER|HYDRANT|ARV|SLEEVE|PLUG)/i,
+    /GATE\s*VALVE/i,
+    /FIRE\s*HYDRANT/i,
+    /AIR\s*RELEASE/i,
+    /TAPPING\s*SLEEVE/i,
+    /THRUST\s*BLOCK/i,
+    /BLOW.?OFF/i,
+    /SERVICE\s*(?:CONNECTION|LATERAL)/i,
+    /\d+-IN\s+(?:DI|PVC|HDPE|STEEL|CI)\s+PIPE/i,
+    /ELEC\s+\d/i,    // Utility crossing with elevation
+    /\bSS\b.*\d+\.\d+/i,  // Sewer crossing with elevation
+    /\bSTM\b.*\d+\.\d+/i, // Storm crossing with elevation
+  ];
+
+  const hasComponentData = componentIndicators.some(pattern => pattern.test(content));
+
+  // If it has match line text but NO component data, it's noise
+  if (hasMatchLine && !hasComponentData) {
+    // Further check: is the content mostly navigation text?
+    const navPatterns = /(?:MATCH\s*LINE|SEE\s+SHEET|PLAN\s*-|PROFILE\s*-|KEY\s*PLAN|STA\s+\d)/gi;
+    const navMatches = content.match(navPatterns) || [];
+    const words = content.split(/\s+/).length;
+
+    // If >40% of content is navigation patterns, it's noise
+    if (navMatches.length > 0 && (navMatches.length * 5) > words * 0.4) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Get COMPLETE dataset for a system (for quantitative queries)
  *
  * Instead of top-k semantic search, this retrieves ALL relevant chunks
@@ -855,9 +904,26 @@ export async function getCompleteSystemData(
       throw chunksError;
     }
 
-    // Step 4: Process and sort chunks
-    const calloutChunks = allChunks?.filter((c: any) => c.chunk_type === 'callout_box') || [];
-    const processedChunks = (allChunks || []).map((chunk: any) => ({
+    // Step 4: Filter out noise chunks (match lines, sheet references with no component data)
+    const filteredChunks = (allChunks || []).filter((chunk: any) => {
+      const content = (chunk.content || '').trim();
+
+      // Skip very short chunks (likely just headers or match line refs)
+      if (content.length < 30) return false;
+
+      // Check if chunk is ONLY match line references with no component data
+      const isMatchLineOnly = isMatchLineOnlyChunk(content);
+      if (isMatchLineOnly) {
+        return false;
+      }
+
+      return true;
+    });
+
+    console.log(`[Complete System Data] Filtered ${(allChunks?.length || 0) - filteredChunks.length} noise chunks (match lines, empty refs)`);
+
+    const calloutChunks = filteredChunks.filter((c: any) => c.chunk_type === 'callout_box') || [];
+    const processedChunks = filteredChunks.map((chunk: any) => ({
       ...chunk,
       document_filename: chunk.documents?.filename || 'Unknown',
       sheet_number: chunk.documents?.sheet_number || null

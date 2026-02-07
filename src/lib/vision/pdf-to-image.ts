@@ -250,54 +250,81 @@ export async function convertPdfPagesToImages(
  */
 export async function identifyCriticalSheets(
   pdfBuffer: Buffer,
-  sheetNames?: string[]
+  sheetNames?: string[],
+  maxSheets: number = 200
 ): Promise<number[]> {
   // Get PDF metadata to determine page count
   const metadata = await getPdfMetadata(pdfBuffer);
   const totalPages = metadata.numPages;
 
   // For small PDFs (<= 20 pages), process ALL pages
-  // Construction plan sets are typically comprehensive and utilities span multiple sheets
   if (totalPages <= 20) {
     console.log(`[Critical Sheets] PDF has ${totalPages} pages - processing ALL pages`);
     return Array.from({ length: totalPages }, (_, i) => i + 1);
   }
 
-  // For larger PDFs, be selective
-  const criticalPatterns = {
-    title: /title|cover|index|contents/i,
-    summary: /summary|quantities|general.*notes|project.*data/i,
-    legend: /legend|symbols|abbreviations|notes/i,
-    profile: /profile|plan|detail/i
-  };
+  // For medium PDFs (<= 100 pages), process ALL sheets (affordable and comprehensive)
+  if (totalPages <= 100) {
+    console.log(`[Critical Sheets] PDF has ${totalPages} pages - processing ALL pages (medium project)`);
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  // For MEGA PDFs (>100 pages), use strategic sampling
+  console.log(`[Critical Sheets] PDF has ${totalPages} pages - using strategic sampling (max ${maxSheets} sheets)`);
 
   const criticalPages: Set<number> = new Set();
 
-  // Include first 5 and last 5 pages for large documents
-  for (let i = 1; i <= Math.min(5, totalPages); i++) {
+  // Always include first 10 and last 10 pages (index, summary, details, specs)
+  for (let i = 1; i <= Math.min(10, totalPages); i++) {
     criticalPages.add(i);
   }
-  for (let i = Math.max(totalPages - 4, 6); i <= totalPages; i++) {
+  for (let i = Math.max(totalPages - 9, 11); i <= totalPages; i++) {
     criticalPages.add(i);
   }
 
-  // If sheet names provided, check patterns
+  // Sample every Nth page to get coverage across entire project
+  // For 3000 pages with maxSheets=200: sample every ~15th page
+  const remainingBudget = maxSheets - 20; // Reserve 20 for first/last pages
+  const sampleInterval = Math.max(1, Math.floor((totalPages - 20) / remainingBudget));
+
+  console.log(`[Critical Sheets] Sampling every ${sampleInterval} pages across middle section`);
+
+  for (let i = 11; i < totalPages - 9; i += sampleInterval) {
+    criticalPages.add(i);
+    if (criticalPages.size >= maxSheets) break; // Don't exceed budget
+  }
+
+  // Prioritize sheets matching construction trade patterns (if sheet names provided)
   if (sheetNames && sheetNames.length > 0) {
+    const tradePatterns = [
+      /^CU\d+/i,   // Water line (CU = Construction Utilities)
+      /^E-?\d+/i,  // Electrical
+      /^S-?\d+/i,  // Structural or Sewer
+      /^SD\d+/i,   // Storm Drain
+      /^SS\d+/i,   // Sanitary Sewer
+      /^STM\d+/i,  // Storm
+      /^GR\d+/i,   // Grading
+      /^FP\d+/i,   // Fire Protection
+      /^W\d+/i,    // Water
+      /^M-?\d+/i,  // Mechanical
+      /^P-?\d+/i,  // Plumbing
+      /^A-?\d+/i,  // Architectural
+    ];
+
     sheetNames.forEach((name, index) => {
       const pageNum = index + 1;
-      if (
-        criticalPatterns.title.test(name) ||
-        criticalPatterns.summary.test(name) ||
-        criticalPatterns.legend.test(name) ||
-        criticalPatterns.profile.test(name)
-      ) {
+      // Check if sheet matches any trade pattern
+      if (tradePatterns.some(pattern => pattern.test(name))) {
         criticalPages.add(pageNum);
       }
     });
   }
 
-  console.log(`[Critical Sheets] PDF has ${totalPages} pages - processing ${criticalPages.size} critical sheets`);
-  return Array.from(criticalPages).sort((a, b) => a - b);
+  // Convert to sorted array and limit to maxSheets
+  const sortedPages = Array.from(criticalPages).sort((a, b) => a - b).slice(0, maxSheets);
+
+  console.log(`[Critical Sheets] Selected ${sortedPages.length} sheets for vision processing`);
+  return sortedPages;
 }
 
 /**

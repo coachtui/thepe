@@ -93,7 +93,7 @@ export async function processDocumentWithVision(
   options: VisionProcessingOptions = {}
 ): Promise<VisionProcessingResult> {
   const {
-    maxSheets = 50, // Increased default - identifyCriticalSheets handles smart selection
+    maxSheets = 200, // Process up to 200 critical sheets for complete project coverage
     processAllSheets = false,
     imageScale = 2.0,
     storeVisionData = true,
@@ -143,8 +143,7 @@ export async function processDocumentWithVision(
       pagesToProcess = Array.from({ length: Math.min(metadata.numPages, maxSheets) }, (_, i) => i + 1);
     } else {
       debug.vision(`Identifying critical sheets...`);
-      pagesToProcess = await identifyCriticalSheets(pdfBuffer);
-      pagesToProcess = pagesToProcess.slice(0, maxSheets);
+      pagesToProcess = await identifyCriticalSheets(pdfBuffer, undefined, maxSheets);
     }
 
     debug.vision(`Will process ${pagesToProcess.length} sheets:`, pagesToProcess);

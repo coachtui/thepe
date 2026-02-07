@@ -17,6 +17,7 @@ export type QueryType =
   | 'detail'           // Asking about construction details
   | 'reference'        // Asking for cross-references, sheet numbers
   | 'utility_crossing' // Asking about utility crossings, conflicts, intersections
+  | 'project_summary'  // Asking for complete project overview/analysis
   | 'general';         // General question
 
 /**
@@ -143,6 +144,17 @@ const REFERENCE_PATTERNS = [
   /(?:sheet|drawing)\s+([\w\d-]+)/i,
   /(?:see|refer to|reference)\s+sheet\s+([\w\d-]+)/i,
   /(?:what|which)\s+sheet(?:s)?\s+(?:show|contain|have)\s+(.+?)(?:\?|$)/i
+];
+
+/**
+ * Patterns for project summary queries (complete project analysis)
+ */
+const PROJECT_SUMMARY_PATTERNS = [
+  /(?:analyze|overview|understand|summarize|review)\s+(?:the|this|entire|complete|whole)?\s*project/i,
+  /(?:complete|full|entire)\s+project\s+(?:takeoff|analysis|overview|summary)/i,
+  /what'?s\s+in\s+(?:the|this)\s+project/i,
+  /(?:project|plan|set)\s+(?:overview|summary|analysis)/i,
+  /(?:show|tell|give)\s+(?:me)?\s*(?:a|the)?\s*project\s+(?:overview|summary)/i,
 ];
 
 /**
@@ -295,8 +307,8 @@ function extractSystemName(query: string): string | undefined {
   // Match patterns like "Water Line A", "Storm Drain B", "Line WL-A"
   // ORDER MATTERS: More specific patterns first!
   const patterns = [
-    // Full system names (most specific)
-    /(?:water\s*line|storm\s*drain|sewer\s*line|sanitary\s*sewer|fire\s*line)\s+['"]?([A-Z\d-]+)['"]?/i,
+    // Full system names (most specific) - handles both "water line" and "waterline"
+    /(?:water\s*line|waterline|storm\s*drain|stormdrain|sewer\s*line|sanitary\s*sewer|fire\s*line)\s+['"]?([A-Z\d-]+)['"]?/i,
 
     // Abbreviated codes
     /(WL|SD|SS|FP)-[A-Z\d]+/i,
@@ -308,10 +320,19 @@ function extractSystemName(query: string): string | undefined {
   for (const pattern of patterns) {
     const match = query.match(pattern);
     if (match) {
-      // Return the full matched text
-      return match[0].trim();
+      // Normalize "waterline" → "water line" in the result
+      let result = match[0].trim();
+      result = result.replace(/^waterline/i, 'Water Line');
+      result = result.replace(/^stormdrain/i, 'Storm Drain');
+      return result;
     }
   }
+
+  // Generic utility type without letter designation (e.g., "waterline work", "all waterline")
+  if (/waterline|water\s*line/i.test(query)) return 'WATER LINE';
+  if (/stormdrain|storm\s*drain/i.test(query)) return 'STORM DRAIN';
+  if (/sewer/i.test(query)) return 'SEWER';
+  if (/fire\s*line/i.test(query)) return 'FIRE LINE';
 
   return undefined;
 }
@@ -458,6 +479,26 @@ export function classifyQuery(query: string): QueryClassification {
         needsCompleteData: false,
         isAggregationQuery: false,
         searchHints: {
+          keywords: []
+        }
+      };
+    }
+  }
+
+  // Check for project summary queries FIRST (before crossing, as they're more specific)
+  for (const pattern of PROJECT_SUMMARY_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return {
+        type: 'project_summary',
+        intent: 'quantitative',
+        confidence: 0.9,
+        needsDirectLookup: true,     // Query project_quantity_summary view
+        needsVectorSearch: false,    // Don't need vector search for summaries
+        needsVision: false,          // Vision data already in database
+        needsCompleteData: true,     // Need aggregated project data
+        isAggregationQuery: true,    // This is an aggregation across entire project
+        searchHints: {
+          preferredSheetTypes: ['summary', 'title', 'index'],
           keywords: []
         }
       };

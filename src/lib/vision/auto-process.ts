@@ -31,7 +31,7 @@ export async function autoProcessDocumentVision(
     skipIfAlreadyProcessed?: boolean;
   } = {}
 ): Promise<AutoProcessResult> {
-  const { maxSheets = 50, skipIfAlreadyProcessed = true } = options;
+  const { maxSheets = 200, skipIfAlreadyProcessed = true } = options;
 
   const supabase = await createServiceClient();
 

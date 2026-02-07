@@ -15,8 +15,8 @@ interface DocumentInfo {
   id: string;
   filename: string;
   file_path: string;
-  sheet_number?: string;
-  document_type?: string;
+  sheet_number?: string | null;
+  document_type?: string | null;
 }
 
 /**
@@ -41,34 +41,147 @@ export interface PdfAttachmentResult {
 }
 
 /**
+ * Sheet number patterns for common utility disciplines
+ * Used to intelligently select relevant documents for a query
+ */
+const UTILITY_SHEET_PATTERNS: Record<string, RegExp[]> = {
+  'water': [/^CU/i, /^W/i, /^WL/i, /water/i, /^DW/i],
+  'sewer': [/^SS/i, /^S-/i, /sewer/i, /sanitary/i],
+  'storm': [/^SD/i, /^STM/i, /storm/i, /drain/i],
+  'fire': [/^FP/i, /^FL/i, /fire/i],
+  'electrical': [/^E-/i, /^EL/i, /elec/i],
+  'grading': [/^GR/i, /^EW/i, /grad/i, /earthwork/i],
+  'structural': [/^S-/i, /^STR/i, /struct/i, /footings?/i, /found/i, /^F-/i],
+  'architectural': [/^A-/i, /^ARCH/i, /floor.*plan/i, /building/i, /^B-/i],
+  'mechanical': [/^M-/i, /^MECH/i, /hvac/i, /^H-/i],
+  'plumbing': [/^P-/i, /^PLB/i, /plumb/i],
+  'site': [/^C-/i, /^SITE/i, /civil/i, /demo/i, /site.*work/i],
+  'landscape': [/^L-/i, /^LS/i, /^LNDS/i, /landscape/i, /irrigation/i],
+};
+
+/**
+ * Score a document's relevance to a query based on filename/sheet patterns
+ */
+function scoreDocumentRelevance(
+  doc: DocumentInfo,
+  utilityName?: string,
+  sheetHints?: string[]
+): number {
+  let score = 0;
+  const filename = doc.filename.toLowerCase();
+  const sheetNum = (doc.sheet_number || doc.filename.replace('.pdf', '')).toLowerCase();
+
+  // If we have specific sheet hints (e.g., ["CU102", "CU103"]), match those
+  if (sheetHints && sheetHints.length > 0) {
+    for (const hint of sheetHints) {
+      if (sheetNum.includes(hint.toLowerCase()) || filename.includes(hint.toLowerCase())) {
+        score += 100; // Exact sheet match - highest priority
+      }
+    }
+  }
+
+  // Match utility type from name
+  if (utilityName) {
+    const utilLower = utilityName.toLowerCase();
+
+    // Determine which utility type patterns to use
+    for (const [utilType, patterns] of Object.entries(UTILITY_SHEET_PATTERNS)) {
+      if (utilLower.includes(utilType)) {
+        for (const pattern of patterns) {
+          if (pattern.test(sheetNum) || pattern.test(filename)) {
+            score += 50; // Utility type match
+            break;
+          }
+        }
+      }
+    }
+
+    // Direct name match in filename
+    if (filename.includes(utilLower.replace(/\s+/g, '')) ||
+        filename.includes(utilLower)) {
+      score += 30;
+    }
+  }
+
+  // Deprioritize general/non-utility sheets
+  const generalPatterns = [/^GC/i, /^GN/i, /^G-/i, /^T-/i, /^TC/i, /^INDEX/i, /^TOC/i, /^COVER/i];
+  for (const pattern of generalPatterns) {
+    if (pattern.test(sheetNum) || pattern.test(filename)) {
+      score -= 20; // Penalty for general sheets
+    }
+  }
+
+  // Small boost for construction/utility sheets in general
+  const constructionPatterns = [/^C-/i, /^CU/i, /^CP/i];
+  for (const pattern of constructionPatterns) {
+    if (pattern.test(sheetNum)) {
+      score += 5;
+    }
+  }
+
+  return score;
+}
+
+/**
+ * Extract sheet number hints from a user query
+ * e.g., "sheets CU102 through CU109" → ["CU102", "CU103", ..., "CU109"]
+ */
+function extractSheetHintsFromQuery(query: string): string[] {
+  const hints: string[] = [];
+
+  // Match explicit sheet references like "CU102-CU109" or "CU102 through CU109"
+  const rangeMatch = query.match(/([A-Z]{1,3}\d{1,4})\s*(?:-|to|through)\s*([A-Z]{1,3}\d{1,4})/i);
+  if (rangeMatch) {
+    const prefix = rangeMatch[1].replace(/\d+$/, '');
+    const startNum = parseInt(rangeMatch[1].replace(/^[A-Z]+/i, ''));
+    const endNum = parseInt(rangeMatch[2].replace(/^[A-Z]+/i, ''));
+    if (!isNaN(startNum) && !isNaN(endNum) && endNum >= startNum && (endNum - startNum) < 50) {
+      for (let i = startNum; i <= endNum; i++) {
+        hints.push(`${prefix}${i}`);
+      }
+    }
+  }
+
+  // Match individual sheet references like "sheet CU102" or "CU102"
+  const sheetMatches = query.matchAll(/\b([A-Z]{1,3}\d{2,4})\b/gi);
+  for (const match of sheetMatches) {
+    if (!hints.includes(match[1].toUpperCase())) {
+      hints.push(match[1].toUpperCase());
+    }
+  }
+
+  return hints;
+}
+
+/**
  * Get project documents as PDF attachments for Claude
+ *
+ * Uses intelligent document selection based on query context:
+ * 1. Scores each document by relevance to the utility/system being queried
+ * 2. Prioritizes utility-specific sheets (CU* for water, SS* for sewer, etc.)
+ * 3. Deprioritizes general notes, title sheets, etc.
  *
  * @param projectId - Project ID
  * @param maxDocuments - Maximum number of documents (default: 8)
  * @param systemFilter - Optional filter for utility system (e.g., "Water Line A")
+ * @param userQuery - Optional user query for intelligent sheet selection
  * @returns PDF attachments ready for Claude
  */
 export async function getProjectPdfAttachments(
   projectId: string,
   maxDocuments: number = 8,
-  systemFilter?: string
+  systemFilter?: string,
+  userQuery?: string
 ): Promise<PdfAttachmentResult> {
   const supabase = await createClient();
 
   try {
-    // Get documents for this project
-    let query = supabase
+    // Get ALL documents for this project (we'll score and filter ourselves)
+    const { data: documents, error } = await supabase
       .from('documents')
       .select('id, filename, file_path, sheet_number, document_type')
       .eq('project_id', projectId)
       .order('filename');
-
-    // Apply system filter if provided (search in filename or metadata)
-    if (systemFilter) {
-      query = query.ilike('filename', `%${systemFilter}%`);
-    }
-
-    const { data: documents, error } = await query;
 
     if (error) {
       console.error('[PDF Attachment] Error fetching documents:', error);
@@ -106,8 +219,39 @@ export async function getProjectPdfAttachments(
       };
     }
 
-    // Limit to maxDocuments
-    const docsToProcess = pdfDocuments.slice(0, maxDocuments);
+    // Extract sheet hints from the user query
+    const sheetHints = userQuery ? extractSheetHintsFromQuery(userQuery) : [];
+
+    // Score and rank documents by relevance
+    const scoredDocs = pdfDocuments.map(doc => ({
+      doc,
+      score: scoreDocumentRelevance(doc, systemFilter, sheetHints)
+    }));
+
+    // Sort by score descending, then by filename for stable ordering
+    scoredDocs.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.doc.filename.localeCompare(b.doc.filename);
+    });
+
+    // Take top N documents
+    const docsToProcess = scoredDocs.slice(0, maxDocuments).map(s => s.doc);
+
+    console.log(`[PDF Attachment] Document selection (${pdfDocuments.length} total, ${docsToProcess.length} selected):`);
+
+    // Warn if we're truncating relevant documents
+    if (pdfDocuments.length > maxDocuments) {
+      const skippedDocs = pdfDocuments.length - maxDocuments;
+      const relevantSkipped = scoredDocs.slice(maxDocuments).filter(s => s.score > 0).length;
+      if (relevantSkipped > 0) {
+        console.warn(`⚠️ [PDF Attachment] Large plan set: ${skippedDocs} sheets not analyzed (${relevantSkipped} appear relevant)`);
+        console.warn(`   Consider increasing maxDocuments or narrowing query scope`);
+      }
+    }
+
+    scoredDocs.slice(0, maxDocuments).forEach(s => {
+      console.log(`  ${s.doc.filename} → score: ${s.score}`);
+    });
 
     console.log(
       `[PDF Attachment] Processing ${docsToProcess.length} PDF documents for project ${projectId}`
