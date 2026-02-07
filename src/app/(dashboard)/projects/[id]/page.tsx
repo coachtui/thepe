@@ -48,11 +48,59 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const [error, setError] = useState<string | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
   const [loadingDocuments, setLoadingDocuments] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analysisStatus, setAnalysisStatus] = useState<{
+    isComplete: boolean
+    isProcessing: boolean
+    stats?: any
+  } | null>(null)
 
   useEffect(() => {
     loadProject()
     loadDocuments()
+    checkAnalysisStatus()
   }, [])
+
+  const checkAnalysisStatus = async () => {
+    try {
+      const response = await fetch(`/api/projects/${params.id}/analyze-complete`)
+      if (response.ok) {
+        const data = await response.json()
+        setAnalysisStatus(data)
+      }
+    } catch (error) {
+      console.error('Error checking analysis status:', error)
+    }
+  }
+
+  const handleAnalyze = async () => {
+    if (!confirm('This will process all documents in the project with vision analysis. This may take 20-30 minutes and cost $1-2. Continue?')) {
+      return
+    }
+
+    setAnalyzing(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/projects/${params.id}/analyze-complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Analysis failed')
+      }
+
+      alert(`Analysis complete!\n\nProcessed ${result.totalSheetsProcessed} sheets\nExtracted ${result.totalQuantitiesExtracted} quantities\nCost: $${result.totalCost.toFixed(2)}`)
+      checkAnalysisStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Analysis failed')
+    } finally {
+      setAnalyzing(false)
+    }
+  }
 
   const loadDocuments = async () => {
     setLoadingDocuments(true)
@@ -185,6 +233,20 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
           ← Back to Projects
         </button>
         <div className="space-x-2">
+          {documents.length > 0 && !analysisStatus?.isComplete && (
+            <button
+              onClick={handleAnalyze}
+              disabled={analyzing || analysisStatus?.isProcessing}
+              className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {analyzing || analysisStatus?.isProcessing ? 'Analyzing...' : 'Analyze'}
+            </button>
+          )}
+          {analysisStatus?.isComplete && (
+            <span className="px-4 py-2 bg-green-100 text-green-800 rounded-md text-sm">
+              ✓ Analysis Complete ({analysisStatus.stats?.totalSheetsProcessed || 0} sheets)
+            </span>
+          )}
           {canEdit && !editing && (
             <button
               onClick={() => setEditing(true)}
