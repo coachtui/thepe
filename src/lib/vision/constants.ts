@@ -70,6 +70,38 @@ export const MODEL_PRICING = {
   }
 } as const;
 
+/**
+ * Claude models with pricing for cost estimation
+ * Reference: VISION-AI.md - Model Comparison table
+ */
+export const CLAUDE_MODELS = {
+  haiku: {
+    name: 'Haiku 4.5',
+    inputCostPer1M: 0.40,
+    outputCostPer1M: 2.00,
+    id: VISION_MODELS.HAIKU_4_5
+  },
+  sonnet: {
+    name: 'Sonnet 4.5',
+    inputCostPer1M: 3.00,
+    outputCostPer1M: 15.00,
+    id: VISION_MODELS.SONNET_4_5
+  },
+  opus: {
+    name: 'Opus 4.5',
+    inputCostPer1M: 15.00,
+    outputCostPer1M: 75.00,
+    id: VISION_MODELS.OPUS_4_5
+  }
+} as const;
+
+/**
+ * Task types for cost estimation
+ */
+export const TASK_TYPES = {
+  extraction: 'extraction'
+} as const;
+
 // =============================================================================
 // CONFIDENCE THRESHOLDS (Reference: VISION-AI.md - Confidence Guidelines)
 // =============================================================================

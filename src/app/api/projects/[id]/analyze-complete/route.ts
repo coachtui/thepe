@@ -85,6 +85,10 @@ export async function POST(
         projectId,
         documentsProcessed: 0,
         totalDocuments: documents.length,
+        totalSheetsProcessed: 0,
+        totalQuantitiesExtracted: 0,
+        totalCost: 0,
+        totalProcessingTimeMs: 0,
         summary: summary || [],
       });
     }

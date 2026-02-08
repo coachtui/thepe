@@ -391,6 +391,217 @@ export async function processDocumentWithVision(
 }
 
 /**
+ * Process a specific page range of a document with vision analysis
+ * (optimized for batch/chunked processing)
+ *
+ * @param documentId - Document ID
+ * @param projectId - Project ID
+ * @param pageStart - Starting page number (1-indexed, inclusive)
+ * @param pageEnd - Ending page number (1-indexed, inclusive)
+ * @param options - Processing options
+ * @returns Processing result
+ */
+export async function processDocumentPageRange(
+  documentId: string,
+  projectId: string,
+  pageStart: number,
+  pageEnd: number,
+  options: VisionProcessingOptions = {}
+): Promise<VisionProcessingResult> {
+  const {
+    imageScale = 2.0,
+    storeVisionData = true,
+    extractQuantities = true
+  } = options;
+
+  // Validate page range
+  if (pageStart < 1 || pageEnd < pageStart) {
+    throw new Error(`Invalid page range: ${pageStart}-${pageEnd}`);
+  }
+
+  const startTime = Date.now();
+  const errors: string[] = [];
+  let sheetsProcessed = 0;
+  let quantitiesExtracted = 0;
+  let totalCost = 0;
+
+  const supabase = await createClient();
+
+  try {
+    // Step 1: Get document from database
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', documentId)
+      .single();
+
+    if (docError || !document) {
+      throw new Error('Document not found');
+    }
+
+    // Step 2: Get signed URL and download PDF
+    const signedUrl = await getDocumentSignedUrl(supabase, document.file_path);
+
+    debug.vision(`Downloading document ${documentId} for pages ${pageStart}-${pageEnd}...`);
+    const response = await fetch(signedUrl);
+    if (!response.ok) {
+      throw new Error('Failed to download document');
+    }
+
+    const pdfBuffer = Buffer.from(await response.arrayBuffer());
+
+    // Step 3: Get PDF metadata to validate page range
+    const metadata = await getPdfMetadata(pdfBuffer);
+    if (pageEnd > metadata.numPages) {
+      throw new Error(`Page range ${pageStart}-${pageEnd} exceeds document pages (${metadata.numPages})`);
+    }
+
+    debug.vision(`Processing pages ${pageStart}-${pageEnd} of ${metadata.numPages}`);
+
+    // Step 4: Process each page in the range
+    for (let pageNumber = pageStart; pageNumber <= pageEnd; pageNumber++) {
+      try {
+        debug.vision(`Processing page ${pageNumber}...`);
+
+        // Convert page to image
+        const image = await convertPdfPageToImage(pdfBuffer, pageNumber, {
+          scale: imageScale,
+          maxWidth: 2048,
+          maxHeight: 2048,
+          format: 'png'
+        });
+
+        debug.vision(`Image size: ${image.width}x${image.height}, ${(image.sizeBytes / 1024).toFixed(0)}KB`);
+
+        // Detect sheet type
+        debug.vision(`Detecting sheet type for page ${pageNumber}...`);
+        const sheetType = await detectSheetType(pdfBuffer, pageNumber);
+        debug.vision(`Detected sheet type: ${sheetType}`);
+
+        // Analyze with Claude Vision
+        debug.vision(`Analyzing page ${pageNumber} with Claude Vision...`);
+        const visionResult = await analyzeSheetWithVision(image.buffer, {
+          sheetType: sheetType as any,
+          sheetNumber: document.sheet_number || undefined
+        });
+
+        logProduction.cost(`Vision Analysis Page ${pageNumber}`, visionResult.costUsd, {
+          quantities: visionResult.quantities.length,
+          terminationPoints: visionResult.terminationPoints?.length || 0,
+          utilityCrossings: visionResult.utilityCrossings?.length || 0
+        });
+
+        totalCost += visionResult.costUsd;
+        sheetsProcessed++;
+
+        // Find the chunk(s) for this page
+        const { data: chunks } = await supabase
+          .from('document_chunks')
+          .select('id')
+          .eq('document_id', documentId)
+          .eq('page_number', pageNumber)
+          .limit(1);
+
+        const chunkId = chunks && chunks.length > 0 ? chunks[0].id : null;
+
+        // Store termination points
+        if (visionResult.terminationPoints && visionResult.terminationPoints.length > 0) {
+          await storeTerminationPoints(
+            projectId,
+            documentId,
+            chunkId,
+            document.sheet_number || `Page ${pageNumber}`,
+            visionResult
+          );
+        }
+
+        // Store utility crossings
+        if (visionResult.utilityCrossings && visionResult.utilityCrossings.length > 0) {
+          await storeUtilityCrossings(
+            projectId,
+            documentId,
+            chunkId,
+            document.sheet_number || `Page ${pageNumber}`,
+            visionResult
+          );
+        }
+
+        // Extract and store quantities
+        if (extractQuantities && visionResult.quantities.length > 0) {
+          const quantities = processVisionForQuantities(
+            visionResult,
+            document.sheet_number || undefined
+          );
+
+          const storedCount = await storeQuantitiesInDatabase(
+            projectId,
+            documentId,
+            chunkId,
+            quantities
+          );
+
+          quantitiesExtracted += storedCount;
+          debug.vision(`Stored ${storedCount} quantities`);
+        }
+
+        // Update chunk with vision data
+        if (storeVisionData && chunkId) {
+          await updateChunkWithVisionData(
+            chunkId,
+            visionResult,
+            sheetType,
+            true // Mark as critical sheet
+          );
+        }
+
+        // Small delay between API calls to avoid rate limiting
+        // Reduced to 500ms for parallel processing
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+      } catch (pageError) {
+        const errorMsg = `Error processing page ${pageNumber}: ${pageError instanceof Error ? pageError.message : 'Unknown error'}`;
+        logProduction.error('Vision Processor', errorMsg);
+        errors.push(errorMsg);
+        // Continue with next page
+      }
+    }
+
+    const processingTimeMs = Date.now() - startTime;
+
+    logProduction.info('Vision Page Range Processing Complete',
+      `Processed ${sheetsProcessed} sheets (pages ${pageStart}-${pageEnd}), extracted ${quantitiesExtracted} quantities`, {
+        totalCost: `$${totalCost.toFixed(4)}`,
+        processingTimeSeconds: `${(processingTimeMs / 1000).toFixed(1)}s`,
+        documentId,
+        pageRange: `${pageStart}-${pageEnd}`
+      });
+
+    return {
+      success: true,
+      sheetsProcessed,
+      quantitiesExtracted,
+      totalCost,
+      processingTimeMs,
+      errors
+    };
+
+  } catch (error) {
+    const errorMsg = `Vision page range processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    logProduction.error('Vision Processor', error, { documentId, projectId, pageStart, pageEnd });
+    errors.push(errorMsg);
+
+    return {
+      success: false,
+      sheetsProcessed,
+      quantitiesExtracted,
+      totalCost,
+      processingTimeMs: Date.now() - startTime,
+      errors
+    };
+  }
+}
+
+/**
  * Process a single sheet with vision
  * (useful for re-processing specific sheets)
  *

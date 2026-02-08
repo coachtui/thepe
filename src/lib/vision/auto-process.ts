@@ -8,6 +8,8 @@
 import { createClient as createServiceClient } from '@/lib/db/supabase/server';
 import { processDocumentWithVision } from '@/lib/processing/vision-processor';
 import { debug, logProduction } from '@/lib/utils/debug';
+import { getDocumentSignedUrl } from '@/lib/db/queries/documents';
+import { getPdfMetadata } from '@/lib/vision/pdf-to-image';
 
 interface AutoProcessResult {
   success: boolean;
@@ -69,11 +71,73 @@ export async function autoProcessDocumentVision(
 
     debug.vision('Status updated to "processing"');
 
+    // Check document size to determine processing strategy
+    const { data: doc } = await supabase
+      .from('documents')
+      .select('file_path')
+      .eq('id', documentId)
+      .single();
+
+    if (!doc) {
+      throw new Error('Document not found');
+    }
+
+    // Download PDF and get metadata
+    const signedUrl = await getDocumentSignedUrl(supabase, doc.file_path);
+    const response = await fetch(signedUrl);
+    if (!response.ok) {
+      throw new Error('Failed to download document');
+    }
+
+    const pdfBuffer = Buffer.from(await response.arrayBuffer());
+    const metadata = await getPdfMetadata(pdfBuffer);
+
+    debug.vision(`Document has ${metadata.numPages} pages`);
+
+    // Route to batch processing for large documents (>200 pages)
+    if (metadata.numPages > 200) {
+      debug.vision(`Large document detected (${metadata.numPages} pages), routing to batch processing`);
+
+      // Trigger batch processing
+      const batchResult = await triggerBatchProcessing(documentId, projectId, metadata.numPages);
+
+      if (batchResult.success) {
+        // Update document to indicate batch processing is happening
+        await supabase
+          .from('documents')
+          .update({
+            vision_status: 'processing',
+            vision_error: null,
+            metadata: {
+              ...doc.metadata,
+              batchJobId: batchResult.jobId,
+              usingBatchProcessing: true,
+            }
+          })
+          .eq('id', documentId);
+
+        return {
+          success: true,
+          documentId,
+          sheetsProcessed: 0,
+          quantitiesExtracted: 0,
+          totalCost: 0,
+          usingBatchProcessing: true,
+          batchJobId: batchResult.jobId,
+        } as AutoProcessResult & { usingBatchProcessing?: boolean; batchJobId?: string };
+      } else {
+        throw new Error(`Failed to trigger batch processing: ${batchResult.error}`);
+      }
+    }
+
+    // For smaller documents (<= 200 pages), use existing fire-and-forget processing
+    debug.vision(`Processing small document (${metadata.numPages} pages) with existing method`);
+
     // Run vision processing
     // For construction plans, process ALL pages to ensure we don't miss any material quantities
     // Smart detection can miss pages with critical callout boxes
     const result = await processDocumentWithVision(documentId, projectId, {
-      maxSheets, // Will use 50 by default
+      maxSheets, // Will use 200 by default
       processAllSheets: true, // Process ALL pages for construction plans
       imageScale: 2.0,
       extractQuantities: true,
@@ -182,6 +246,66 @@ export function triggerVisionProcessingAsync(
     .catch(error => {
       logProduction.error('Auto Vision', error, { context: 'Background processing threw error', documentId });
     });
+}
+
+/**
+ * Trigger batch processing for large documents
+ *
+ * @param documentId Document ID
+ * @param projectId Project ID
+ * @param totalPages Total pages in document
+ * @returns Result with jobId if successful
+ */
+async function triggerBatchProcessing(
+  documentId: string,
+  projectId: string,
+  totalPages: number
+): Promise<{ success: boolean; jobId?: string; error?: string }> {
+  try {
+    // Make internal API call to start batch processing
+    const response = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/api/documents/${documentId}/batch-vision`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        projectId,
+        chunkSize: 50, // 50 pages per chunk
+        maxParallel: 5, // 5 concurrent chunks
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to start batch processing');
+    }
+
+    const result = await response.json();
+
+    logProduction.info('Batch Processing Triggered', `Started batch processing for document ${documentId}`, {
+      documentId,
+      projectId,
+      totalPages,
+      jobId: result.jobId,
+    });
+
+    return {
+      success: true,
+      jobId: result.jobId,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logProduction.error('Trigger Batch Processing Failed', errorMessage, {
+      documentId,
+      projectId,
+      totalPages,
+    });
+
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
 }
 
 /**

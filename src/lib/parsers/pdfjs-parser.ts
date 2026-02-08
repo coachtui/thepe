@@ -7,13 +7,16 @@
  */
 
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { createRequire } from 'module'
 
 // Configure worker (Node.js environment)
 // PDF.js requires a worker to parse PDFs
 if (typeof window === 'undefined') {
-  // Server-side: disable worker for simplicity
-  // This makes parsing synchronous but works reliably
-  pdfjsLib.GlobalWorkerOptions.workerSrc = ''
+  // Server-side: point to the actual worker file
+  const require = createRequire(import.meta.url)
+  pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve(
+    'pdfjs-dist/legacy/build/pdf.worker.mjs'
+  )
 }
 
 export interface ParsedDocument {
