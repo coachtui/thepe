@@ -30,6 +30,18 @@ import {
   detectComponentType,
   extractSizeFromQuery,
 } from './vision-queries'
+import {
+  queryDemoScope,
+  queryDemoConstraints,
+  formatDemoConstraintsAsContext,
+} from './demo-queries'
+import {
+  queryArchElement,
+  queryArchRoom,
+  queryArchSchedule,
+  formatArchElementAnswer,
+  formatArchRoomAnswer,
+} from './arch-queries'
 import { createDocumentAnalyzer, type PEAgentConfig } from '@/agents/constructionPEAgent'
 import type {
   QueryAnalysis,
@@ -94,6 +106,40 @@ export async function retrieveEvidence(
     if (visionItems.length > 0) {
       items.push(...visionItems)
       retrievalMethod = 'vision_db'
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 2.5: Demo graph queries (for demo_scope and demo_constraint modes).
+  // Runs before smart router so that demo entity data takes priority over
+  // generic vector search. Falls through if no demo entities exist yet.
+  // ------------------------------------------------------------------
+  if (
+    items.length === 0 &&
+    (analysis.answerMode === 'demo_scope' || analysis.answerMode === 'demo_constraint')
+  ) {
+    const demoItem = await attemptDemoGraphLookup(analysis, projectId)
+    if (demoItem) {
+      items.push(demoItem)
+      retrievalMethod = 'demo_graph'
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 2.75: Arch graph queries (for arch_element_lookup, arch_room_scope,
+  // arch_schedule_query). Runs after demo graph so arch data takes priority
+  // over generic vector search. Falls through if no arch entities exist yet.
+  // ------------------------------------------------------------------
+  if (
+    items.length === 0 &&
+    (analysis.answerMode === 'arch_element_lookup' ||
+     analysis.answerMode === 'arch_room_scope'     ||
+     analysis.answerMode === 'arch_schedule_query')
+  ) {
+    const archItem = await attemptArchGraphLookup(analysis, projectId)
+    if (archItem) {
+      items.push(archItem)
+      retrievalMethod = 'arch_graph'
     }
   }
 
@@ -281,6 +327,133 @@ function groupBySource(
 }
 
 // ---------------------------------------------------------------------------
+// Arch graph lookup (Phase 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Query the entity graph for architectural entities. Returns a single EvidenceItem
+ * wrapping the formatted arch content, or null when no arch entities exist yet.
+ */
+async function attemptArchGraphLookup(
+  analysis: QueryAnalysis,
+  projectId: string
+): Promise<EvidenceItem | null> {
+  const archTag          = analysis._routing?.archTag          ?? undefined
+  const archTagType      = analysis._routing?.archTagType      ?? undefined
+  const archRoom         = analysis._routing?.archRoom         ?? undefined
+  const archScheduleType = analysis._routing?.archScheduleType ?? undefined
+
+  try {
+    if (analysis.answerMode === 'arch_schedule_query') {
+      const schedType = (archScheduleType ?? 'door') as 'door' | 'window' | 'room_finish' | 'hardware'
+      const entries = await queryArchSchedule(projectId, schedType, archTag)
+
+      if (entries.length === 0) return null
+
+      const lines = entries.slice(0, 15).map(e =>
+        `- ${e.tag}: ${e.displayName}${e.sheetNumber ? ` (Sheet ${e.sheetNumber})` : ''}`
+      )
+      const content =
+        `${schedType.replace('_', ' ')} schedule — ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} found.\n` +
+        lines.join('\n')
+
+      return {
+        source:     'vision_db',
+        content,
+        confidence: 0.9,
+        rawData:    entries,
+      }
+    }
+
+    if (analysis.answerMode === 'arch_room_scope') {
+      const result = await queryArchRoom(projectId, archRoom ?? null)
+
+      if (!result.success || result.totalCount === 0) return null
+
+      return {
+        source:     'vision_db',
+        content:    formatArchRoomAnswer(result),
+        confidence: result.confidence,
+        rawData:    result,
+      }
+    }
+
+    // arch_element_lookup — requires a tag
+    if (!archTag) return null
+
+    const result = await queryArchElement(projectId, archTag, archTagType ?? undefined)
+
+    if (!result.success || result.totalCount === 0) return null
+
+    return {
+      source:     'vision_db',
+      content:    formatArchElementAnswer(result),
+      confidence: result.confidence,
+      rawData:    result,
+    }
+  } catch (err) {
+    console.error('[RetrievalOrchestrator] Arch graph lookup error:', err)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Demo graph lookup (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Query the entity graph for demo entities. Returns a single EvidenceItem
+ * wrapping the formatted demo content, or null when no demo entities exist.
+ */
+async function attemptDemoGraphLookup(
+  analysis: QueryAnalysis,
+  projectId: string
+): Promise<EvidenceItem | null> {
+  const demoRoom       = analysis._routing?.demoRoom       ?? undefined
+  const demoStatusHint = analysis._routing?.demoStatusHint ?? undefined
+
+  try {
+    if (analysis.answerMode === 'demo_constraint') {
+      const result = await queryDemoConstraints(projectId)
+
+      if (
+        result.riskNotes.length === 0 &&
+        result.requirements.length === 0 &&
+        result.verifyItems.length === 0
+      ) {
+        return null
+      }
+
+      return {
+        source:     'vision_db',
+        content:    formatDemoConstraintsAsContext(result),
+        confidence: 0.85,
+        rawData:    result,
+      }
+    }
+
+    // demo_scope
+    const result = await queryDemoScope(
+      projectId,
+      demoRoom   ?? null,
+      demoStatusHint ?? null
+    )
+
+    if (!result.success || result.totalCount === 0) return null
+
+    return {
+      source:     'vision_db',
+      content:    result.formattedAnswer,
+      confidence: result.confidence,
+      rawData:    result,
+    }
+  } catch (err) {
+    console.error('[RetrievalOrchestrator] Demo graph lookup error:', err)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Vision DB lookup
 // ---------------------------------------------------------------------------
 
@@ -367,6 +540,11 @@ function shouldAttemptLivePDF(answerMode: string): boolean {
     'scope_summary',
     'sheet_lookup',
     'document_lookup',
+    'demo_scope',
+    'demo_constraint',
+    'arch_element_lookup',
+    'arch_room_scope',
+    'arch_schedule_query',
   ]
   return supported.includes(answerMode)
 }
@@ -476,6 +654,9 @@ function selectRelevantSheets(
   const q = analysis.rawQuery.toLowerCase()
 
   const patterns: Array<{ test: RegExp; filePattern: RegExp }> = [
+    { test: /arch|floor plan|room|door schedule|window schedule|finish schedule/i,
+                                         filePattern: /^a[-_]?\d|arch|floor|elev|a\d{3}/i },
+    { test: /demo|demolition/i,         filePattern: /demo|d-\d+|dm-\d+|drcp/i },
     { test: /electrical|elec|power/i,   filePattern: /elect|elec|power|e-\d+/i },
     { test: /gas\b|gas line/i,           filePattern: /gas|g-\d+/i },
     { test: /storm|stm\b/i,             filePattern: /storm|stm|sd-\d+/i },

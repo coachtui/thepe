@@ -27,6 +27,11 @@ export type AnswerMode =
   | 'project_summary'      // Full aggregated project overview
   | 'general_chat'         // Domain knowledge, conversational, no retrieval needed
   | 'insufficient_evidence' // Used when evidence is insufficient to answer
+  | 'demo_scope'           // What gets demolished / what remains / what is protected
+  | 'demo_constraint'      // Pre-demo checks, risk notes, protection requirements
+  | 'arch_element_lookup'  // What is Door D-14? What wall type WT-A?
+  | 'arch_room_scope'      // What's in Room 105? Which rooms affected?
+  | 'arch_schedule_query'  // What does the door schedule say for D-14?
 
 // ---------------------------------------------------------------------------
 // Query analysis
@@ -83,6 +88,20 @@ export interface QueryAnalysis {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     classification: any
     visionQueryType: 'component' | 'crossing' | 'length' | 'none'
+    /** Room number extracted from demo queries (e.g. "104") */
+    demoRoom?: string | null
+    /** Level extracted from demo queries (e.g. "L1") */
+    demoLevel?: string | null
+    /** Status hint from demo remain/protect queries (e.g. "to_remain") */
+    demoStatusHint?: string | null
+    /** Drawing tag extracted from arch queries (e.g. "D-14", "W-3A", "WT-A") */
+    archTag?: string | null
+    /** Entity type the tag refers to */
+    archTagType?: 'door' | 'window' | 'wall_type' | 'room' | 'keynote' | null
+    /** Room number extracted from arch room queries (e.g. "105") */
+    archRoom?: string | null
+    /** Schedule type for arch_schedule_query mode */
+    archScheduleType?: 'door' | 'window' | 'room_finish' | null
   }
 }
 
@@ -157,11 +176,15 @@ export type SufficiencyLevel = 'sufficient' | 'partial' | 'insufficient'
  * 'none' means pass-through — the writer uses evidence directly.
  */
 export type ReasoningMode =
-  | 'scope_reasoning'       // scope_summary, project_summary
-  | 'sequence_reasoning'    // sequence_inference
-  | 'constraint_reasoning'  // general_chat with substantive project evidence
-  | 'quantity_reasoning'    // quantity_lookup with multi-system data
-  | 'none'                  // pass-through
+  | 'scope_reasoning'            // scope_summary, project_summary
+  | 'sequence_reasoning'         // sequence_inference
+  | 'constraint_reasoning'       // general_chat with substantive project evidence
+  | 'quantity_reasoning'         // quantity_lookup with multi-system data
+  | 'demo_scope_reasoning'       // demo_scope: groups entities by status with citations
+  | 'demo_constraint_reasoning'  // demo_constraint: risk notes, requirements, inferred cautions
+  | 'arch_element_reasoning'     // arch_element_lookup / arch_schedule_query: element + schedule linkage
+  | 'arch_room_scope_reasoning'  // arch_room_scope: room contents + finish schedule + notes
+  | 'none'                       // pass-through
 
 /**
  * How well a finding is supported by evidence.
@@ -232,4 +255,116 @@ export interface SufficiencyResult {
   reasons: string[]      // Why this level was assigned
   gaps: string[]         // What's missing / what would improve the answer
   isUnsupportedDomain: boolean  // True when no pipeline exists for this query type
+}
+
+// ---------------------------------------------------------------------------
+// Demo entities (Phase 3)
+// ---------------------------------------------------------------------------
+
+/** A single finding attached to a demo entity. */
+export interface DemoFinding {
+  findingType: string       // 'demo_scope' | 'note' | 'risk_note' | 'requirement' | 'dimension'
+  statement: string
+  supportLevel: SupportLevel
+  textValue: string | null
+  confidence: number
+}
+
+/** A single entity in the demo discipline, hydrated with its primary location and findings. */
+export interface DemoEntity {
+  id: string
+  entityType: string        // 'wall' | 'ceiling' | 'floor' | 'equipment' | 'surface' | 'keynote' | 'note' | 'opening'
+  subtype: string | null
+  canonicalName: string
+  displayName: string
+  label: string | null
+  status: string            // 'to_remove' | 'to_remain' | 'to_protect' | 'to_relocate' | 'existing' | 'temporary' | 'unknown'
+  confidence: number
+  room: string | null       // from entity_locations.room_number
+  level: string | null      // from entity_locations.level
+  area: string | null       // from entity_locations.area
+  sheetNumber: string | null
+  findings: DemoFinding[]
+}
+
+/** Return value of queryDemoScope / queryDemoByRoom. */
+export interface DemoQueryResult {
+  success: boolean
+  projectId: string
+  filterRoom: string | null
+  filterStatus: string | null
+  toRemove: DemoEntity[]
+  toRemain: DemoEntity[]
+  toProtect: DemoEntity[]
+  toRelocate: DemoEntity[]
+  notes: DemoEntity[]         // keynote/note entities
+  unknownStatus: DemoEntity[] // status='unknown' — needs field verification
+  totalCount: number          // physical entity count (excludes notes)
+  sheetsCited: string[]
+  confidence: number
+  formattedAnswer: string
+}
+
+// ---------------------------------------------------------------------------
+// Architectural entities (Phase 4)
+// ---------------------------------------------------------------------------
+
+/** A single finding attached to an architectural entity. */
+export interface ArchFinding {
+  findingType: string   // 'schedule_row' | 'dimension' | 'material' | 'note' | 'constraint' | 'specification_ref'
+  statement: string
+  supportLevel: SupportLevel
+  textValue: string | null
+  numericValue: number | null
+  unit: string | null
+  confidence: number
+}
+
+/**
+ * A parsed schedule entry (door schedule row, window schedule row, or
+ * room finish schedule row) stored as a schedule_entry entity.
+ */
+export interface ArchScheduleEntry {
+  id: string
+  tag: string                            // "D-14", "W-3A", "105"
+  scheduleType: 'door' | 'window' | 'room_finish' | 'hardware'
+  canonicalName: string
+  displayName: string
+  sheetNumber: string | null
+  findings: ArchFinding[]
+}
+
+/** A single architectural entity, hydrated with location, findings, and optional schedule linkage. */
+export interface ArchEntity {
+  id: string
+  entityType: string        // 'room' | 'door' | 'window' | 'wall' | 'finish_tag' | 'schedule_entry' | 'keynote' | 'note' | 'detail_ref'
+  subtype: string | null
+  canonicalName: string
+  displayName: string
+  label: string | null
+  status: string            // 'existing' | 'new' | 'proposed' | 'unknown'
+  confidence: number
+  room: string | null       // from entity_locations.room_number
+  level: string | null      // from entity_locations.level
+  area: string | null       // from entity_locations.area
+  gridRef: string | null    // from entity_locations.grid_ref
+  sheetNumber: string | null
+  findings: ArchFinding[]
+  scheduleEntry: ArchScheduleEntry | null  // linked via described_by relationship
+}
+
+/** Return value of queryArchElement / queryArchRoom. */
+export interface ArchQueryResult {
+  success: boolean
+  projectId: string
+  queryType: 'element' | 'room' | 'schedule'
+  tag: string | null            // extracted tag ("D-14", "W-3A") or null for room queries
+  roomFilter: string | null     // extracted room number or null
+  entities: ArchEntity[]        // all non-room entities returned
+  rooms: ArchEntity[]           // entity_type='room' entities
+  scheduleEntries: ArchScheduleEntry[]
+  totalCount: number
+  sheetsCited: string[]
+  confidence: number
+  formattedAnswer: string
 }

@@ -11,14 +11,19 @@ import { containsCrossingKeywords } from '@/lib/metadata/utility-abbreviations';
  * Query type classification
  */
 export type QueryType =
-  | 'quantity'         // Asking for lengths, amounts, totals
-  | 'location'         // Asking where something is
-  | 'specification'    // Asking about specs, requirements, materials
-  | 'detail'           // Asking about construction details
-  | 'reference'        // Asking for cross-references, sheet numbers
-  | 'utility_crossing' // Asking about utility crossings, conflicts, intersections
-  | 'project_summary'  // Asking for complete project overview/analysis
-  | 'general';         // General question
+  | 'quantity'           // Asking for lengths, amounts, totals
+  | 'location'           // Asking where something is
+  | 'specification'      // Asking about specs, requirements, materials
+  | 'detail'             // Asking about construction details
+  | 'reference'          // Asking for cross-references, sheet numbers
+  | 'utility_crossing'   // Asking about utility crossings, conflicts, intersections
+  | 'project_summary'    // Asking for complete project overview/analysis
+  | 'demo_scope'         // What gets demolished / what remains / what is protected
+  | 'demo_constraint'    // Pre-demo verification, risk notes, protection requirements
+  | 'arch_element_lookup' // What is Door D-14? What wall type WT-A?
+  | 'arch_room_scope'    // What's in Room 105? Which rooms are affected?
+  | 'arch_schedule_query' // What does the door schedule say for D-14?
+  | 'general';           // General question
 
 /**
  * Query intent classification (new - for retrieval strategy)
@@ -44,6 +49,17 @@ export interface QueryClassification {
   sheetNumber?: string;     // e.g., "C-001", "Sheet 5"
   material?: string;        // e.g., "PVC", "concrete"
   detailNumber?: string;    // e.g., "Detail 3/C-003"
+
+  // Demo routing extras (only populated for demo_scope / demo_constraint types)
+  demoRoom?: string;       // Extracted room number, e.g. "104"
+  demoLevel?: string;      // Extracted level, e.g. "L1"
+  demoStatusHint?: string; // Status filter hint: 'to_remain' | 'to_protect' | etc.
+
+  // Arch routing extras (only populated for arch_element_lookup / arch_room_scope / arch_schedule_query)
+  archTag?: string;        // Extracted drawing tag, e.g. "D-14", "W-3A", "WT-A"
+  archTagType?: 'door' | 'window' | 'wall_type' | 'room' | 'keynote'; // Tag entity type
+  archRoom?: string;       // Extracted room number for arch room queries, e.g. "105"
+  archScheduleType?: 'door' | 'window' | 'room_finish'; // Schedule type for arch_schedule_query
 
   // Flags for retrieval strategy
   needsDirectLookup: boolean;  // Should try database lookup first
@@ -156,6 +172,184 @@ const PROJECT_SUMMARY_PATTERNS = [
   /(?:project|plan|set)\s+(?:overview|summary|analysis)/i,
   /(?:show|tell|give)\s+(?:me)?\s*(?:a|the)?\s*project\s+(?:overview|summary)/i,
 ];
+
+/**
+ * Patterns for DEMO SCOPE queries (what gets demolished / what remains)
+ */
+const DEMO_SCOPE_PATTERNS = [
+  /what\s+(?:gets?|is|are|needs?\s+to\s+be)\s+(?:demo(?:lish)?e?d?|remov(?:ed?|al)|torn?\s+down)/i,
+  /what\s+(?:to\s+)?remov(?:e|al)/i,
+  /demolition\s+(?:scope|plan|work|items?|list)/i,
+  /demo\s+(?:scope|plan|work|items?|list)/i,
+  /remove\s+and\s+dispos/i,
+  /what\s+(?:is|are)\s+(?:being\s+)?demo(?:lish)?e?d?/i,
+  /what'?s?\s+(?:being\s+)?(?:demo(?:lish)?e?d?|remov(?:ed?|al))/i,
+];
+
+/**
+ * Patterns for DEMO REMAIN queries (what stays / what is protected)
+ */
+const DEMO_REMAIN_PATTERNS = [
+  /what\s+(?:needs?\s+to\s+|should\s+|must\s+)?remain/i,
+  /what\s+stays?(?:\s+in\s+place)?/i,
+  /existing\s+to\s+remain/i,
+  /protect\s+in\s+place/i,
+  /\bp\.?i\.?p\.?\b/i,
+  /what\s+(?:is|are)\s+(?:being\s+)?protected?/i,
+  /what\s+(?:do\s+(?:i|we)\s+)?(?:need\s+to\s+)?keep(?:\s+in\s+place)?/i,
+];
+
+/**
+ * Patterns for DEMO CONSTRAINT queries (pre-demo checks, risks, verification)
+ */
+const DEMO_CONSTRAINT_PATTERNS = [
+  /before\s+demo(?:lition)?(?:\s+starts?)?/i,
+  /demo\s+(?:risk|hazard|caution|concern)/i,
+  /verify\s+before/i,
+  /(?:what|which|any)\s+(?:to\s+)?(?:verify|check|confirm)(?:\s+before)?/i,
+  /protect(?:ion)?\s+(?:notes?|requirements?)/i,
+  /coordinate\s+(?:before|with|for)\s+demo/i,
+  /hazardous?\s+(?:material|waste|condition)/i,
+  /asbestos|lead\s+paint/i,
+  /pre[- ]?demo/i,
+  /prior\s+to\s+demo(?:lition)?/i,
+];
+
+// ---------------------------------------------------------------------------
+// Architectural query patterns
+// ---------------------------------------------------------------------------
+
+/**
+ * Patterns for ARCH ELEMENT queries (single tag lookup).
+ * Ordered most-specific first to avoid false positives.
+ */
+const ARCH_ELEMENT_PATTERNS = [
+  /\bdoor\s+[A-Z]?\d+[A-Z]?\b/i,          // "door D-14", "door 12A"
+  /\b(D-\d+[A-Z]?)\b/,                     // bare tag "D-14"
+  /\bwindow\s+[A-Z]?\d+[A-Z]?\b/i,         // "window W-3A"
+  /\b(W-\d+[A-Z]?)\b/,                     // bare tag "W-3A"
+  /\bwall\s+type\s+[A-Z\d]+\b/i,           // "wall type A", "wall type WT-3"
+  /\bWT-?[A-Z\d]+\b/,                      // "WT-A", "WT3"
+  /what\s+(?:is|are)\s+(?:door|window|wall)\s+/i,
+  /tell\s+me\s+about\s+(?:door|window|wall)\s+/i,
+  /\bkeynote\s+\d+\b/i,                    // "keynote 7"
+  /(?:door|window|wall\s+type)\s+tag\s+/i,
+]
+
+/**
+ * Patterns for ARCH ROOM queries (room-based scope).
+ */
+const ARCH_ROOM_PATTERNS = [
+  /what(?:'?s?|\s+(?:is|are))\s+in\s+room\s+\w+/i,
+  /what\s+stands?\s+out\s+(?:about|in)\s+room\s+\w+/i,
+  /room\s+\w+\s+(?:contents?|finishes?|schedule|description)/i,
+  /which\s+rooms?\s+are\s+affected/i,
+  /(?:list|show)\s+(?:all\s+)?rooms?\b/i,
+  /\broom\s+\w+\b/i,  // generic "room 105" — kept last, low specificity
+]
+
+/**
+ * Patterns for ARCH SCHEDULE queries (schedule-focused).
+ */
+const ARCH_SCHEDULE_PATTERNS = [
+  /(?:door|window|room\s+finish)\s+schedule/i,
+  /finish\s+schedule/i,
+  /\bdoor\s+type\b/i,
+  /\bwindow\s+type\b/i,
+  /\bdoor\s+frame\b/i,
+  /\bhardware\s+(?:group|set)\b/i,
+  /what\s+(?:hardware|finish|type|size)\s+(?:for|is|applies?\s+to)\s+(?:door|window)\s+/i,
+]
+
+/**
+ * Extract architectural drawing tag and type from a query.
+ */
+function extractArchTag(query: string): {
+  tag: string | null
+  tagType: 'door' | 'window' | 'wall_type' | 'keynote' | null
+} {
+  // Door: "Door D-14", "door 12A", bare "D-14"
+  const doorFull = query.match(/\bdoor\s+([A-Z]?\d+[A-Z]?)\b/i)
+  if (doorFull) return { tag: doorFull[1].toUpperCase(), tagType: 'door' }
+  const doorBare = query.match(/\b(D-\d+[A-Z]?)\b/)
+  if (doorBare) return { tag: doorBare[1].toUpperCase(), tagType: 'door' }
+
+  // Window: "Window W-3A", bare "W-3A"
+  const winFull = query.match(/\bwindow\s+([A-Z]?\d+[A-Z]?)\b/i)
+  if (winFull) return { tag: winFull[1].toUpperCase(), tagType: 'window' }
+  const winBare = query.match(/\b(W-\d+[A-Z]?)\b/)
+  if (winBare) return { tag: winBare[1].toUpperCase(), tagType: 'window' }
+
+  // Wall type: "WT-A", "WT3", "wall type A"
+  const wtBare = query.match(/\b(WT-?[A-Z\d]+)\b/i)
+  if (wtBare) return { tag: wtBare[1].toUpperCase(), tagType: 'wall_type' }
+  const wtFull = query.match(/\bwall\s+type\s+([A-Z\d]+)\b/i)
+  if (wtFull) return { tag: wtFull[1].toUpperCase(), tagType: 'wall_type' }
+
+  // Keynote: "keynote 7"
+  const kn = query.match(/\bkeynote\s+(\d+)\b/i)
+  if (kn) return { tag: kn[1], tagType: 'keynote' }
+
+  return { tag: null, tagType: null }
+}
+
+/**
+ * Extract room number from an arch query (e.g. "Room 105", "in room 105").
+ */
+function extractArchRoom(query: string): string | null {
+  const patterns = [
+    /\broom\s+(\w+[-\w]*)/i,
+    /\b(?:in|for|within|about)\s+room\s+(\w+[-\w]*)/i,
+  ]
+  for (const pattern of patterns) {
+    const match = query.match(pattern)
+    if (match) return match[1].toUpperCase()
+  }
+  return null
+}
+
+/**
+ * Extract schedule type from an arch schedule query.
+ */
+function extractArchScheduleType(
+  query: string
+): 'door' | 'window' | 'room_finish' | null {
+  if (/room\s+finish\s+schedule|finish\s+schedule/i.test(query)) return 'room_finish'
+  if (/window\s+schedule|window\s+type/i.test(query))             return 'window'
+  if (/door\s+schedule|door\s+type|door\s+frame|hardware/i.test(query)) return 'door'
+  return null
+}
+
+/**
+ * Extract room number from a demo query (e.g. "Room 104", "in 104")
+ */
+function extractDemoRoom(query: string): string | undefined {
+  const patterns = [
+    /\broom\s+(\w+[-\w]*)/i,
+    /\b(?:in|for|within|inside)\s+room\s+(\w+[-\w]*)/i,
+    /\bspace\s+(\w+[-\w]*)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = query.match(pattern);
+    if (match) return match[1].toUpperCase();
+  }
+  return undefined;
+}
+
+/**
+ * Extract level/floor from a demo query (e.g. "Level 2", "2nd floor")
+ */
+function extractDemoLevel(query: string): string | undefined {
+  const patterns = [
+    /\b(?:floor|level)\s+([A-Z0-9]+)/i,
+    /\b(\d+(?:st|nd|rd|th)\s+floor)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = query.match(pattern);
+    if (match) return match[1].toUpperCase();
+  }
+  return undefined;
+}
 
 /**
  * Patterns for utility crossing queries
@@ -528,6 +722,118 @@ export function classifyQuery(query: string): QueryClassification {
         keywords: ['ELEC', 'SS', 'STM', 'GAS', 'TEL', 'W', 'FO', 'EXIST', 'EXISTING'],
         systemName: systemName
       }
+    };
+  }
+
+  // Check for demo constraint queries (pre-demo checks, risks, verification)
+  for (const pattern of DEMO_CONSTRAINT_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return {
+        type: 'demo_constraint',
+        intent: 'informational',
+        confidence: 0.85,
+        demoRoom: extractDemoRoom(query),
+        demoLevel: extractDemoLevel(query),
+        needsDirectLookup: false,
+        needsVectorSearch: true,
+        needsVision: false,
+        needsCompleteData: false,
+        isAggregationQuery: false,
+        searchHints: {
+          preferredSheetTypes: ['demo_notes', 'demo_plan'],
+          keywords: ['verify', 'protect', 'risk', 'coordinate', 'hazard'],
+        },
+      };
+    }
+  }
+
+  // Check for demo scope queries (what gets removed / what remains)
+  const hasDemoScope = DEMO_SCOPE_PATTERNS.some(p => p.test(normalized));
+  const hasDemoRemain = DEMO_REMAIN_PATTERNS.some(p => p.test(normalized));
+  if (hasDemoScope || hasDemoRemain) {
+    return {
+      type: 'demo_scope',
+      intent: 'informational',
+      confidence: 0.85,
+      demoRoom: extractDemoRoom(query),
+      demoLevel: extractDemoLevel(query),
+      demoStatusHint: hasDemoRemain && !hasDemoScope ? 'to_remain' : undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['demo_plan', 'demo_rcp'],
+        keywords: ['demolish', 'remove', 'remain', 'protect', 'relocate'],
+      },
+    };
+  }
+
+  // ── Architectural queries ───────────────────────────────────────────────
+
+  // Check for arch schedule queries (most specific arch type — check before element/room)
+  if (ARCH_SCHEDULE_PATTERNS.some(p => p.test(normalized))) {
+    const { tag, tagType } = extractArchTag(query);
+    return {
+      type: 'arch_schedule_query',
+      intent: 'informational',
+      confidence: 0.85,
+      archTag: tag ?? undefined,
+      archTagType: tagType ?? undefined,
+      archScheduleType: extractArchScheduleType(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['door_schedule', 'window_schedule', 'room_finish_schedule'],
+        keywords: ['door', 'window', 'schedule', 'hardware', 'finish'],
+      },
+    };
+  }
+
+  // Check for arch element lookup (single door/window/wall/keynote by tag)
+  if (ARCH_ELEMENT_PATTERNS.some(p => p.test(normalized))) {
+    const { tag, tagType } = extractArchTag(query);
+    if (tag) {  // Only fire if we actually extracted a tag — prevents false positives
+      return {
+        type: 'arch_element_lookup',
+        intent: 'informational',
+        confidence: 0.88,
+        archTag: tag,
+        archTagType: tagType ?? undefined,
+        needsDirectLookup: false,
+        needsVectorSearch: true,
+        needsVision: false,
+        needsCompleteData: false,
+        isAggregationQuery: false,
+        searchHints: {
+          preferredSheetTypes: ['arch_floor_plan', 'door_schedule', 'window_schedule'],
+          keywords: [tag, 'door', 'window', 'wall type'].filter(Boolean),
+        },
+      };
+    }
+  }
+
+  // Check for arch room scope queries
+  if (ARCH_ROOM_PATTERNS.some(p => p.test(normalized))) {
+    const archRoom = extractArchRoom(query);
+    return {
+      type: 'arch_room_scope',
+      intent: 'informational',
+      confidence: 0.85,
+      archRoom: archRoom ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['arch_floor_plan', 'room_finish_schedule'],
+        keywords: ['room', 'finish', 'door', 'window'].concat(archRoom ? [archRoom] : []),
+      },
     };
   }
 

@@ -97,6 +97,19 @@ function selectReasoningMode(
       return systems.length > 1 ? 'quantity_reasoning' : 'none'
     }
 
+    case 'demo_scope':
+      return 'demo_scope_reasoning'
+
+    case 'demo_constraint':
+      return 'demo_constraint_reasoning'
+
+    case 'arch_element_lookup':
+      return 'arch_element_reasoning'
+
+    case 'arch_room_scope':
+    case 'arch_schedule_query':
+      return 'arch_room_scope_reasoning'
+
     case 'general_chat': {
       // Activate constraint reasoning when there is substantive structured data
       const hasStructuredData = packet.items.some(
@@ -184,6 +197,14 @@ function generateFindings(
       return generateQuantityFindings(packet)
     case 'constraint_reasoning':
       return generateConstraintFindings(packet)
+    case 'demo_scope_reasoning':
+      return generateDemoScopeFindings(packet)
+    case 'demo_constraint_reasoning':
+      return generateDemoConstraintFindings(packet)
+    case 'arch_element_reasoning':
+      return generateArchElementFindings(packet)
+    case 'arch_room_scope_reasoning':
+      return generateArchRoomScopeFindings(packet)
     default:
       return []
   }
@@ -432,6 +453,244 @@ function generateConstraintFindings(packet: EvidencePacket): ReasoningFinding[] 
   return findings
 }
 
+// ── demo_scope_reasoning ───────────────────────────────────────────────────
+
+const DEMO_SCOPE_CONTENT_KEYWORDS =
+  /remov|demo(?:lish)?|remain|protect|relocat|dispose/i
+
+/**
+ * Generate findings for demo scope queries.
+ *
+ * Support level rules:
+ *   explicit  — entity came from vision_db (demo graph extraction)
+ *   inferred  — entity came from vector/text search
+ *   unknown   — entity has status='unknown' (surfaced as gap, not finding)
+ */
+function generateDemoScopeFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  // Vision DB items are pre-formatted demo scope content → explicit
+  const demoGraphItems = packet.items.filter(i => i.source === 'vision_db')
+
+  for (const item of demoGraphItems) {
+    // Split the formatted content into sections (each section is a status group)
+    const sections = item.content
+      .split('\n\n')
+      .map(s => s.trim())
+      .filter(s => s && !s.startsWith('Based on') && !s.startsWith('No demo'))
+
+    for (const section of sections.slice(0, 6)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Vision-extracted from demo drawing',
+      })
+    }
+  }
+
+  // Vector search items with demo language → inferred
+  const vectorDemoItems = packet.items.filter(
+    i =>
+      (i.source === 'vector_search' || i.source === 'complete_data') &&
+      DEMO_SCOPE_CONTENT_KEYWORDS.test(i.content)
+  )
+
+  for (const item of vectorDemoItems.slice(0, 3)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — demolition scope language detected',
+    })
+  }
+
+  return findings
+}
+
+// ── demo_constraint_reasoning ──────────────────────────────────────────────
+
+const DEMO_CONSTRAINT_CONTENT_KEYWORDS =
+  /verify|confirm|check|coordinate|risk|hazard|protect|isolat|prior\s+to|before\s+demo|asbestos|lead/i
+
+/** Standard pre-demolition cautions — always inferred (industry practice). */
+const STANDARD_DEMO_CAUTIONS = [
+  {
+    statement:
+      'Confirm all utilities serving the demolition area are isolated and capped prior to work.',
+    trigger: /utility.*isolat|isolat.*utilit|utilities.*disconn/i,
+  },
+  {
+    statement:
+      'Verify a hazardous material survey (ACM/LBP) is complete before disturbing any wall finishes, ceiling tiles, or mastic.',
+    trigger: /asbestos|lead\s+paint|hazmat|acm|lbp/i,
+  },
+  {
+    statement:
+      'Confirm structural engineer has reviewed any walls or elements to be removed near load-bearing lines.',
+    trigger: /structural|load.?bearing|shear\s+wall/i,
+  },
+  {
+    statement:
+      'Coordinate fire protection (sprinkler) shutoff sequence with fire protection contractor before demo starts.',
+    trigger: /sprinkler|fire\s+protect/i,
+  },
+]
+
+/**
+ * Generate findings for demo constraint queries ("what to verify before demo").
+ *
+ * Support level:
+ *   explicit  — risk notes / requirements from the demo entity graph
+ *   inferred  — industry-practice cautions not explicitly documented
+ */
+function generateDemoConstraintFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+  const explicitStatements = new Set<string>()
+
+  // Vision DB constraint data → explicit
+  const demoGraphItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of demoGraphItems) {
+    const lines = item.content
+      .split('\n')
+      .filter(l => l.startsWith('•'))
+
+    for (const line of lines.slice(0, 8)) {
+      const stmt = line.replace(/^•\s*/, '').trim()
+      if (!stmt) continue
+      findings.push({
+        statement:    stmt,
+        supportLevel: 'explicit',
+        basis:        'Vision-extracted from demo notes / keynotes',
+      })
+      explicitStatements.add(stmt.toLowerCase().substring(0, 40))
+    }
+  }
+
+  // Apply standard inferred cautions that aren't already covered explicitly
+  const combinedExplicit = findings.map(f => f.statement).join(' ').toLowerCase()
+  for (const caution of STANDARD_DEMO_CAUTIONS) {
+    if (!caution.trigger.test(combinedExplicit)) {
+      findings.push({
+        statement:    caution.statement,
+        supportLevel: 'inferred',
+        basis:        'Standard pre-demolition practice — not explicitly stated in these drawings',
+      })
+    }
+  }
+
+  // Vector search items with constraint language → inferred
+  const vectorItems = packet.items.filter(
+    i =>
+      (i.source === 'vector_search' || i.source === 'complete_data') &&
+      DEMO_CONSTRAINT_CONTENT_KEYWORDS.test(i.content)
+  )
+  for (const item of vectorItems.slice(0, 3)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — constraint / verification language detected',
+    })
+  }
+
+  return findings
+}
+
+// ── arch_element_reasoning ─────────────────────────────────────────────────
+
+/**
+ * Generate findings for a specific architectural element query (door, window,
+ * finish tag, etc.).
+ *
+ * Support level rules:
+ *   explicit — entity from vision_db (arch graph extraction)
+ *   inferred — from vector/text search mentioning the tag
+ */
+function generateArchElementFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  // Vision DB arch graph items → explicit
+  const archGraphItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of archGraphItems) {
+    const sections = item.content
+      .split('\n\n')
+      .map(s => s.trim())
+      .filter(s => s.length > 0)
+
+    for (const section of sections.slice(0, 5)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Vision-extracted from architectural drawings',
+      })
+    }
+  }
+
+  // Vector search items → inferred supplemental context
+  const vectorItems = packet.items.filter(
+    i => i.source === 'vector_search' || i.source === 'complete_data'
+  )
+  for (const item of vectorItems.slice(0, 3)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — architectural element reference detected',
+    })
+  }
+
+  return findings
+}
+
+// ── arch_room_scope_reasoning ──────────────────────────────────────────────
+
+const ARCH_ROOM_CONTENT_KEYWORDS = /room|space|occupan|finish|door|window|ceiling/i
+
+/**
+ * Generate findings for an architectural room scope or schedule query.
+ *
+ * Support level rules:
+ *   explicit — arch entity from vision_db
+ *   inferred — vector/text items with room or space language
+ */
+function generateArchRoomScopeFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  // Vision DB arch graph items → explicit
+  const archGraphItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of archGraphItems) {
+    const sections = item.content
+      .split('\n\n')
+      .map(s => s.trim())
+      .filter(s => s.length > 0)
+
+    for (const section of sections.slice(0, 6)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Vision-extracted from architectural floor plan and schedules',
+      })
+    }
+  }
+
+  // Vector items with room/space language → inferred
+  const vectorItems = packet.items.filter(
+    i =>
+      (i.source === 'vector_search' || i.source === 'complete_data') &&
+      ARCH_ROOM_CONTENT_KEYWORDS.test(i.content)
+  )
+  for (const item of vectorItems.slice(0, 3)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — room or space reference detected',
+    })
+  }
+
+  return findings
+}
+
 // ---------------------------------------------------------------------------
 // Gap identification
 // ---------------------------------------------------------------------------
@@ -493,6 +752,56 @@ function identifyGaps(
     }
   }
 
+  // Arch-specific gaps
+  if (
+    analysis.answerMode === 'arch_element_lookup' ||
+    analysis.answerMode === 'arch_room_scope'     ||
+    analysis.answerMode === 'arch_schedule_query'
+  ) {
+    const hasArchData = packet.items.some(i => i.source === 'vision_db')
+
+    if (!hasArchData && !gaps.some(g => g.gapType === 'insufficient_structured_data')) {
+      gaps.push({
+        description:
+          'No architectural entities extracted yet — architectural floor plan or schedule sheets may not have been processed',
+        gapType: 'insufficient_structured_data',
+        actionable:
+          'Process architectural sheets (A-xxx) using the Analyze function to extract rooms, doors, windows, and schedule data',
+      })
+    }
+  }
+
+  // Demo-specific gaps
+  if (analysis.answerMode === 'demo_scope' || analysis.answerMode === 'demo_constraint') {
+    const hasDemoData = packet.items.some(i => i.source === 'vision_db')
+
+    if (!hasDemoData && !gaps.some(g => g.gapType === 'insufficient_structured_data')) {
+      gaps.push({
+        description:
+          'No demo entities extracted yet — demo plan sheets may not have been processed',
+        gapType: 'insufficient_structured_data',
+        actionable:
+          'Process demo plan sheets (D-xxx, DM-xxx, DRCP-xxx) using the Analyze function',
+      })
+    }
+
+    // Flag unknown-status entities if we have demo data
+    if (hasDemoData) {
+      const hasUnknown = packet.items.some(
+        i => i.source === 'vision_db' && i.content.includes('STATUS UNKNOWN')
+      )
+      if (hasUnknown && !gaps.some(g => g.description.includes('unknown status'))) {
+        gaps.push({
+          description:
+            'Some entities have unknown demo status — marking, hatch patterns, or keynotes were unclear in the drawing',
+          gapType: 'unknown_scope',
+          actionable:
+            'Review original demo sheets to confirm status of items marked STATUS UNKNOWN',
+        })
+      }
+    }
+  }
+
   return gaps
 }
 
@@ -528,6 +837,18 @@ function selectAnswerFrame(mode: ReasoningMode, findings: ReasoningFinding[]): s
 
     case 'constraint_reasoning':
       return hasExplicit ? 'document_supported_constraints' : 'inferred_constraints'
+
+    case 'demo_scope_reasoning':
+      return hasExplicit ? 'demo_scope_with_citations' : 'demo_scope_inferred'
+
+    case 'demo_constraint_reasoning':
+      return hasExplicit ? 'demo_constraints_documented' : 'demo_constraints_inferred'
+
+    case 'arch_element_reasoning':
+      return hasExplicit ? 'arch_element_with_schedule' : 'arch_element_inferred'
+
+    case 'arch_room_scope_reasoning':
+      return hasExplicit ? 'arch_room_scope_detailed' : 'arch_room_scope_partial'
 
     default:
       return 'standard'

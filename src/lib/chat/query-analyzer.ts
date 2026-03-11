@@ -90,7 +90,17 @@ export function analyzeQuery(rawQuery: string): QueryAnalysis {
     // Internal: pre-computed classification for retrieval-orchestrator so
     // smart-router does not need to re-run classifyQuery() or
     // determineVisionQueryType() on the same string.
-    _routing: { classification: effectiveClassification, visionQueryType },
+    _routing: {
+      classification: effectiveClassification,
+      visionQueryType,
+      demoRoom:        effectiveClassification.demoRoom        ?? null,
+      demoLevel:       effectiveClassification.demoLevel       ?? null,
+      demoStatusHint:  effectiveClassification.demoStatusHint  ?? null,
+      archTag:         effectiveClassification.archTag         ?? null,
+      archTagType:     effectiveClassification.archTagType     ?? null,
+      archRoom:        effectiveClassification.archRoom        ?? null,
+      archScheduleType: effectiveClassification.archScheduleType ?? null,
+    },
   }
 
   return applyPostAnalysisCorrections(analysis, rawQuery)
@@ -127,6 +137,21 @@ function mapToAnswerMode(
 
     case 'detail':
       return 'document_lookup'
+
+    case 'demo_scope':
+      return 'demo_scope'
+
+    case 'demo_constraint':
+      return 'demo_constraint'
+
+    case 'arch_element_lookup':
+      return 'arch_element_lookup'
+
+    case 'arch_room_scope':
+      return 'arch_room_scope'
+
+    case 'arch_schedule_query':
+      return 'arch_schedule_query'
 
     case 'general': {
       const q = rawQuery.toLowerCase()
@@ -180,6 +205,16 @@ function buildPreferredSources(
   // Live PDF analysis is a last-resort source added by the retrieval
   // orchestrator if everything above returns empty. Not listed here as
   // "preferred" — it's a fallback.
+
+  // Arch modes: vision_db first (graph lookup), then vector_search fallback.
+  if (
+    answerMode === 'arch_element_lookup' ||
+    answerMode === 'arch_room_scope'     ||
+    answerMode === 'arch_schedule_query'
+  ) {
+    if (!sources.includes('vision_db'))     sources.push('vision_db')
+    if (!sources.includes('vector_search')) sources.push('vector_search')
+  }
 
   // Unsupported domains should not attempt retrieval at all.
   if (answerMode === 'requirement_lookup') {
