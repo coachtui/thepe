@@ -7,15 +7,16 @@
  */
 
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { createRequire } from 'module'
+import path from 'path'
 
 // Configure worker (Node.js environment)
 // PDF.js requires a worker to parse PDFs
 if (typeof window === 'undefined') {
-  // Server-side: point to the actual worker file
-  const require = createRequire(import.meta.url)
-  pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve(
-    'pdfjs-dist/legacy/build/pdf.worker.mjs'
+  // Server-side: point to the actual worker file using path resolution
+  // This works with Next.js by pointing directly to node_modules
+  pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(
+    process.cwd(),
+    'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'
   )
 }
 

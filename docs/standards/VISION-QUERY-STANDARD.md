@@ -1,431 +1,310 @@
 # Vision Query Standard
 
-This document defines the **standard approach** for all visual analysis queries in the construction plan AI assistant. This pattern has been tested and works accurately for counting components, finding crossings, determining lengths, and answering complex construction plan questions.
+This document defines how visual analysis queries work within the **unified chat pipeline**. It covers the retrieval hierarchy, when live PDF analysis runs, and what prompt rules apply to which sheet types.
 
-**This is the canonical reference. All future query features MUST follow this pattern.**
+**This is the canonical reference. All future visual query features MUST follow this pattern.**
 
 ---
 
 ## Architecture Overview
 
+Visual queries are not a separate code path. They flow through the same unified pipeline as all other queries. Vision-specific behavior is determined by `QueryAnalysis` fields set during query analysis.
+
 ```
-User Query
+POST /api/chat  or  /api/mobile/chat
+    │  (auth only — both routes delegate to chat-handler)
+    ▼
+chat-handler.ts: handleChatRequest()
     │
     ▼
-┌─────────────────────────────────────┐
-│  Query Classification (smart-router) │
-│  - Detects if vision is needed       │
-│  - Extracts component type, size     │
-│  - Identifies visual task type       │
-└─────────────────────────────────────┘
+query-analyzer.ts: analyzeQuery()
+    │  → answerMode: 'quantity_lookup' | 'crossing_lookup' | ...
+    │  → retrievalHints.needsVisionDBLookup: true/false
+    │  → retrievalHints.visionQuerySubtype: 'component' | 'crossing' | 'length'
+    ▼
+retrieval-orchestrator.ts: retrieveEvidence()
     │
-    ▼ (if needsVision = true)
-┌─────────────────────────────────────┐
-│  PDF Attachment (pdf-attachment.ts)  │
-│  - Fetches PDFs from Supabase        │
-│  - Converts to base64                │
-│  - Attaches directly to Claude       │
-└─────────────────────────────────────┘
+    ├─ 1. Vision DB  (if needsVisionDBLookup)
+    │     → queryComponentCount / queryCrossings / queryUtilityLength
+    │     → Returns EvidenceItem[] from pre-extracted structured data
+    │
+    ├─ 2. Smart router  (if Vision DB empty or not applicable)
+    │     → direct_quantity_lookup, complete_data, vector_search
+    │
+    └─ 3. Live PDF analysis  (LAST RESORT — only if items still empty)
+          → shouldAttemptLivePDF() gates by answerMode
+          → createDocumentAnalyzer().analyzeSheetSet()
+          → Returns EvidenceItem[] tagged source: 'live_pdf_analysis'
+          → Confidence capped at 0.6 if sheets were skipped or capped
     │
     ▼
-┌─────────────────────────────────────┐
-│  Visual Analysis Prompt              │
-│  - Task-specific system prompt       │
-│  - Construction terminology          │
-│  - Scanning methodology              │
-└─────────────────────────────────────┘
+evidence-evaluator.ts: evaluateSufficiency()
     │
     ▼
-┌─────────────────────────────────────┐
-│  Claude Sonnet 4.5 with PDFs         │
-│  - Reads actual PDF documents        │
-│  - Follows scanning instructions     │
-│  - Returns structured answer         │
-└─────────────────────────────────────┘
-    │
-    ▼
-Streaming Response to User
+response-writer.ts: writeResponse()   ← always streaming, always has conversation history
 ```
 
 ---
 
-## Core Principle: PDF Attachment, Not Image Conversion
+## Primary Visual Path: Vision DB
 
-**DO:** Attach PDFs directly using Claude's document support
+**Vision DB is the preferred source for all counting, crossing, and length queries.**
+
+Data is extracted from PDFs at indexing time and stored in Supabase tables. Queries against this data are fast, structured, and confidence-scored without re-reading PDFs at chat time.
+
+### When Vision DB is used
+
+`query-analyzer.ts` calls `determineVisionQueryType()` (from `vision-queries.ts`) and sets:
+
 ```typescript
-const messageContent = [
-  {
-    type: 'document',
-    source: {
-      type: 'base64',
-      media_type: 'application/pdf',
-      data: pdfBase64
-    }
-  },
-  {
-    type: 'text',
-    text: userQuery
-  }
-];
+retrievalHints: {
+  needsVisionDBLookup: true,
+  visionQuerySubtype: 'component' | 'crossing' | 'length'
+}
 ```
 
-**DON'T:** Convert PDFs to images first (unreliable, lossy)
+`retrieval-orchestrator.ts` then calls the appropriate Vision DB function:
+
+| `visionQuerySubtype` | DB function | Answers |
+|---|---|---|
+| `component` | `queryComponentCount()` | "How many 12-IN gate valves?" |
+| `crossing` | `queryCrossings()` | "What utilities cross Water Line A?" |
+| `length` | `queryUtilityLength()` | "How long is Water Line A?" |
+
+If any of these return results, **steps 2 and 3 are skipped**.
+
+### When Vision DB is not used
+
+- `visionQuerySubtype` is `'none'` (e.g., sheet lookup, specification question, general chat)
+- The data was never extracted during indexing (new project, failed processing)
+- The Vision DB query returns empty (rare — falls through to smart router)
 
 ---
 
-## Step 1: Query Classification
+## Secondary Path: Smart Router
 
-Location: `src/lib/chat/smart-router.ts`
+If Vision DB returns nothing, the smart router runs. It attempts in order:
+1. Direct quantity lookup (structured DB quantities)
+2. Complete chunk data (all chunks for a system — used for full takeoffs)
+3. Vector search (semantic similarity over indexed text)
 
-The router must detect:
-1. **needsVision**: Does this query require looking at the actual plans?
-2. **componentType**: What component is being asked about? (e.g., "gate valve")
-3. **sizeFilter**: What size? (e.g., "12-IN" vs "8-IN")
-4. **visualTask**: What type of visual analysis? (e.g., "count_components", "find_crossings")
-
-### Visual Task Types
-
-```typescript
-type VisualTask =
-  | 'count_components'    // "How many valves?"
-  | 'find_crossings'      // "What utilities cross the water line?"
-  | 'find_terminations'   // "Where does the line start/end?"
-  | 'measure_length'      // "How long is the water line?"
-  | 'locate_component'    // "Where is the fire hydrant?"
-  | 'general_analysis';   // Open-ended visual questions
-```
-
-### Detection Patterns
-
-```typescript
-// Counting queries
-/how\s+many|count|total|number\s+of|quantity/i
-
-// Crossing queries
-/cross(ing|es)?|utility.*cross|what.*cross/i
-
-// Length queries
-/how\s+long|length|footage|linear\s+feet/i
-
-// Location queries
-/where\s+is|locate|find|show\s+me/i
-```
+This path is not vision-specific. It handles queries whose answers were captured as text during document indexing.
 
 ---
 
-## Step 2: PDF Attachment
+## Last-Resort Path: Live PDF Analysis
 
-Location: `src/lib/chat/pdf-attachment.ts`
+Live PDF analysis downloads project PDFs from Supabase storage and passes them to `createDocumentAnalyzer().analyzeSheetSet()` at chat time. It runs **only when**:
 
-### Key Functions
+1. Vision DB returned nothing, AND
+2. Smart router returned nothing, AND
+3. `shouldAttemptLivePDF(answerMode)` returns `true`
+
+### Supported answer modes for live PDF
 
 ```typescript
-// Get PDFs for a project
-const pdfResult = await getProjectPdfAttachments(
-  projectId,
-  maxDocuments,  // Default: 8
-  systemFilter   // Optional: "Water Line A"
-);
-
-// Build message with attachments
-const messageContent = buildMessageWithPdfAttachments(
-  pdfResult.attachments,
-  userQuery
-);
+function shouldAttemptLivePDF(answerMode: string): boolean {
+  const supported = [
+    'quantity_lookup',
+    'crossing_lookup',
+    'project_summary',
+    'scope_summary',
+    'sheet_lookup',
+    'document_lookup',
+  ]
+  return supported.includes(answerMode)
+}
 ```
 
-### Size Limits
-- Max 8 documents per request (Claude limit consideration)
-- Total size logged for monitoring
-- PDFs fetched from Supabase storage
+Modes like `sequence_inference`, `general_chat`, and `requirement_lookup` do NOT trigger live PDF.
+
+### Live PDF constraints
+
+- Max 15 sheets per request (`MAX_SHEETS = 15`)
+- Max 10 MB per sheet (`MAX_PDF_SIZE_MB = 10`)
+- Confidence capped at **0.6** (vs 0.85 for complete runs) if any sheets were skipped or total > cap
+- `LiveAnalysisMeta` is attached to the `EvidencePacket` so the response-writer can disclose limitations
+
+### Sheet selection
+
+The orchestrator pre-filters sheets before downloading, matching the query to relevant sheet types:
+
+```typescript
+const patterns = [
+  { test: /electrical|elec|power/i,   filePattern: /elect|elec|power|e-\d+/i },
+  { test: /gas\b|gas line/i,           filePattern: /gas|g-\d+/i },
+  { test: /storm|stm\b/i,             filePattern: /storm|stm|sd-\d+/i },
+  { test: /sewer|sanitary|ss\b/i,     filePattern: /sewer|sanitary|ss-\d+/i },
+  { test: /telecom|fiber|fo\b|catv/i, filePattern: /telecom|tel|fiber|fo|comm|c-\d+/i },
+]
+```
+
+If no pattern matches, all sheets are used up to `MAX_SHEETS`.
+
+### DO NOT bypass the retrieval hierarchy
+
+Live PDF analysis is not a shortcut for queries that seem "visual." If Vision DB has the data, use it. Only invoke live PDF analysis through the normal pipeline — never by directly calling `getProjectPdfAttachments()` or `anthropicDirect.messages.stream()` from a route file.
 
 ---
 
-## Step 3: Visual Analysis Prompts
+## Prompt Engineering for Live PDF Analysis
 
-Location: `src/app/api/chat/route.ts`
+When live PDF analysis runs, prompts are built inside `createDocumentAnalyzer` (see `src/agents/constructionPEAgent/`). The following rules govern what to include.
 
-### Critical Prompt Components
+### Scope prompt rules to sheet type
 
-Every visual analysis prompt MUST include:
+**Profile-view scanning rules apply only to utility plan sheets**, not to all construction plans.
 
-#### 1. Sheet Layout Education
+#### Utility plan sheets (water, sewer, storm, gas lines)
+
+These sheets typically have two distinct sections:
+
 ```
-Most construction plan sheets have TWO MAIN SECTIONS:
+PLAN VIEW (top 50–60%)
+- Aerial overhead view of horizontal alignment
+- May contain callout boxes pointing to fittings or crossings
 
-**PLAN VIEW (Top 50-60% of sheet)**
-- Aerial/overhead view showing horizontal layout
-- May have callout boxes pointing to components
-
-**PROFILE VIEW (Bottom 40-50% of sheet)**
-- Side view showing vertical alignment
-- HAS A STATION SCALE AT THE BOTTOM (0+00, 5+00, etc.)
-- Contains VERTICAL TEXT LABELS rotated 90°
-- THIS IS THE PRIMARY SOURCE FOR COMPONENT COUNTS
-```
-
-#### 2. Scanning Methodology
-```
-**SCANNING TECHNIQUE:**
-1. Look at the PROFILE VIEW (bottom section with elevations)
-2. Start at the LEFT side, scan slowly to the RIGHT
-3. Look for ANY vertical text along the utility line
-4. Note EVERY component label you see
-5. Record the approximate station from the scale below
+PROFILE VIEW (bottom 40–50%)
+- Side view showing vertical alignment and grade
+- Station scale at bottom (0+00, 5+00, 10+00, ...)
+- Vertical text labels rotated 90° along the utility line
+- PRIMARY SOURCE for component counts and crossing depths
 ```
 
-#### 3. Size Filtering Instructions
-```
-**READ CAREFULLY - THESE ARE DIFFERENT:**
-- "12-IN" = twelve inch ✓ COUNT THIS
-- "8-IN" = eight inch ✗ EXCLUDE
-- "1-1/2-IN" = one and a half inch ✗ EXCLUDE
+**Scanning technique for utility profiles:**
+1. Identify the profile view (bottom section with elevation grid and station scale)
+2. Scan left-to-right along the utility line
+3. Read every vertical text label — these are component calls (GATE VALVE, TEE, VERT DEFL, etc.) or utility crossings (ELEC, SS, STM, GAS)
+4. Record the station from the scale below each label
 
-If user asks for "12 inch valves", ONLY count items marked "12-IN".
+#### Other sheet types (electrical, civil grading, structural, details)
+
+These sheets do not have profile views. Scanning technique varies:
+- **Electrical sheets:** Read panel schedules, conduit run tables, and plan-view annotations
+- **Detail sheets:** Read keynotes, call-outs, and dimensions directly on the detail
+- **Civil grading sheets:** Read contours, spot elevations, and drainage basin labels
+
+Do not instruct Claude to "look at the profile view" on these sheet types. The instruction will produce hallucinations or missed data.
+
+### Terminology: utility components vs. utility crossings
+
+This distinction is critical for crossing queries and must be stated explicitly in every crossing-analysis prompt.
+
+**Components of the subject utility line (do NOT count as crossings):**
+
+| Label | Meaning |
+|---|---|
+| VERT DEFL | Vertical deflection fitting |
+| TEE | Tee fitting for a branch connection |
+| GATE VALVE | Isolation valve on the subject line |
+| BEND | Elbow/bend fitting |
+| CAP | End cap |
+| AIR RELEASE VALVE | ARV on the subject line |
+
+**Other utilities crossing the subject line (COUNT as crossings):**
+
+| Label | Utility |
+|---|---|
+| ELEC | Electrical conduit |
+| SS or SAN | Sanitary sewer |
+| STM | Storm drain |
+| GAS | Gas main |
+| W or WTR | Water main (if subject line is not water) |
+| TEL / FO / CATV | Telecommunications |
+
+**Sanity check:** A single water line alignment typically has 0–6 utility crossings. If you find 10+, you are likely counting water line fittings.
+
+### Size filtering
+
+When a query specifies a size, filter strictly. State explicitly in the prompt:
+
+```
+READ CAREFULLY — THESE ARE DIFFERENT SIZES:
+- "12-IN" = twelve inch  ← COUNT if user asks for 12-inch
+- "8-IN"  = eight inch   ← EXCLUDE if user asks for 12-inch
+- "1-1/2-IN" = one-and-a-half inch  ← EXCLUDE
+
+Only count items whose label includes exactly the size the user asked for.
 ```
 
-#### 4. Construction Terminology (Critical!)
-```
-**WATER LINE COMPONENTS (Part of Water Line A - NOT crossings):**
-- VERT DEFL = Vertical deflection fitting
-- TEE = Tee fitting where branch connects
-- GATE VALVE = Valve on the water line
-- BEND = Elbow/bend fitting
-- CAP = End cap
+### Response format
 
-**ACTUAL UTILITY CROSSINGS (Different utilities):**
-- ELEC = Electrical line
-- SS = Sanitary Sewer
-- STM = Storm Drain
-- GAS = Gas line
-```
+Always request a structured response so the user can verify results:
 
-#### 5. Response Format Specification
 ```
-For each sheet, report EVERYTHING you found:
+For each sheet analyzed:
 
 **Sheet [NAME]:**
-- Profile view: [List each label with station]
-- Plan view callouts: [List any callout boxes]
-- Count for this sheet: [Number]
+- Profile view findings: [component or crossing label, station, count]
+- Plan view callouts: [any additional items found]
+- Subtotal: [N]
 
-**TOTAL COUNT** across all sheets
-**BREAKDOWN BY SHEET** (for verification)
-**CONFIDENCE LEVEL**
+**TOTAL** across all sheets: [N]
+**CONFIDENCE:** [high/medium/low]
+**NOTES:** [any ambiguous labels, skipped areas, or caveats]
 ```
 
 ---
 
-## Step 4: API Implementation
+## Adding New Visual Query Types
 
-Location: `src/app/api/chat/route.ts`
+### 1. Add detection to `vision-queries.ts`
 
-### Standard Pattern
+`determineVisionQueryType()` returns `'component' | 'crossing' | 'length' | 'none'`. If your new query type maps to one of these, it is already handled.
 
-```typescript
-// 1. Check if vision is needed
-const classification = await classifyQuery(userQuery);
+If you need a new subtype, add it to `VisionQuerySubtype` in `types.ts` and add a detection branch in `determineVisionQueryType()`.
 
-if (classification.needsVision) {
-  // 2. Get PDF attachments
-  const pdfResult = await getProjectPdfAttachments(projectId, 8);
+### 2. Add a Vision DB query function (preferred)
 
-  if (pdfResult.success && pdfResult.attachments.length > 0) {
-    // 3. Build task-specific prompt
-    const systemPrompt = buildVisualCountingPrompt(
-      classification.componentType,
-      classification.sizeFilter,
-      classification.visualTask
-    );
+If the data can be stored during indexing, add a query function in `vision-queries.ts` and call it from `attemptVisionDBLookup()` in `retrieval-orchestrator.ts`. This avoids live PDF analysis for every query.
 
-    // 4. Build message with PDF attachments
-    const messageContent = buildMessageWithPdfAttachments(
-      pdfResult.attachments,
-      userQuery
-    );
+### 3. Update `shouldAttemptLivePDF()` if needed
 
-    // 5. Call Claude with PDFs attached
-    const stream = anthropicDirect.messages.stream({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{
-        role: 'user',
-        content: messageContent
-      }],
-      temperature: 0.3  // Lower for accuracy
-    });
+If your new answer mode should fall back to live PDF analysis, add it to the supported list in `retrieval-orchestrator.ts:shouldAttemptLivePDF()`.
 
-    // 6. Stream response
-    return new Response(stream.toReadableStream());
-  }
-}
-```
+### 4. Scope prompts correctly
+
+When adding new prompts to `createDocumentAnalyzer`:
+- Apply profile-view scanning rules only to utility plan sheets
+- State terminology explicitly — Claude does not inherently know construction abbreviations
+- Include a sanity check for the expected range of results
+- Request a per-sheet breakdown so results are verifiable
 
 ---
 
-## Adding New Query Types
+## Common Pitfalls
 
-When adding a new visual query feature:
-
-### 1. Add Detection Pattern to Router
-
-```typescript
-// In smart-router.ts
-if (/your.*new.*pattern/i.test(query)) {
-  return {
-    needsVision: true,
-    visualTask: 'your_new_task',
-    // ... other fields
-  };
-}
-```
-
-### 2. Create Task-Specific Prompt Builder
-
-```typescript
-// In route.ts
-function buildYourNewTaskPrompt(): string {
-  return `## YOUR NEW TASK ANALYSIS
-
-You are analyzing construction plan PDFs to [TASK DESCRIPTION].
-
-**CRITICAL: [Key distinction or rule]**
-
-## WHAT TO LOOK FOR
-[Detailed instructions]
-
-## WHAT TO IGNORE
-[Common mistakes to avoid]
-
-## RESPONSE FORMAT
-[Expected output structure]
-`;
-}
-```
-
-### 3. Add to Prompt Selection Logic
-
-```typescript
-function buildVisualCountingPrompt(
-  componentType?: string,
-  sizeFilter?: string,
-  visualTask?: string
-): string {
-  if (visualTask === 'your_new_task') {
-    return buildYourNewTaskPrompt();
-  }
-  // ... existing logic
-}
-```
-
-### 4. Test Thoroughly
-
-- Test with actual construction plans
-- Verify accuracy against known answers
-- Check for common misinterpretations
-- Ensure terminology education is sufficient
-
----
-
-## Prompt Engineering Principles
-
-### 1. Teach Domain Knowledge
-Claude doesn't inherently know construction terminology. The prompt must educate:
-- What components look like on plans
-- How profile views vs plan views work
-- What abbreviations mean
-- What IS and IS NOT a particular thing
-
-### 2. Provide Scanning Methodology
-Don't just ask "count the valves." Tell Claude HOW to scan:
-- Where to look (profile view)
-- How to scan (left to right)
-- What to look for (vertical text labels)
-- How to avoid duplicates
-
-### 3. Include Sanity Checks
-```
-**Sanity check:** Projects typically have 0-5 crossings.
-Finding 10+ means you're probably counting water line fittings.
-```
-
-### 4. Specify Response Format
-Always tell Claude exactly how to structure the response:
-- Per-sheet breakdown
-- Total count
-- Confidence level
-- Notes on uncertainties
-
-### 5. Use Examples
-Show what correct analysis looks like:
-```
-**Example - YES, this is a crossing:**
-Sheet CU102 shows "ELEC" with "28.71±"
-Analysis: Electrical utility crossing
-Count: 1 crossing ✓
-
-**Example - NO, this is NOT a crossing:**
-Profile shows "VERT DEFL"
-Analysis: This is a water line fitting
-Count: 0 crossings ✗
-```
-
----
-
-## Common Pitfalls to Avoid
-
-### 1. Image Conversion
-**Wrong:** Convert PDF → Images → Send to Claude
-**Right:** Attach PDF directly as document
-
-### 2. Generic Prompts
-**Wrong:** "Count the valves in these plans"
-**Right:** Detailed prompt with terminology, scanning method, examples
-
-### 3. Missing Size Filtering
-**Wrong:** Count all valves
-**Right:** "12-IN valves ONLY, exclude 8-IN"
-
-### 4. Terminology Confusion
-**Wrong:** Assume Claude knows VERT DEFL ≠ crossing
-**Right:** Explicitly teach the distinction
-
-### 5. No Verification Structure
-**Wrong:** "Tell me how many"
-**Right:** "Report per-sheet breakdown so user can verify"
+| Wrong | Right |
+|---|---|
+| Treat live PDF as the default visual path | Live PDF is last-resort only — Vision DB runs first |
+| Apply profile-view rules to all sheet types | Profile-view rules apply only to utility plan sheets |
+| Assume Claude knows VERT DEFL ≠ crossing | Explicitly list what IS and IS NOT a crossing |
+| Count all valves regardless of size | State size filter explicitly in the prompt |
+| Convert PDF → images before sending | Use Claude's native document support (`type: 'document'`) |
+| Skip per-sheet breakdown in response | Always request per-sheet breakdown for verification |
+| Call `anthropicDirect.messages.stream()` from a route file for vision | Route through the chat pipeline — retrieval-orchestrator handles live PDF |
 
 ---
 
 ## File Reference
 
-| File | Purpose |
-|------|---------|
-| `src/lib/chat/smart-router.ts` | Query classification |
-| `src/lib/chat/pdf-attachment.ts` | PDF fetching and attachment |
-| `src/app/api/chat/route.ts` | API handler with prompt builders |
-| `src/lib/chat/vision-queries.ts` | Database queries for vision data |
-| `src/lib/vision/claude-vision.ts` | Vision processing during indexing |
+| File | Role |
+|---|---|
+| [src/lib/chat/query-analyzer.ts](src/lib/chat/query-analyzer.ts) | Single entry point for query analysis; sets `needsVisionDBLookup` and `visionQuerySubtype` |
+| [src/lib/chat/retrieval-orchestrator.ts](src/lib/chat/retrieval-orchestrator.ts) | Executes retrieval hierarchy: Vision DB → smart router → live PDF |
+| [src/lib/chat/vision-queries.ts](src/lib/chat/vision-queries.ts) | Vision DB query functions (`queryComponentCount`, `queryCrossings`, `queryUtilityLength`) |
+| [src/lib/chat/smart-router.ts](src/lib/chat/smart-router.ts) | Direct lookup + vector/complete-data search |
+| [src/lib/chat/types.ts](src/lib/chat/types.ts) | Shared types: `QueryAnalysis`, `EvidencePacket`, `LiveAnalysisMeta`, `AnswerMode` |
+| [src/lib/chat/chat-handler.ts](src/lib/chat/chat-handler.ts) | Shared handler used by both web and mobile routes |
+| [src/agents/constructionPEAgent/](src/agents/constructionPEAgent/) | `createDocumentAnalyzer()` — live PDF analysis and prompt logic |
+| [src/app/api/chat/route.ts](src/app/api/chat/route.ts) | Web route — auth only, delegates to `handleChatRequest()` |
+| [src/app/api/mobile/chat/route.ts](src/app/api/mobile/chat/route.ts) | Mobile route — Bearer token auth only, delegates to `handleChatRequest()` |
 
 ---
 
 ## Version History
 
 | Date | Change |
-|------|--------|
+|---|--------|
 | 2026-01-31 | Initial standard established |
-
----
-
-## Summary
-
-The key to accurate visual analysis:
-
-1. **Attach PDFs directly** (not images)
-2. **Classify the query** to determine visual task type
-3. **Build task-specific prompts** with terminology education
-4. **Teach scanning methodology** (profile view, left-to-right)
-5. **Include sanity checks** and examples
-6. **Request structured responses** for verification
-
-This pattern works. Follow it for all new visual query features.
+| 2026-03-10 | Rewritten to reflect unified pipeline; live PDF demoted to last-resort fallback; profile-view rules scoped to utility plan sheets only |

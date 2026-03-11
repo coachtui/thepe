@@ -178,6 +178,18 @@ export async function routeQuery(
     includeMetadata?: boolean;
     maxResults?: number;
     minConfidence?: number;
+    /**
+     * Pre-computed classification from query-analyzer.
+     * When provided, skips the internal classifyQuery() call so the same
+     * string is not pattern-matched twice.
+     */
+    precomputedClassification?: QueryClassification;
+    /**
+     * When true, skips the internal vision DB lookup steps (1.25 and 1.5).
+     * Set this when the retrieval-orchestrator has already attempted those
+     * lookups in its own Step 2.
+     */
+    skipVisionDBLookup?: boolean;
   } = {}
 ): Promise<QueryRoutingResult> {
   const startTime = Date.now();
@@ -189,8 +201,8 @@ export async function routeQuery(
   } = options;
 
   try {
-    // STEP 1: Classify the query
-    const classification = classifyQuery(query);
+    // STEP 1: Classify the query (skip if caller already did this)
+    const classification = options.precomputedClassification ?? classifyQuery(query);
 
     console.log('[Smart Router] Query classification:', {
       type: classification.type,
@@ -247,29 +259,35 @@ export async function routeQuery(
     }
 
     // STEP 1.25: CHECK IF VISUAL ANALYSIS IS NEEDED
-    // This detects if the user wants real-time visual inspection of plans
-    const needsVisual = requiresVisualAnalysis(query);
-    const visualTask = needsVisual ? determineVisualTask(query) : undefined;
-    const visualParams = needsVisual ? {
-      componentType: extractVisualComponentType(query),
-      sizeFilter: extractSizeFilter(query),
-      utilityName: extractUtilityName(query)
-    } : undefined;
+    // Skip when called from the new pipeline (retrieval-orchestrator handles this).
+    let needsVisual = false;
+    let visualTask: ReturnType<typeof determineVisualTask> | undefined;
+    let visualParams: { componentType?: string; sizeFilter?: string; utilityName?: string } | undefined;
 
-    if (needsVisual) {
-      console.log('[Smart Router] Visual analysis recommended:', {
-        task: visualTask,
-        params: visualParams
-      });
+    if (!options.skipVisionDBLookup) {
+      needsVisual = requiresVisualAnalysis(query);
+      visualTask = needsVisual ? determineVisualTask(query) : undefined;
+      visualParams = needsVisual ? {
+        componentType: extractVisualComponentType(query),
+        sizeFilter: extractSizeFilter(query),
+        utilityName: extractUtilityName(query)
+      } : undefined;
+
+      if (needsVisual) {
+        console.log('[Smart Router] Visual analysis recommended:', {
+          task: visualTask,
+          params: visualParams
+        });
+      }
     }
 
     // STEP 1.5: CHECK FOR VISION DATA QUERIES (HIGHEST PRIORITY)
-    // Vision-extracted data is the most authoritative source for:
-    // - Component counts (valves, fittings, hydrants, etc.)
-    // - Utility crossings (ELEC, SS, STM, etc.)
-    // - Utility lengths (BEGIN/END termination points)
-    const visionQueryType = determineVisionQueryType(query);
-    console.log('[Smart Router] Vision query type:', visionQueryType);
+    // Vision-extracted data is the most authoritative source for component counts,
+    // crossings, and lengths. Skipped when retrieval-orchestrator already ran these.
+    const visionQueryType = options.skipVisionDBLookup ? 'none' : determineVisionQueryType(query);
+    if (!options.skipVisionDBLookup) {
+      console.log('[Smart Router] Vision query type:', visionQueryType);
+    }
 
     if (visionQueryType !== 'none') {
       let visionResult: ComponentQueryResult | CrossingQueryResult | LengthQueryResult | null = null;

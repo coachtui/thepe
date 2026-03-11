@@ -8,6 +8,8 @@
  * Body: { projectId: string, maxSheets?: number }
  */
 
+export const dynamicParams = true;
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/db/supabase/server';
 import { processDocumentWithVision } from '@/lib/processing/vision-processor';

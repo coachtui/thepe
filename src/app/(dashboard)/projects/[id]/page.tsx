@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/db/supabase/client'
 import { updateProjectAction, deleteProjectAction } from '../actions'
@@ -61,6 +61,23 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     checkAnalysisStatus()
   }, [])
 
+  // Poll for document status updates when any document is pending/processing
+  const pollRef = useRef<NodeJS.Timeout | null>(null)
+  useEffect(() => {
+    const hasProcessing = documents.some(
+      (d) => d.processing_status === 'pending' || d.processing_status === 'processing'
+        || d.vision_status === 'processing'
+    )
+    if (hasProcessing) {
+      pollRef.current = setInterval(() => {
+        loadDocuments(false)
+      }, 5000)
+    }
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [documents])
+
   const checkAnalysisStatus = async () => {
     try {
       const response = await fetch(`/api/projects/${params.id}/analyze-complete`)
@@ -103,8 +120,8 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     }
   }
 
-  const loadDocuments = async () => {
-    setLoadingDocuments(true)
+  const loadDocuments = async (showLoading = true) => {
+    if (showLoading) setLoadingDocuments(true)
     try {
       const supabase = createClient()
       const docs = await getDocuments(supabase, params.id)
@@ -112,7 +129,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     } catch (error) {
       console.error('Error loading documents:', error)
     } finally {
-      setLoadingDocuments(false)
+      if (showLoading) setLoadingDocuments(false)
     }
   }
 

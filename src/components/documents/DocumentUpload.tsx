@@ -82,6 +82,7 @@ export function DocumentUpload({ projectId, onUploadComplete }: DocumentUploadPr
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include',
           body: JSON.stringify({ documentId: newDocument.id }),
         })
 

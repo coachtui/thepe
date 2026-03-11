@@ -85,6 +85,17 @@ export async function storeTerminationPoints(
   }
 
   try {
+    // Verify document exists before attempting to store related data
+    const { data: doc, error: docError } = await supabase
+      .from('documents')
+      .select('id')
+      .eq('id', documentId)
+      .single();
+
+    if (docError || !doc) {
+      console.warn(`[Termination Extractor] Document not found: ${documentId} (may be processing race condition, skipping)`);
+      return 0;
+    }
     // Filter out termination points with null/empty stations and map to DB records
     const terminationRecords = visionResult.terminationPoints
       .filter((point) => {

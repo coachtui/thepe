@@ -2,6 +2,12 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  // Skip middleware for API routes that don't need session refresh
+  const path = request.nextUrl.pathname
+  if (path.startsWith('/api/inngest') || path.startsWith('/api/test-rls')) {
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -34,9 +40,10 @@ export async function middleware(request: NextRequest) {
   try {
     const { data, error } = await supabase.auth.getUser()
     if (error) {
-      // Log auth errors but don't crash - treat as unauthenticated
-      // This handles cases like "Invalid Refresh Token: Refresh Token Not Found"
-      console.warn('[Middleware] Auth error:', error.message)
+      // Treat as unauthenticated - only log unexpected errors, not routine missing sessions
+      if (!error.message.includes('session') && !error.message.includes('missing')) {
+        console.warn('[Middleware] Auth error:', error.message)
+      }
     } else {
       user = data.user
     }

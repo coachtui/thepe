@@ -24,9 +24,12 @@
 // Main agent
 export {
   ConstructionPEAgent,
-  createPEAgent,
+  createPEAgent
+} from './constructioPEAgent';
+
+export type {
   PEAgentConfig
-} from '.';
+} from './constructioPEAgent';
 
 // Types
 export type {
@@ -45,7 +48,6 @@ export type {
   ActionItem,
   CommunicationType,
   CommunicationDraft,
-  VisionTask,
   SpecSection,
   StandardReference
 } from './types';
@@ -73,7 +75,10 @@ export {
 // Document analysis (plans and specs)
 export {
   ConstructionDocumentAnalyzer,
-  createDocumentAnalyzer,
+  createDocumentAnalyzer
+} from './documentAnalyzer';
+
+export type {
   SheetAnalysisResult,
   ExtractedComponent,
   UtilityCrossing,

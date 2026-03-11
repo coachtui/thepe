@@ -57,6 +57,18 @@ export async function storeUtilityCrossings(
   }
 
   try {
+    // Verify document exists before attempting to store related data
+    const { data: doc, error: docError } = await supabase
+      .from('documents')
+      .select('id')
+      .eq('id', documentId)
+      .single();
+
+    if (docError || !doc) {
+      console.warn(`[Crossing Extractor] Document not found: ${documentId} (may be processing race condition, skipping)`);
+      return 0;
+    }
+
     // Map to DB records
     const crossingRecords = visionResult.utilityCrossings.map((crossing) => {
       const stationNumeric = crossing.station ? stationToNumeric(crossing.station) : null;

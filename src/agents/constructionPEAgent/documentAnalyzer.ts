@@ -779,7 +779,7 @@ export class ConstructionDocumentAnalyzer {
   }
 
   private async classifySheet(
-    base64Image: string, 
+    base64Image: string,
     mediaType: string
   ): Promise<SheetAnalysisResult['sheet']['type']> {
     const response = await this.client.messages.create({
@@ -791,7 +791,7 @@ export class ConstructionDocumentAnalyzer {
         content: [
           {
             type: 'image',
-            source: { type: 'base64', media_type: mediaType, data: base64Image }
+            source: { type: 'base64', media_type: mediaType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp', data: base64Image }
           },
           {
             type: 'text',

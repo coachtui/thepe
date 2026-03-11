@@ -7,6 +7,10 @@ const nextConfig = {
     // Exclude native modules from webpack bundling (Next.js 14 syntax)
     serverComponentsExternalPackages: ['@napi-rs/canvas', 'canvas', 'pdfjs-dist'],
   },
+  // Exclude mobile app from Next.js type checking
+  typescript: {
+    tsconfigPath: './tsconfig.json',
+  },
   // Also configure webpack to ignore native modules
   webpack: (config, { isServer }) => {
     if (isServer) {
