@@ -148,6 +148,84 @@ export interface EvidencePacket {
 
 export type SufficiencyLevel = 'sufficient' | 'partial' | 'insufficient'
 
+// ---------------------------------------------------------------------------
+// Reasoning
+// ---------------------------------------------------------------------------
+
+/**
+ * Which reasoning mode the engine selected for this request.
+ * 'none' means pass-through — the writer uses evidence directly.
+ */
+export type ReasoningMode =
+  | 'scope_reasoning'       // scope_summary, project_summary
+  | 'sequence_reasoning'    // sequence_inference
+  | 'constraint_reasoning'  // general_chat with substantive project evidence
+  | 'quantity_reasoning'    // quantity_lookup with multi-system data
+  | 'none'                  // pass-through
+
+/**
+ * How well a finding is supported by evidence.
+ * Assigned deterministically by the reasoning engine — NEVER by the model.
+ *
+ *   explicit  = came from vision_db / direct_lookup / project_summary
+ *   inferred  = came from vector_search / live_pdf, or from construction practice rules
+ *   unknown   = no evidence; this is a gap
+ */
+export type SupportLevel = 'explicit' | 'inferred' | 'unknown'
+
+export type EvidenceStrength = 'strong' | 'moderate' | 'weak'
+
+export type GapType =
+  | 'missing_spec'
+  | 'partial_live_analysis'
+  | 'insufficient_structured_data'
+  | 'missing_sheet_coverage'
+  | 'unknown_scope'
+  | 'incomplete_system_coverage'
+
+export interface ReasoningFinding {
+  statement: string
+  supportLevel: SupportLevel
+  citations?: StructuredCitation[]
+  /** Why this is inferred, or what knowledge source it comes from */
+  basis?: string
+}
+
+export interface ReasoningGap {
+  description: string
+  gapType: GapType
+  actionable?: string
+}
+
+export interface ProjectContextAssembly {
+  primarySystems: string[]
+  relatedSystems: string[]
+  relevantSheets: string[]
+  relevantStations: string[]
+  dataCompleteness: 'full' | 'partial' | 'sparse'
+}
+
+/**
+ * Normalized output of the reasoning engine.
+ * Consumed by response-writer to produce answers that separate:
+ *   1. what documents explicitly support (explicit)
+ *   2. what is inferred from construction practice or patterns (inferred)
+ *   3. what is unknown / missing (gaps)
+ *
+ * When wasActivated=false, the writer uses the evidence packet directly
+ * (same behaviour as before the reasoning layer was added).
+ */
+export interface ReasoningPacket {
+  mode: ReasoningMode
+  wasActivated: boolean
+  context: ProjectContextAssembly
+  findings: ReasoningFinding[]
+  gaps: ReasoningGap[]
+  /** Hint to the writer about how to structure the answer */
+  recommendedAnswerFrame: string
+  evidenceStrength: EvidenceStrength
+}
+
 export interface SufficiencyResult {
   level: SufficiencyLevel
   score: number          // 0.0 – 1.0

@@ -18,7 +18,15 @@
 
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { streamText } from 'ai'
-import type { EvidencePacket, QueryAnalysis, SufficiencyResult, AnswerMode } from './types'
+import type {
+  EvidencePacket,
+  QueryAnalysis,
+  SufficiencyResult,
+  AnswerMode,
+  ReasoningPacket,
+  ReasoningFinding,
+  ReasoningGap,
+} from './types'
 
 const anthropicAI = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -42,6 +50,7 @@ export interface ChatMessage {
  * @param analysis    The query analysis (mode, entities, support level)
  * @param packet      The normalized evidence packet from retrieval
  * @param sufficiency The sufficiency evaluation result
+ * @param reasoning   The reasoning packet (wasActivated=false = pass-through)
  * @param messages    Full conversation history (always preserved)
  * @returns           A streaming Response suitable for return from a Next.js route
  */
@@ -49,9 +58,10 @@ export function writeResponse(
   analysis: QueryAnalysis,
   packet: EvidencePacket,
   sufficiency: SufficiencyResult,
+  reasoning: ReasoningPacket,
   messages: ChatMessage[]
 ): Response {
-  const systemPrompt = buildSystemPrompt(analysis, packet, sufficiency)
+  const systemPrompt = buildSystemPrompt(analysis, packet, sufficiency, reasoning)
 
   const result = streamText({
     model: anthropicAI(CHAT_MODEL),
@@ -70,7 +80,8 @@ export function writeResponse(
 function buildSystemPrompt(
   analysis: QueryAnalysis,
   packet: EvidencePacket,
-  sufficiency: SufficiencyResult
+  sufficiency: SufficiencyResult,
+  reasoning: ReasoningPacket
 ): string {
   const parts: string[] = []
 
@@ -85,12 +96,18 @@ function buildSystemPrompt(
     parts.push('---\n## PROJECT DATA\n\n' + packet.formattedContext)
   }
 
-  // 4. Retrieval transparency — how the data was sourced
+  // 4. Reasoning analysis — pre-classified findings (only when activated)
+  if (reasoning.wasActivated) {
+    parts.push(buildReasoningBlock(reasoning))
+    parts.push(REASONING_WRITER_INSTRUCTION)
+  }
+
+  // 5. Retrieval transparency — how the data was sourced
   if (packet.liveAnalysisMeta) {
     parts.push(buildLivePDFDisclaimer(packet.liveAnalysisMeta))
   }
 
-  // 5. Sufficiency constraints — what the model must or must not claim
+  // 6. Sufficiency constraints — what the model must or must not claim
   parts.push(buildSufficiencyConstraints(sufficiency, packet))
 
   return parts.join('\n\n')
@@ -321,6 +338,109 @@ The available evidence is incomplete. Your answer must:
 
   // insufficient — handled by mode instructions
   return ''
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning block — injected when reasoning engine was activated
+// ---------------------------------------------------------------------------
+
+/**
+ * Instruction block appended after the reasoning findings.
+ * Tells the model how to use the pre-classified support levels — it must not
+ * re-categorize them; it can only narrate the structure it's been given.
+ */
+const REASONING_WRITER_INSTRUCTION = `## USING THE REASONING ANALYSIS
+
+The REASONING ANALYSIS section has pre-classified all findings by evidence type. Use them as follows:
+
+- **EXPLICIT** findings came directly from project drawings and structured data.
+  Present as confirmed facts. Always cite the source (sheet number, station, data source).
+
+- **INFERRED** findings come from industry standard practice or document text interpretation.
+  Present with language like "Typically..." / "Standard practice is..." / "Based on available documents..."
+  Do NOT present inferred findings as confirmed project-specific facts.
+
+- **INFORMATION GAPS** represent missing data.
+  Present in a "What we don't know" or "Missing information" section.
+  Include the actionable suggestion where one is provided.
+
+DO NOT re-classify findings or change their support levels.
+The recommended answer frame is shown at the bottom of the REASONING ANALYSIS — follow it.`
+
+function buildReasoningBlock(reasoning: ReasoningPacket): string {
+  const lines: string[] = ['---', '## REASONING ANALYSIS']
+
+  // Context summary
+  const ctx = reasoning.context
+  if (ctx.primarySystems.length > 0) {
+    lines.push(`**Primary systems:** ${ctx.primarySystems.join(', ')}`)
+  }
+  if (ctx.relatedSystems.length > 0) {
+    lines.push(`**Related systems:** ${ctx.relatedSystems.join(', ')}`)
+  }
+  if (ctx.relevantSheets.length > 0) {
+    lines.push(`**Relevant sheets:** ${ctx.relevantSheets.join(', ')}`)
+  }
+  if (ctx.relevantStations.length > 0) {
+    lines.push(`**Station references:** ${ctx.relevantStations.join(', ')}`)
+  }
+  lines.push(`**Data completeness:** ${ctx.dataCompleteness}`)
+  lines.push(`**Evidence strength:** ${reasoning.evidenceStrength}`)
+  lines.push('')
+
+  // Findings grouped by support level
+  const explicit = reasoning.findings.filter(f => f.supportLevel === 'explicit')
+  const inferred = reasoning.findings.filter(f => f.supportLevel === 'inferred')
+  const unknown = reasoning.findings.filter(f => f.supportLevel === 'unknown')
+
+  if (explicit.length > 0) {
+    lines.push('### EXPLICIT — from project drawings/structured data')
+    explicit.forEach((f, i) => {
+      lines.push(formatFinding(i + 1, f))
+    })
+    lines.push('')
+  }
+
+  if (inferred.length > 0) {
+    lines.push('### INFERRED — from construction practice or document interpretation')
+    inferred.forEach((f, i) => {
+      lines.push(formatFinding(i + 1, f))
+    })
+    lines.push('')
+  }
+
+  if (unknown.length > 0) {
+    lines.push('### UNKNOWN — no supporting evidence')
+    unknown.forEach((f, i) => {
+      lines.push(formatFinding(i + 1, f))
+    })
+    lines.push('')
+  }
+
+  // Gaps
+  if (reasoning.gaps.length > 0) {
+    lines.push('### INFORMATION GAPS')
+    reasoning.gaps.forEach((g, i) => {
+      const action = g.actionable ? ` → ${g.actionable}` : ''
+      lines.push(`${i + 1}. ${g.description}${action}`)
+    })
+    lines.push('')
+  }
+
+  lines.push(`**Recommended answer frame:** ${reasoning.recommendedAnswerFrame}`)
+
+  return lines.join('\n')
+}
+
+function formatFinding(n: number, f: ReasoningFinding): string {
+  const citation =
+    f.citations && f.citations.length > 0
+      ? ` [${f.citations
+          .map(c => [c.sheetNumber, c.station].filter(Boolean).join(' @ '))
+          .join('; ')}]`
+      : ''
+  const basis = f.basis ? `\n   _Basis: ${f.basis}_` : ''
+  return `${n}. ${f.statement}${citation}${basis}`
 }
 
 // ---------------------------------------------------------------------------

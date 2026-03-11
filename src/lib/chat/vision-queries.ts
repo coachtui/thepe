@@ -88,7 +88,7 @@ export interface LengthQueryResult {
 /**
  * Common component patterns for detection
  */
-const COMPONENT_PATTERNS: Record<string, RegExp[]> = {
+export const COMPONENT_PATTERNS: Record<string, RegExp[]> = {
   // Valves
   valve: [/valve/i, /gate\s*valve/i, /butterfly\s*valve/i, /ball\s*valve/i, /check\s*valve/i, /air\s*valve/i, /prv/i],
 
