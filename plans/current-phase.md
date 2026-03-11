@@ -1,3 +1,153 @@
+# Phase 5: Structural + MEP + Coordination Reasoning — COMPLETE ✓
+
+Delivered 2026-03-11. TypeScript compilation passed with zero errors (`npx tsc --noEmit --skipLibCheck`).
+
+---
+
+## Phase 5 Status: COMPLETE ✓
+
+### Delivered Files
+
+| Deliverable | File | Status |
+|---|---|---|
+| Structural + MEP schema extension | `supabase/migrations/00042_structural_mep_entity_schema.sql` | ✓ NEW |
+| AnswerMode + ReasoningMode extensions | `src/lib/chat/types.ts` | ✓ MODIFIED |
+| Structural + MEP + coordination classification | `src/lib/chat/query-classifier.ts` | ✓ MODIFIED |
+| Structural + MEP + coordination mode mapping | `src/lib/chat/query-analyzer.ts` | ✓ MODIFIED |
+| Structural graph read queries | `src/lib/chat/structural-queries.ts` | ✓ NEW |
+| MEP graph read queries | `src/lib/chat/mep-queries.ts` | ✓ NEW |
+| Coordination graph read queries | `src/lib/chat/coordination-queries.ts` | ✓ NEW |
+| Structural + MEP + coordination retrieval path | `src/lib/chat/retrieval-orchestrator.ts` | ✓ MODIFIED |
+| Phase 5 reasoning modes | `src/lib/chat/reasoning-engine.ts` | ✓ MODIFIED |
+| Structural vision extraction infrastructure | `src/lib/vision/structural-extractor.ts` | ✓ NEW |
+| MEP vision extraction infrastructure | `src/lib/vision/mep-extractor.ts` | ✓ NEW |
+| Coordination validation harness | `src/lib/chat/coordination-validator.ts` | ✓ NEW |
+
+### Implementation Checklist
+
+#### Migration (`supabase/migrations/00042_structural_mep_entity_schema.sql`)
+- [x] Extend `entity_findings.finding_type` CHECK: adds `'load_bearing'`, `'capacity'`, `'equipment_tag'`, `'circuit_ref'`, `'coordination_note'`
+- [x] Extend `entity_relationships.relationship_type` CHECK: adds `'supports'`, `'served_by'`
+- [x] `idx_entities_structural`, `idx_entities_structural_label`
+- [x] `idx_entities_mep`, `idx_entities_mep_type`, `idx_entities_mep_label`, `idx_entities_mep_schedule`
+- [x] `idx_findings_capacity`, `idx_findings_equipment_tag`, `idx_findings_coordination_note`
+- [x] `idx_location_room_discipline`
+- [x] All idempotent (DO $ blocks checking existing constraint values)
+
+#### Types (`src/lib/chat/types.ts`)
+- [x] Add `struct_element_lookup`, `struct_area_scope`, `mep_element_lookup`, `mep_area_scope` to `AnswerMode`
+- [x] Add `trade_coordination`, `coordination_sequence`, `affected_area` to `AnswerMode`
+- [x] Add 7 new `ReasoningMode` values: struct_element_reasoning, struct_area_reasoning, mep_element_reasoning, mep_area_reasoning, trade_overlap_reasoning, coordination_constraint_reasoning, affected_area_reasoning
+- [x] Add `structMark`, `structEntityType`, `structGrid`, `structLevel`, `mepTag`, `mepDiscipline`, `coordRoom`, `coordLevel` to `_routing`
+- [x] Add `StructuralFinding`, `StructuralEntity`, `StructuralQueryResult` interfaces
+- [x] Add `MEPFinding`, `MEPEntity`, `MEPScheduleEntry`, `MEPQueryResult` interfaces
+- [x] Add `TradePresence`, `CoordinationQueryResult` interfaces
+
+#### Query Classifier (`src/lib/chat/query-classifier.ts`)
+- [x] 7 new `QueryType` values
+- [x] Pattern constants: STRUCTURAL_ELEMENT_PATTERNS, STRUCTURAL_AREA_PATTERNS, MEP_ELEMENT_PATTERNS, MEP_AREA_PATTERNS, COORDINATION_SEQUENCE_PATTERNS, AFFECTED_AREA_PATTERNS, TRADE_COORDINATION_PATTERNS
+- [x] Extractor helpers: extractStructMark(), extractStructGrid(), extractStructLevel(), extractMEPTag(), extractCoordRoom(), extractCoordLevel()
+- [x] Classification branches in classifyQuery() (coordination checked before structural/MEP)
+
+#### Query Analyzer (`src/lib/chat/query-analyzer.ts`)
+- [x] 7 new case mappings in mapToAnswerMode()
+- [x] Phase 5 preferred sources in buildPreferredSources() (vision_db + vector_search for all new modes)
+- [x] Phase 5 routing fields in _routing construction
+
+#### Structural Queries (`src/lib/chat/structural-queries.ts`) — NEW
+- [x] `queryStructuralElement(projectId, mark, entityType?)` — normalized mark match (uppercase + strip non-alphanumeric)
+- [x] `queryStructuralByArea(projectId, gridRef?, level?)` — TypeScript-side level/grid filter
+- [x] `formatStructuralElementAnswer(result)`, `formatStructuralAreaAnswer(result)`
+- [x] Entity type grouping order: footing → column → beam → foundation_wall → slab_edge → grid_line → structural_note
+
+#### MEP Queries (`src/lib/chat/mep-queries.ts`) — NEW
+- [x] `classifyMEPTrade(entityType)` — exported, maps entity_type → 'electrical' | 'mechanical' | 'plumbing'
+- [x] `queryMEPElement(projectId, tag, discipline?)` — normalized tag match + optional trade filter
+- [x] `queryMEPByArea(projectId, roomFilter?, levelFilter?, disciplineFilter?)` — location + trade filtering
+- [x] `fetchScheduleEntryForMEPEntity()` — described_by lookup (same two-step pattern as arch-queries)
+- [x] `formatMEPElementAnswer(result)`, `formatMEPAreaAnswer(result)` — grouped by trade
+- [x] Sets: ELECTRICAL_ENTITY_TYPES, MECHANICAL_ENTITY_TYPES, PLUMBING_ENTITY_TYPES
+
+#### Coordination Queries (`src/lib/chat/coordination-queries.ts`) — NEW
+- [x] `queryTradesInRoom(projectId, roomNumber)` — all disciplines in a room, grouped by trade
+- [x] `queryCoordinationConstraints(projectId, roomFilter?, levelFilter?)` — demo to_remain/to_protect + coordination_note entities
+- [x] `queryAffectedArea(projectId, roomFilter?, levelFilter?)` — all disciplines in room/level
+- [x] `buildTradePresence(rows)` — sorted by canonical order: arch → struct → electrical → mechanical → plumbing → demo
+- [x] `extractCoordinationNotes(rows)` — pulls coordination_note findings
+- [x] `toTradeName(discipline, entityType)` — MEP → classifyMEPTrade(), else discipline directly
+- [x] Formatters: formatTradeCoordinationAnswer(), formatCoordinationSequenceAnswer(), formatAffectedAreaAnswer()
+
+#### Retrieval (`src/lib/chat/retrieval-orchestrator.ts`)
+- [x] Step 2.8: structural graph lookup (struct_element_lookup, struct_area_scope)
+- [x] Step 2.85: MEP graph lookup (mep_element_lookup, mep_area_scope)
+- [x] Step 2.9: coordination graph lookup (trade_coordination, coordination_sequence, affected_area)
+- [x] attemptStructuralGraphLookup(), attemptMEPGraphLookup(), attemptCoordinationGraphLookup()
+- [x] All 7 new modes added to shouldAttemptLivePDF()
+- [x] Structural (S-xxx), mechanical (M-xxx), electrical (E-xxx), plumbing (P-xxx) sheet patterns in selectRelevantSheets()
+- [x] TS fixes: schedType cast removes 'hardware', safeArchTagType filters 'room' from archTagType
+
+#### Reasoning (`src/lib/chat/reasoning-engine.ts`)
+- [x] 7 new selectReasoningMode() cases
+- [x] 7 new generateFindings() dispatch cases
+- [x] generateStructuralElementFindings(), generateStructuralAreaFindings()
+- [x] generateMEPElementFindings(), generateMEPAreaFindings()
+- [x] generateTradeOverlapFindings() with STANDARD_COORDINATION_CAUTIONS (6 inferred cautions)
+- [x] generateCoordinationConstraintFindings(), generateAffectedAreaFindings()
+- [x] Gap detection for structural/MEP/coordination modes
+- [x] 7 new selectAnswerFrame() cases
+
+#### Vision Extractors
+- [x] `src/lib/vision/structural-extractor.ts` — StructuralSheetType (7 types), STRUCTURAL_SHEET_PATTERNS, detectStructuralEntityType(), extractStructuralMarkFromText(), buildStructuralCanonicalName(), STRUCTURAL_FOUNDATION_EXTRACTION_PROMPT, STRUCTURAL_FRAMING_EXTRACTION_PROMPT
+- [x] `src/lib/vision/mep-extractor.ts` — MEPSheetType (9 types), MEP_SHEET_PATTERNS, detectMEPEntityType(), detectMEPTrade(), extractMEPTagFromText(), buildMEPCanonicalName(), MECHANICAL_EXTRACTION_PROMPT, ELECTRICAL_EXTRACTION_PROMPT, PLUMBING_EXTRACTION_PROMPT
+
+#### Validation Harness (`src/lib/chat/coordination-validator.ts`) — NEW
+- [x] `runCoordinationValidation(projectId)` → CoordinationValidationReport (8 tests)
+- [x] `formatCoordinationValidationReport(report)` → string
+- [x] Tests: entity_discipline_coverage, entity_location_coverage, trade_presence_per_room, trade_presence_per_level, coordination_notes_surface, demo_constraint_surface, cross_discipline_consistency, confidence_range
+
+---
+
+## Key Design Decisions
+
+### discipline = 'structural' and 'mep' already in schema
+migration 00038 already included these values in the discipline CHECK constraint. No discipline migration needed in 00042.
+
+### MEP trade is query-time derived, not a DB column
+`classifyMEPTrade(entityType)` maps entity_type → 'electrical' | 'mechanical' | 'plumbing' at query time. No separate trade column. Three entity-type Sets (ELECTRICAL_ENTITY_TYPES, MECHANICAL_ENTITY_TYPES, PLUMBING_ENTITY_TYPES) used by both mep-queries.ts and mep-extractor.ts.
+
+### Coordination is room/level text-anchor based
+Cross-discipline coordination is anchored on `room_number` and `level` in `entity_locations`. No geometry, no BIM-grade clash detection. Filtering in TypeScript post-fetch (bounded entity counts per project).
+
+### STANDARD_COORDINATION_CAUTIONS
+6 inferred cautions in reasoning-engine.ts triggered by discipline combination patterns in formatted content: demo+MEP, structural+MEP penetrations, ACT ceiling+mechanical diffusers, electrical+plumbing clearance, HVAC+structural bays, general pre-installation meeting (3+ trades).
+
+### Retrieval step ordering
+1 → 2 (vision DB) → 2.5 (demo graph) → 2.75 (arch graph) → 2.8 (structural graph) → 2.85 (MEP graph) → 2.9 (coordination graph) → 3 (smart router) → 4 (live PDF).
+
+### (any[]) cast pattern for rawEntities.map()
+`(rawEntities as any[]).map(toEntityFn)` used throughout to ensure TypeScript infers the mapped type correctly when the Supabase client returns `any`. Established in arch-queries.ts and applied consistently in structural-queries.ts, mep-queries.ts.
+
+---
+
+## What Does NOT Change
+
+- All utility, demo, and architectural pipeline code — untouched
+- `graph-queries.ts`, `demo-queries.ts`, `arch-queries.ts`, `smart-router.ts` — untouched
+- Existing answer modes and reasoning modes — untouched
+- `requirement_lookup` remains unsupported
+
+---
+
+## Next Phase
+
+**Phase 6: Spec Ingestion Pipeline** — ingest project specifications to enable `requirement_lookup` mode
+(currently marked unsupported: no spec pipeline exists).
+
+Or **Phase 5C: Vision Processing Wiring** — wire structural-extractor.ts and mep-extractor.ts into the
+auto-process pipeline (same integration point as demo-extractor.ts and arch-extractor.ts).
+
+---
+
 # Phase 4: Architectural Floor Plans + Schedule Linkage — COMPLETE ✓
 
 Delivered 2026-03-11. TypeScript compilation passed with zero errors (`npx tsc --noEmit --skipLibCheck`).

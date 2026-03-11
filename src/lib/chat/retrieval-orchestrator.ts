@@ -42,6 +42,23 @@ import {
   formatArchElementAnswer,
   formatArchRoomAnswer,
 } from './arch-queries'
+import {
+  queryStructuralElement,
+  queryStructuralByArea,
+  formatStructuralElementAnswer,
+  formatStructuralAreaAnswer,
+} from './structural-queries'
+import {
+  queryMEPElement,
+  queryMEPByArea,
+  formatMEPElementAnswer,
+  formatMEPAreaAnswer,
+} from './mep-queries'
+import {
+  queryTradesInRoom,
+  queryCoordinationConstraints,
+  queryAffectedArea,
+} from './coordination-queries'
 import { createDocumentAnalyzer, type PEAgentConfig } from '@/agents/constructionPEAgent'
 import type {
   QueryAnalysis,
@@ -140,6 +157,56 @@ export async function retrieveEvidence(
     if (archItem) {
       items.push(archItem)
       retrievalMethod = 'arch_graph'
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 2.8: Structural graph queries (for struct_element_lookup and
+  // struct_area_scope). Runs after arch graph so structural data takes
+  // priority over generic vector search.
+  // ------------------------------------------------------------------
+  if (
+    items.length === 0 &&
+    (analysis.answerMode === 'struct_element_lookup' ||
+     analysis.answerMode === 'struct_area_scope')
+  ) {
+    const structItem = await attemptStructuralGraphLookup(analysis, projectId)
+    if (structItem) {
+      items.push(structItem)
+      retrievalMethod = 'structural_graph'
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 2.85: MEP graph queries (for mep_element_lookup and mep_area_scope).
+  // ------------------------------------------------------------------
+  if (
+    items.length === 0 &&
+    (analysis.answerMode === 'mep_element_lookup' ||
+     analysis.answerMode === 'mep_area_scope')
+  ) {
+    const mepItem = await attemptMEPGraphLookup(analysis, projectId)
+    if (mepItem) {
+      items.push(mepItem)
+      retrievalMethod = 'mep_graph'
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 2.9: Coordination graph queries (Phase 5B).
+  // Cross-discipline room/level lookup — always runs before smart router
+  // for coordination modes.
+  // ------------------------------------------------------------------
+  if (
+    items.length === 0 &&
+    (analysis.answerMode === 'trade_coordination'    ||
+     analysis.answerMode === 'coordination_sequence' ||
+     analysis.answerMode === 'affected_area')
+  ) {
+    const coordItem = await attemptCoordinationGraphLookup(analysis, projectId)
+    if (coordItem) {
+      items.push(coordItem)
+      retrievalMethod = 'coordination_graph'
     }
   }
 
@@ -345,7 +412,7 @@ async function attemptArchGraphLookup(
 
   try {
     if (analysis.answerMode === 'arch_schedule_query') {
-      const schedType = (archScheduleType ?? 'door') as 'door' | 'window' | 'room_finish' | 'hardware'
+      const schedType = (archScheduleType ?? 'door') as 'door' | 'window' | 'room_finish'
       const entries = await queryArchSchedule(projectId, schedType, archTag)
 
       if (entries.length === 0) return null
@@ -381,7 +448,8 @@ async function attemptArchGraphLookup(
     // arch_element_lookup — requires a tag
     if (!archTag) return null
 
-    const result = await queryArchElement(projectId, archTag, archTagType ?? undefined)
+    const safeArchTagType = (archTagType && archTagType !== 'room') ? archTagType : undefined
+    const result = await queryArchElement(projectId, archTag, safeArchTagType)
 
     if (!result.success || result.totalCount === 0) return null
 
@@ -393,6 +461,181 @@ async function attemptArchGraphLookup(
     }
   } catch (err) {
     console.error('[RetrievalOrchestrator] Arch graph lookup error:', err)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Structural graph lookup (Phase 5A)
+// ---------------------------------------------------------------------------
+
+/**
+ * Query the entity graph for structural entities. Returns a single EvidenceItem
+ * wrapping the formatted structural content, or null when no structural entities exist.
+ */
+async function attemptStructuralGraphLookup(
+  analysis: QueryAnalysis,
+  projectId: string
+): Promise<EvidenceItem | null> {
+  const structMark       = analysis._routing?.structMark       ?? undefined
+  const structEntityType = analysis._routing?.structEntityType ?? undefined
+  const structGrid       = analysis._routing?.structGrid       ?? undefined
+  const structLevel      = analysis._routing?.structLevel      ?? undefined
+
+  try {
+    if (analysis.answerMode === 'struct_element_lookup') {
+      if (!structMark) return null
+
+      const result = await queryStructuralElement(
+        projectId,
+        structMark,
+        structEntityType as 'footing' | 'column' | 'beam' | 'foundation_wall' | 'grid_line' | null ?? undefined
+      )
+
+      if (!result.success || result.totalCount === 0) return null
+
+      return {
+        source:     'vision_db',
+        content:    formatStructuralElementAnswer(result),
+        confidence: result.confidence,
+        rawData:    result,
+      }
+    }
+
+    // struct_area_scope
+    const result = await queryStructuralByArea(projectId, structGrid, structLevel)
+
+    if (!result.success || result.totalCount === 0) return null
+
+    return {
+      source:     'vision_db',
+      content:    formatStructuralAreaAnswer(result),
+      confidence: result.confidence,
+      rawData:    result,
+    }
+  } catch (err) {
+    console.error('[RetrievalOrchestrator] Structural graph lookup error:', err)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MEP graph lookup (Phase 5A)
+// ---------------------------------------------------------------------------
+
+/**
+ * Query the entity graph for MEP entities. Returns a single EvidenceItem
+ * wrapping the formatted MEP content, or null when no MEP entities exist.
+ */
+async function attemptMEPGraphLookup(
+  analysis: QueryAnalysis,
+  projectId: string
+): Promise<EvidenceItem | null> {
+  const mepTag        = analysis._routing?.mepTag        ?? undefined
+  const mepDiscipline = analysis._routing?.mepDiscipline ?? undefined
+  const coordRoom     = analysis._routing?.coordRoom     ?? undefined
+  const coordLevel    = analysis._routing?.coordLevel    ?? undefined
+
+  try {
+    if (analysis.answerMode === 'mep_element_lookup') {
+      if (!mepTag) return null
+
+      const result = await queryMEPElement(
+        projectId,
+        mepTag,
+        mepDiscipline as 'electrical' | 'mechanical' | 'plumbing' | undefined
+      )
+
+      if (!result.success || result.totalCount === 0) return null
+
+      return {
+        source:     'vision_db',
+        content:    formatMEPElementAnswer(result),
+        confidence: result.confidence,
+        rawData:    result,
+      }
+    }
+
+    // mep_area_scope — query by room/level, optionally discipline-filtered
+    const result = await queryMEPByArea(
+      projectId,
+      coordRoom   ?? null,
+      coordLevel  ?? null,
+      mepDiscipline as 'electrical' | 'mechanical' | 'plumbing' | undefined
+    )
+
+    if (!result.success || result.totalCount === 0) return null
+
+    return {
+      source:     'vision_db',
+      content:    formatMEPAreaAnswer(result),
+      confidence: result.confidence,
+      rawData:    result,
+    }
+  } catch (err) {
+    console.error('[RetrievalOrchestrator] MEP graph lookup error:', err)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Coordination graph lookup (Phase 5B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Query the entity graph for cross-discipline coordination data.
+ * Returns a single EvidenceItem with the formatted coordination content,
+ * or null when no entities exist at the specified location.
+ */
+async function attemptCoordinationGraphLookup(
+  analysis: QueryAnalysis,
+  projectId: string
+): Promise<EvidenceItem | null> {
+  const coordRoom  = analysis._routing?.coordRoom  ?? undefined
+  const coordLevel = analysis._routing?.coordLevel ?? undefined
+
+  try {
+    if (analysis.answerMode === 'trade_coordination') {
+      if (!coordRoom) return null
+
+      const result = await queryTradesInRoom(projectId, coordRoom)
+
+      if (!result.success || result.tradesPresent.length === 0) return null
+
+      return {
+        source:     'vision_db',
+        content:    result.formattedAnswer,
+        confidence: result.confidence,
+        rawData:    result,
+      }
+    }
+
+    if (analysis.answerMode === 'coordination_sequence') {
+      const result = await queryCoordinationConstraints(projectId, coordRoom, coordLevel)
+
+      if (!result.success || result.tradesPresent.length === 0) return null
+
+      return {
+        source:     'vision_db',
+        content:    result.formattedAnswer,
+        confidence: result.confidence,
+        rawData:    result,
+      }
+    }
+
+    // affected_area
+    const result = await queryAffectedArea(projectId, coordRoom, coordLevel)
+
+    if (!result.success || result.tradesPresent.length === 0) return null
+
+    return {
+      source:     'vision_db',
+      content:    result.formattedAnswer,
+      confidence: result.confidence,
+      rawData:    result,
+    }
+  } catch (err) {
+    console.error('[RetrievalOrchestrator] Coordination graph lookup error:', err)
     return null
   }
 }
@@ -545,6 +788,15 @@ function shouldAttemptLivePDF(answerMode: string): boolean {
     'arch_element_lookup',
     'arch_room_scope',
     'arch_schedule_query',
+    // Phase 5A
+    'struct_element_lookup',
+    'struct_area_scope',
+    'mep_element_lookup',
+    'mep_area_scope',
+    // Phase 5B
+    'trade_coordination',
+    'coordination_sequence',
+    'affected_area',
   ]
   return supported.includes(answerMode)
 }
@@ -657,6 +909,16 @@ function selectRelevantSheets(
     { test: /arch|floor plan|room|door schedule|window schedule|finish schedule/i,
                                          filePattern: /^a[-_]?\d|arch|floor|elev|a\d{3}/i },
     { test: /demo|demolition/i,         filePattern: /demo|d-\d+|dm-\d+|drcp/i },
+    // Phase 5A
+    { test: /structural|foundation|framing|footing|column|beam|load.?bearing/i,
+                                         filePattern: /^s[-_]?\d|struct/i },
+    { test: /mechanical|hvac|ahu|vav|duct|air.handler/i,
+                                         filePattern: /^m[-_]?\d|mech/i },
+    { test: /electrical|panel|circuit|conduit/i,
+                                         filePattern: /^e[-_]?\d|elec|power/i },
+    { test: /plumbing|drain|fixture|sanitary|cleanout/i,
+                                         filePattern: /^p[-_]?\d|plumb/i },
+    // Existing
     { test: /electrical|elec|power/i,   filePattern: /elect|elec|power|e-\d+/i },
     { test: /gas\b|gas line/i,           filePattern: /gas|g-\d+/i },
     { test: /storm|stm\b/i,             filePattern: /storm|stm|sd-\d+/i },

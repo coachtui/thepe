@@ -32,6 +32,15 @@ export type AnswerMode =
   | 'arch_element_lookup'  // What is Door D-14? What wall type WT-A?
   | 'arch_room_scope'      // What's in Room 105? Which rooms affected?
   | 'arch_schedule_query'  // What does the door schedule say for D-14?
+  // Phase 5A — structural + MEP
+  | 'struct_element_lookup'  // What is column C-4? What footing at Grid A-3?
+  | 'struct_area_scope'      // What structural elements are on Level 1?
+  | 'mep_element_lookup'     // What panel is LP-1? What's AHU-1?
+  | 'mep_area_scope'         // What MEP is in Room 105?
+  // Phase 5B — coordination
+  | 'trade_coordination'     // What trades touch Room 105?
+  | 'coordination_sequence'  // What could hold this work up?
+  | 'affected_area'          // What systems are affected on Level 1?
 
 // ---------------------------------------------------------------------------
 // Query analysis
@@ -102,6 +111,25 @@ export interface QueryAnalysis {
     archRoom?: string | null
     /** Schedule type for arch_schedule_query mode */
     archScheduleType?: 'door' | 'window' | 'room_finish' | null
+    // Phase 5A — structural routing
+    /** Structural mark extracted from query (e.g. "F-1", "C-4") */
+    structMark?: string | null
+    /** Structural entity type hint */
+    structEntityType?: 'footing' | 'column' | 'beam' | 'foundation_wall' | 'grid_line' | null
+    /** Grid reference extracted from query (e.g. "A-3", "B/3-4") */
+    structGrid?: string | null
+    /** Level extracted from structural query (e.g. "L1", "Level 2") */
+    structLevel?: string | null
+    // Phase 5A — MEP routing
+    /** MEP equipment tag (e.g. "LP-1", "AHU-1", "T-1") */
+    mepTag?: string | null
+    /** MEP discipline hint from query */
+    mepDiscipline?: 'electrical' | 'mechanical' | 'plumbing' | null
+    // Phase 5B — coordination routing
+    /** Room for coordination queries */
+    coordRoom?: string | null
+    /** Level for coordination queries */
+    coordLevel?: string | null
   }
 }
 
@@ -184,6 +212,15 @@ export type ReasoningMode =
   | 'demo_constraint_reasoning'  // demo_constraint: risk notes, requirements, inferred cautions
   | 'arch_element_reasoning'     // arch_element_lookup / arch_schedule_query: element + schedule linkage
   | 'arch_room_scope_reasoning'  // arch_room_scope: room contents + finish schedule + notes
+  // Phase 5A — structural + MEP
+  | 'struct_element_reasoning'           // structural element + grid + findings
+  | 'struct_area_reasoning'              // structural system per area/level
+  | 'mep_element_reasoning'              // MEP element + schedule linkage
+  | 'mep_area_reasoning'                 // MEP by trade in area
+  // Phase 5B — coordination
+  | 'trade_overlap_reasoning'            // disciplines per room
+  | 'coordination_constraint_reasoning'  // dependencies + cautions
+  | 'affected_area_reasoning'            // all systems in room/level
   | 'none'                       // pass-through
 
 /**
@@ -365,6 +402,142 @@ export interface ArchQueryResult {
   scheduleEntries: ArchScheduleEntry[]
   totalCount: number
   sheetsCited: string[]
+  confidence: number
+  formattedAnswer: string
+}
+
+// ---------------------------------------------------------------------------
+// Structural entities (Phase 5A)
+// ---------------------------------------------------------------------------
+
+/** A single finding attached to a structural entity. */
+export interface StructuralFinding {
+  findingType: string  // 'dimension' | 'material' | 'note' | 'load_bearing' | 'capacity' | 'specification_ref'
+  statement: string
+  supportLevel: SupportLevel
+  textValue: string | null
+  numericValue: number | null
+  unit: string | null
+  confidence: number
+}
+
+/** A single structural entity, hydrated with location and findings. */
+export interface StructuralEntity {
+  id: string
+  entityType: string   // 'footing' | 'column' | 'beam' | 'foundation_wall' | 'slab_edge' | 'structural_opening' | 'grid_line' | 'structural_note'
+  subtype: string | null
+  canonicalName: string
+  displayName: string
+  label: string | null  // structural mark ("F-1", "C-4", "W12×26")
+  status: string        // 'existing' | 'new' | 'proposed' | 'unknown'
+  confidence: number
+  room: string | null
+  level: string | null
+  gridRef: string | null
+  area: string | null
+  sheetNumber: string | null
+  findings: StructuralFinding[]
+}
+
+/** Return value of queryStructuralElement / queryStructuralByArea. */
+export interface StructuralQueryResult {
+  success: boolean
+  projectId: string
+  queryType: 'element' | 'area'
+  mark: string | null
+  gridFilter: string | null
+  levelFilter: string | null
+  entities: StructuralEntity[]
+  totalCount: number
+  sheetsCited: string[]
+  confidence: number
+  formattedAnswer: string
+}
+
+// ---------------------------------------------------------------------------
+// MEP entities (Phase 5A)
+// ---------------------------------------------------------------------------
+
+/** A single finding attached to a MEP entity. */
+export interface MEPFinding {
+  findingType: string  // 'dimension' | 'material' | 'capacity' | 'equipment_tag' | 'circuit_ref' | 'note' | 'schedule_row' | 'coordination_note'
+  statement: string
+  supportLevel: SupportLevel
+  textValue: string | null
+  numericValue: number | null
+  unit: string | null
+  confidence: number
+}
+
+/** A parsed MEP schedule entry (panel schedule row, equipment schedule row). */
+export interface MEPScheduleEntry {
+  id: string
+  tag: string                                             // "LP-1", "AHU-1"
+  scheduleType: 'panel' | 'equipment' | 'plumbing_fixture'
+  canonicalName: string
+  displayName: string
+  sheetNumber: string | null
+  findings: MEPFinding[]
+}
+
+/** A single MEP entity, hydrated with location, trade, findings, and optional schedule linkage. */
+export interface MEPEntity {
+  id: string
+  entityType: string  // 'panel' | 'transformer' | 'electrical_fixture' | 'conduit' | 'air_handler' | 'vav_box' | 'diffuser' | 'duct_run' | 'mechanical_equipment' | 'plumbing_fixture' | 'floor_drain' | 'cleanout' | 'piping_segment' | 'plumbing_equipment' | 'schedule_entry'
+  subtype: string | null
+  canonicalName: string
+  displayName: string
+  label: string | null    // equipment tag ("LP-1", "AHU-1", "WC-3")
+  trade: 'electrical' | 'mechanical' | 'plumbing' | 'unknown'  // derived from entity_type
+  status: string
+  confidence: number
+  room: string | null
+  level: string | null
+  area: string | null
+  gridRef: string | null
+  sheetNumber: string | null
+  findings: MEPFinding[]
+  scheduleEntry: MEPScheduleEntry | null
+}
+
+/** Return value of queryMEPElement / queryMEPByArea. */
+export interface MEPQueryResult {
+  success: boolean
+  projectId: string
+  queryType: 'element' | 'area'
+  tag: string | null
+  roomFilter: string | null
+  levelFilter: string | null
+  disciplineFilter: 'electrical' | 'mechanical' | 'plumbing' | null
+  entities: MEPEntity[]
+  totalCount: number
+  sheetsCited: string[]
+  confidence: number
+  formattedAnswer: string
+}
+
+// ---------------------------------------------------------------------------
+// Coordination (Phase 5B)
+// ---------------------------------------------------------------------------
+
+/** Summary of one trade's presence in a room or area. */
+export interface TradePresence {
+  trade: string            // 'structural' | 'electrical' | 'mechanical' | 'plumbing' | 'architectural' | 'demo' | 'utility'
+  entityCount: number
+  entityTypes: string[]    // deduplicated entity_type values in this trade
+  representativeLabels: string[]  // first 3 labels/marks
+  sheetsCited: string[]
+}
+
+/** Return value of coordination queries. */
+export interface CoordinationQueryResult {
+  success: boolean
+  projectId: string
+  roomFilter: string | null
+  levelFilter: string | null
+  tradesPresent: TradePresence[]
+  coordinationNotes: string[]  // explicit coordination_note finding statements
+  totalDisciplineCount: number
   confidence: number
   formattedAnswer: string
 }

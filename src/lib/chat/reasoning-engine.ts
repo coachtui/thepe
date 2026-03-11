@@ -110,6 +110,30 @@ function selectReasoningMode(
     case 'arch_schedule_query':
       return 'arch_room_scope_reasoning'
 
+    // Phase 5A — structural
+    case 'struct_element_lookup':
+      return 'struct_element_reasoning'
+
+    case 'struct_area_scope':
+      return 'struct_area_reasoning'
+
+    // Phase 5A — MEP
+    case 'mep_element_lookup':
+      return 'mep_element_reasoning'
+
+    case 'mep_area_scope':
+      return 'mep_area_reasoning'
+
+    // Phase 5B — coordination
+    case 'trade_coordination':
+      return 'trade_overlap_reasoning'
+
+    case 'coordination_sequence':
+      return 'coordination_constraint_reasoning'
+
+    case 'affected_area':
+      return 'affected_area_reasoning'
+
     case 'general_chat': {
       // Activate constraint reasoning when there is substantive structured data
       const hasStructuredData = packet.items.some(
@@ -205,6 +229,22 @@ function generateFindings(
       return generateArchElementFindings(packet)
     case 'arch_room_scope_reasoning':
       return generateArchRoomScopeFindings(packet)
+    // Phase 5A
+    case 'struct_element_reasoning':
+      return generateStructuralElementFindings(packet)
+    case 'struct_area_reasoning':
+      return generateStructuralAreaFindings(packet)
+    case 'mep_element_reasoning':
+      return generateMEPElementFindings(packet)
+    case 'mep_area_reasoning':
+      return generateMEPAreaFindings(packet)
+    // Phase 5B
+    case 'trade_overlap_reasoning':
+      return generateTradeOverlapFindings(analysis, packet)
+    case 'coordination_constraint_reasoning':
+      return generateCoordinationConstraintFindings(packet)
+    case 'affected_area_reasoning':
+      return generateAffectedAreaFindings(packet)
     default:
       return []
   }
@@ -691,6 +731,316 @@ function generateArchRoomScopeFindings(packet: EvidencePacket): ReasoningFinding
   return findings
 }
 
+// ── struct_element_reasoning ───────────────────────────────────────────────
+
+/**
+ * Generate findings for a structural element lookup (footing, column, beam, etc.).
+ * Support level: explicit = from vision_db; inferred = vector text.
+ */
+function generateStructuralElementFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  const structItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of structItems) {
+    const sections = item.content.split('\n\n').map(s => s.trim()).filter(s => s.length > 0)
+    for (const section of sections.slice(0, 5)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Vision-extracted from structural drawings',
+      })
+    }
+  }
+
+  const vectorItems = packet.items.filter(
+    i => i.source === 'vector_search' || i.source === 'complete_data'
+  )
+  for (const item of vectorItems.slice(0, 3)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — structural element reference',
+    })
+  }
+
+  return findings
+}
+
+// ── struct_area_reasoning ──────────────────────────────────────────────────
+
+function generateStructuralAreaFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  const structItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of structItems) {
+    const sections = item.content.split('\n\n').map(s => s.trim()).filter(s => s.length > 0)
+    for (const section of sections.slice(0, 6)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Vision-extracted from structural plans',
+      })
+    }
+  }
+
+  const vectorItems = packet.items.filter(
+    i => i.source === 'vector_search' || i.source === 'complete_data'
+  )
+  for (const item of vectorItems.slice(0, 2)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — structural area reference',
+    })
+  }
+
+  return findings
+}
+
+// ── mep_element_reasoning ──────────────────────────────────────────────────
+
+function generateMEPElementFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  const mepItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of mepItems) {
+    const sections = item.content.split('\n\n').map(s => s.trim()).filter(s => s.length > 0)
+    for (const section of sections.slice(0, 5)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Vision-extracted from MEP drawings',
+      })
+    }
+  }
+
+  const vectorItems = packet.items.filter(
+    i => i.source === 'vector_search' || i.source === 'complete_data'
+  )
+  for (const item of vectorItems.slice(0, 3)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — MEP element reference',
+    })
+  }
+
+  return findings
+}
+
+// ── mep_area_reasoning ─────────────────────────────────────────────────────
+
+function generateMEPAreaFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  const mepItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of mepItems) {
+    const sections = item.content.split('\n\n').map(s => s.trim()).filter(s => s.length > 0)
+    for (const section of sections.slice(0, 6)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Vision-extracted from MEP plans',
+      })
+    }
+  }
+
+  const vectorItems = packet.items.filter(
+    i => i.source === 'vector_search' || i.source === 'complete_data'
+  )
+  for (const item of vectorItems.slice(0, 2)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — MEP area reference',
+    })
+  }
+
+  return findings
+}
+
+// ── trade_overlap_reasoning ────────────────────────────────────────────────
+
+/**
+ * Standard coordination cautions triggered by detected discipline combinations.
+ * These are ALWAYS inferred (industry practice).
+ * trigger: regex tested against the combined formattedAnswer content.
+ */
+const STANDARD_COORDINATION_CAUTIONS: Array<{
+  statement: string
+  trigger: RegExp
+}> = [
+  {
+    statement:
+      'Coordinate MEP utility isolation with demo contractor before demolition begins in this area — confirm which MEP services are live vs. capped.',
+    trigger: /demo.*mep|mep.*demo|mechanical.*demo|electrical.*demo|plumbing.*demo/i,
+  },
+  {
+    statement:
+      'Structural penetrations for duct, pipe, or conduit require engineer review and proper framing — do not core or cut structural members without approved drawings.',
+    trigger: /structural.*(mechanical|electrical|plumbing|duct|pipe|conduit)|structural.*mep/i,
+  },
+  {
+    statement:
+      'ACT (acoustic ceiling tile) grid layout must coordinate with mechanical diffuser, sprinkler head, and light fixture locations — set out grid to center devices in tile modules.',
+    trigger: /ceiling|act|architectural.*mechanical|mechanical.*architectural/i,
+  },
+  {
+    statement:
+      'Maintain minimum 6-inch clearance between parallel electrical conduit runs and plumbing piping; separate by at least 12 inches from high-voltage conduit.',
+    trigger: /electrical.*plumbing|plumbing.*electrical/i,
+  },
+  {
+    statement:
+      'HVAC duct routing through structural bays requires coordination with structural drawings — verify header and joist clearances before duct shop drawings are released.',
+    trigger: /mechanical.*structural|structural.*duct|hvac.*structural/i,
+  },
+  {
+    statement:
+      'With multiple disciplines present, a pre-installation coordination meeting is recommended before rough-in begins.',
+    trigger: /./, // Always fires when 3+ trades present (checked in function)
+  },
+]
+
+/**
+ * Generate findings for trade coordination / what trades are in this room.
+ */
+function generateTradeOverlapFindings(
+  analysis: QueryAnalysis,
+  packet: EvidencePacket
+): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  // Vision DB coordination data → explicit
+  const coordItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of coordItems) {
+    const sections = item.content.split('\n\n').map(s => s.trim()).filter(s => s.length > 0)
+    for (const section of sections.slice(0, 8)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Entity graph — cross-discipline location data',
+      })
+    }
+  }
+
+  // Apply standard coordination cautions based on discipline combinations found
+  const combinedContent = packet.items.map(i => i.content).join(' ').toLowerCase()
+  const explicitStatements = findings.map(f => f.statement.toLowerCase())
+  const tradeCount = (combinedContent.match(
+    /\b(architectural|structural|electrical|mechanical|plumbing|demo)\b/g
+  ) ?? []).length
+
+  for (let i = 0; i < STANDARD_COORDINATION_CAUTIONS.length; i++) {
+    const caution = STANDARD_COORDINATION_CAUTIONS[i]
+    // Last caution (general meeting) only fires when 3+ trades are present
+    if (i === STANDARD_COORDINATION_CAUTIONS.length - 1 && tradeCount < 3) continue
+
+    if (
+      caution.trigger.test(combinedContent) &&
+      !explicitStatements.some(s => s.includes(caution.statement.substring(0, 40).toLowerCase()))
+    ) {
+      findings.push({
+        statement:    caution.statement,
+        supportLevel: 'inferred',
+        basis:        'Standard construction coordination practice — not drawn explicitly',
+      })
+    }
+  }
+
+  // Vector items → inferred supplemental
+  const vectorItems = packet.items.filter(
+    i => i.source === 'vector_search' || i.source === 'complete_data'
+  )
+  for (const item of vectorItems.slice(0, 2)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — coordination reference',
+    })
+  }
+
+  void analysis
+  return findings
+}
+
+// ── coordination_constraint_reasoning ─────────────────────────────────────
+
+const CONSTRAINT_KEYWORDS_COORD =
+  /remain|protect|to_remain|to_protect|constraint|hold|block|prevent|sequence|prior\s+to|before\s+start/i
+
+/**
+ * Generate findings for coordination constraint queries ("what could hold this up").
+ */
+function generateCoordinationConstraintFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  const coordItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of coordItems) {
+    const sections = item.content.split('\n\n').map(s => s.trim()).filter(s => s.length > 0)
+    for (const section of sections.slice(0, 8)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Entity graph — coordination and constraint data',
+      })
+    }
+  }
+
+  const vectorItems = packet.items.filter(
+    i =>
+      (i.source === 'vector_search' || i.source === 'complete_data') &&
+      CONSTRAINT_KEYWORDS_COORD.test(i.content)
+  )
+  for (const item of vectorItems.slice(0, 3)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — constraint or sequencing language detected',
+    })
+  }
+
+  return findings
+}
+
+// ── affected_area_reasoning ────────────────────────────────────────────────
+
+function generateAffectedAreaFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  const areaItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of areaItems) {
+    const sections = item.content.split('\n\n').map(s => s.trim()).filter(s => s.length > 0)
+    for (const section of sections.slice(0, 8)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Entity graph — affected area discipline count',
+      })
+    }
+  }
+
+  const vectorItems = packet.items.filter(
+    i => i.source === 'vector_search' || i.source === 'complete_data'
+  )
+  for (const item of vectorItems.slice(0, 2)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — area scope reference',
+    })
+  }
+
+  return findings
+}
+
 // ---------------------------------------------------------------------------
 // Gap identification
 // ---------------------------------------------------------------------------
@@ -767,6 +1117,55 @@ function identifyGaps(
         gapType: 'insufficient_structured_data',
         actionable:
           'Process architectural sheets (A-xxx) using the Analyze function to extract rooms, doors, windows, and schedule data',
+      })
+    }
+  }
+
+  // Phase 5A: Structural-specific gaps
+  if (
+    analysis.answerMode === 'struct_element_lookup' ||
+    analysis.answerMode === 'struct_area_scope'
+  ) {
+    const hasStructData = packet.items.some(i => i.source === 'vision_db')
+    if (!hasStructData && !gaps.some(g => g.gapType === 'insufficient_structured_data')) {
+      gaps.push({
+        description:
+          'No structural entities extracted yet — structural plan sheets (S-xxx) may not have been processed',
+        gapType: 'insufficient_structured_data',
+        actionable:
+          'Process structural sheets (S-xxx) using the Analyze function to extract footings, columns, beams, and grid data',
+      })
+    }
+  }
+
+  // Phase 5A: MEP-specific gaps
+  if (analysis.answerMode === 'mep_element_lookup' || analysis.answerMode === 'mep_area_scope') {
+    const hasMEPData = packet.items.some(i => i.source === 'vision_db')
+    if (!hasMEPData && !gaps.some(g => g.gapType === 'insufficient_structured_data')) {
+      gaps.push({
+        description:
+          'No MEP entities extracted yet — mechanical (M-xxx), electrical (E-xxx), or plumbing (P-xxx) sheets may not have been processed',
+        gapType: 'insufficient_structured_data',
+        actionable:
+          'Process MEP sheets using the Analyze function to extract panels, equipment, fixtures, and schedule data',
+      })
+    }
+  }
+
+  // Phase 5B: Coordination-specific gaps
+  if (
+    analysis.answerMode === 'trade_coordination'    ||
+    analysis.answerMode === 'coordination_sequence' ||
+    analysis.answerMode === 'affected_area'
+  ) {
+    const hasCoordData = packet.items.some(i => i.source === 'vision_db')
+    if (!hasCoordData && !gaps.some(g => g.gapType === 'insufficient_structured_data')) {
+      gaps.push({
+        description:
+          'No cross-discipline entity data found for this location — sheets from one or more disciplines may not have been processed',
+        gapType: 'insufficient_structured_data',
+        actionable:
+          'Process plan sheets for all relevant disciplines (A-xxx, S-xxx, M-xxx, E-xxx, P-xxx) to enable coordination queries',
       })
     }
   }
@@ -849,6 +1248,29 @@ function selectAnswerFrame(mode: ReasoningMode, findings: ReasoningFinding[]): s
 
     case 'arch_room_scope_reasoning':
       return hasExplicit ? 'arch_room_scope_detailed' : 'arch_room_scope_partial'
+
+    // Phase 5A
+    case 'struct_element_reasoning':
+      return hasExplicit ? 'struct_element_with_data' : 'struct_element_inferred'
+
+    case 'struct_area_reasoning':
+      return hasExplicit ? 'struct_area_grouped' : 'struct_area_inferred'
+
+    case 'mep_element_reasoning':
+      return hasExplicit ? 'mep_element_with_schedule' : 'mep_element_inferred'
+
+    case 'mep_area_reasoning':
+      return hasExplicit ? 'mep_area_by_trade' : 'mep_area_inferred'
+
+    // Phase 5B
+    case 'trade_overlap_reasoning':
+      return hasExplicit ? 'trade_coordination_detailed' : 'trade_coordination_inferred'
+
+    case 'coordination_constraint_reasoning':
+      return hasExplicit ? 'coordination_constraints_documented' : 'coordination_constraints_inferred'
+
+    case 'affected_area_reasoning':
+      return hasExplicit ? 'affected_area_by_discipline' : 'affected_area_inferred'
 
     default:
       return 'standard'

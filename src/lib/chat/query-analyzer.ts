@@ -100,6 +100,17 @@ export function analyzeQuery(rawQuery: string): QueryAnalysis {
       archTagType:     effectiveClassification.archTagType     ?? null,
       archRoom:        effectiveClassification.archRoom        ?? null,
       archScheduleType: effectiveClassification.archScheduleType ?? null,
+      // Phase 5A — structural
+      structMark:       effectiveClassification.structMark       ?? null,
+      structEntityType: effectiveClassification.structEntityType ?? null,
+      structGrid:       effectiveClassification.structGrid       ?? null,
+      structLevel:      effectiveClassification.structLevel      ?? null,
+      // Phase 5A — MEP
+      mepTag:           effectiveClassification.mepTag           ?? null,
+      mepDiscipline:    effectiveClassification.mepDiscipline    ?? null,
+      // Phase 5B — coordination
+      coordRoom:        (effectiveClassification.coordRoom ?? effectiveClassification.archRoom) ?? null,
+      coordLevel:       effectiveClassification.coordLevel ?? null,
     },
   }
 
@@ -152,6 +163,30 @@ function mapToAnswerMode(
 
     case 'arch_schedule_query':
       return 'arch_schedule_query'
+
+    // Phase 5A — structural
+    case 'struct_element_lookup':
+      return 'struct_element_lookup'
+
+    case 'struct_area_scope':
+      return 'struct_area_scope'
+
+    // Phase 5A — MEP
+    case 'mep_element_lookup':
+      return 'mep_element_lookup'
+
+    case 'mep_area_scope':
+      return 'mep_area_scope'
+
+    // Phase 5B — coordination
+    case 'trade_coordination':
+      return 'trade_coordination'
+
+    case 'coordination_sequence':
+      return 'coordination_sequence'
+
+    case 'affected_area':
+      return 'affected_area'
 
     case 'general': {
       const q = rawQuery.toLowerCase()
@@ -211,6 +246,27 @@ function buildPreferredSources(
     answerMode === 'arch_element_lookup' ||
     answerMode === 'arch_room_scope'     ||
     answerMode === 'arch_schedule_query'
+  ) {
+    if (!sources.includes('vision_db'))     sources.push('vision_db')
+    if (!sources.includes('vector_search')) sources.push('vector_search')
+  }
+
+  // Phase 5A: structural + MEP modes — vision_db first, then vector_search.
+  if (
+    answerMode === 'struct_element_lookup' ||
+    answerMode === 'struct_area_scope'     ||
+    answerMode === 'mep_element_lookup'    ||
+    answerMode === 'mep_area_scope'
+  ) {
+    if (!sources.includes('vision_db'))     sources.push('vision_db')
+    if (!sources.includes('vector_search')) sources.push('vector_search')
+  }
+
+  // Phase 5B: coordination modes — vision_db first (cross-discipline graph), then vector_search.
+  if (
+    answerMode === 'trade_coordination'    ||
+    answerMode === 'coordination_sequence' ||
+    answerMode === 'affected_area'
   ) {
     if (!sources.includes('vision_db'))     sources.push('vision_db')
     if (!sources.includes('vector_search')) sources.push('vector_search')

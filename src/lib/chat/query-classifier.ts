@@ -23,6 +23,15 @@ export type QueryType =
   | 'arch_element_lookup' // What is Door D-14? What wall type WT-A?
   | 'arch_room_scope'    // What's in Room 105? Which rooms are affected?
   | 'arch_schedule_query' // What does the door schedule say for D-14?
+  // Phase 5A
+  | 'struct_element_lookup'  // What is column C-4? What footing at Grid A-3?
+  | 'struct_area_scope'      // What structural elements are on Level 1?
+  | 'mep_element_lookup'     // What panel is LP-1? What's AHU-1?
+  | 'mep_area_scope'         // What MEP is in Room 105?
+  // Phase 5B
+  | 'trade_coordination'     // What trades touch Room 105?
+  | 'coordination_sequence'  // What could hold this work up?
+  | 'affected_area'          // What systems are affected on Level 1?
   | 'general';           // General question
 
 /**
@@ -60,6 +69,20 @@ export interface QueryClassification {
   archTagType?: 'door' | 'window' | 'wall_type' | 'room' | 'keynote'; // Tag entity type
   archRoom?: string;       // Extracted room number for arch room queries, e.g. "105"
   archScheduleType?: 'door' | 'window' | 'room_finish'; // Schedule type for arch_schedule_query
+
+  // Structural routing extras (Phase 5A)
+  structMark?: string;     // Structural mark, e.g. "F-1", "C-4", "W12×26"
+  structEntityType?: 'footing' | 'column' | 'beam' | 'foundation_wall' | 'grid_line';
+  structGrid?: string;     // Grid reference, e.g. "A-3", "B/3-4"
+  structLevel?: string;    // Level, e.g. "L1", "Level 2", "roof"
+
+  // MEP routing extras (Phase 5A)
+  mepTag?: string;         // Equipment tag, e.g. "LP-1", "AHU-1", "T-1"
+  mepDiscipline?: 'electrical' | 'mechanical' | 'plumbing';
+
+  // Coordination routing extras (Phase 5B)
+  coordRoom?: string;      // Room for coordination queries
+  coordLevel?: string;     // Level for coordination queries
 
   // Flags for retrieval strategy
   needsDirectLookup: boolean;  // Should try database lookup first
@@ -551,6 +574,224 @@ function extractMaterial(query: string): string | undefined {
   return undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Structural query patterns (Phase 5A)
+// ---------------------------------------------------------------------------
+
+const STRUCTURAL_ELEMENT_PATTERNS = [
+  /\b(footing|ftg)\s+[A-Z]?\d+[A-Z]?\b/i,
+  /\b(column|col)\s+[A-Z]?\d+[A-Z]?\b/i,
+  /\b(beam|bm|girder)\s+[A-Z\d-]+\b/i,
+  /\bfoundation\s+wall\s+[A-Z\d]+\b/i,
+  /\bgrid\s+(?:line\s+)?[A-Z]\d*\b/i,
+  /\bgrid\s+[A-Z]-\d+\b/i,
+  /what\s+(?:is|are)\s+(?:at\s+)?grid\s+[A-Z]/i,
+  /structural\s+(?:element|member|system)\s+/i,
+  /load[\s-]bearing/i,
+  /what\s+(?:is|are)\s+(?:footing|column|beam|the\s+footing|the\s+column|the\s+beam)\s+/i,
+]
+
+const STRUCTURAL_AREA_PATTERNS = [
+  /structural\s+(?:system|layout|plan)\s+(?:on|at|for)\s+/i,
+  /structural\s+(?:elements?|members?)\s+(?:on|at|in)\s+/i,
+  /(?:foundation|framing)\s+(?:plan|layout)/i,
+  /what(?:'?s?|\s+(?:is|are))\s+(?:the\s+)?structural\s+/i,
+]
+
+// ---------------------------------------------------------------------------
+// MEP query patterns (Phase 5A)
+// ---------------------------------------------------------------------------
+
+const MEP_ELEMENT_PATTERNS = [
+  // Electrical
+  /\bpanel\s+[A-Z]{0,3}[LP]?\d+[A-Z]?\b/i,
+  /\b(LP|MDP|MCC|DP|PP|EP)-?\d*[A-Z]?\b/,
+  /\btransformer\s+[TtXx][-\s]?\d+[A-Z]?\b/i,
+  /\b(xfmr|transformer)\s+\w+/i,
+  // Mechanical
+  /\b(AHU|RTU|FCU|HVAC)\s*[-\s]?\d+[A-Z]?\b/i,
+  /\b(VAV|VVT)\s*[-\s]?\d+[A-Z]?\b/i,
+  /\bair\s+handler\s+\w+/i,
+  /\b(EF|SF|RF)\s*-?\d+[A-Z]?\b/i,
+  // Plumbing
+  /\b(WC|WH|HB|DF|FD|CO)\s*-?\d+[A-Z]?\b/i,
+  /\bwater\s+heater\s+\w+/i,
+  /\bfloor\s+drain\s+\w+/i,
+  /\bcleanout\s+\w+/i,
+  /what\s+(?:is|are)\s+(?:panel|ahu|vav|rtu)\s+/i,
+  /tell\s+me\s+about\s+(?:panel|ahu|vav|rtu|transformer)\s+/i,
+]
+
+const MEP_AREA_PATTERNS = [
+  /what\s+(?:mep|mechanical|electrical|plumbing)\s+(?:is|are)\s+in\s+/i,
+  /(?:mep|mechanical|electrical|plumbing)\s+(?:systems?|equipment)\s+in\s+(?:room|level)\s+/i,
+  /what\s+(?:mep|m\/e\/p)\s+(?:runs?|serves?|feeds?)\s+/i,
+  /(?:electrical|mechanical|plumbing)\s+in\s+this\s+(?:room|space|area)/i,
+  /what\s+(?:hvac|mechanical|electrical|plumbing)\s+(?:is|are)\s+(?:on|in|at)\s+/i,
+]
+
+// ---------------------------------------------------------------------------
+// Coordination patterns (Phase 5B)
+// ---------------------------------------------------------------------------
+
+const COORDINATION_SEQUENCE_PATTERNS = [
+  /what\s+could\s+hold\s+(?:this|the)\s+work\s+up/i,
+  /what\s+(?:needs?\s+to\s+be|should\s+be)\s+coordinated\s+(?:before|first)/i,
+  /what\s+should\s+(?:happen|be\s+done)\s+(?:before|first)/i,
+  /pre[\s-]?construction\s+coordination/i,
+  /coordination\s+(?:checklist|requirements|issues?)/i,
+  /what\s+(?:could|might|would)\s+(?:hold|delay|block)\s+/i,
+  /what\s+(?:needs?\s+to\s+happen\s+first|should\s+come\s+first)/i,
+]
+
+const AFFECTED_AREA_PATTERNS = [
+  /what\s+(?:systems?|work)\s+(?:is|are)\s+affected\s+(?:on|in)/i,
+  /what\s+(?:is|are)\s+(?:involved|present|going\s+on)\s+(?:on|in|at)\s+(?:level|room|area)/i,
+  /what\s+(?:disciplines?|trades?)\s+are\s+on\s+(?:level|this\s+floor)/i,
+  /what\s+(?:systems?|trades?)\s+are\s+(?:present|involved)\s+(?:on|in)\s+/i,
+]
+
+const TRADE_COORDINATION_PATTERNS = [
+  /what\s+trades?\s+(?:touch|work\s+in|are\s+in)\s+/i,
+  /which\s+trades?\s+(?:touch|work\s+in|are\s+present)\s+/i,
+  /what\s+systems?\s+(?:touch|are\s+in|run\s+through)\s+/i,
+  /what\s+(?:needs?\s+to\s+be|should\s+be)\s+coordinated\s*(?:\?|$)/i,
+  /coordinate\s+before\s+/i,
+  /what\s+(?:contractors?|subs?|subcontractors?)\s+(?:are|work)\s+/i,
+]
+
+// ---------------------------------------------------------------------------
+// Structural extractors (Phase 5A)
+// ---------------------------------------------------------------------------
+
+function extractStructMark(query: string): {
+  mark: string | null
+  entityType: 'footing' | 'column' | 'beam' | 'foundation_wall' | 'grid_line' | null
+} {
+  // Footing: "footing F-1", "ftg F2"
+  const ftgFull = query.match(/\b(?:footing|ftg)\s+([A-Z]?\d+[A-Z]?)\b/i)
+  if (ftgFull) return { mark: ftgFull[1].toUpperCase(), entityType: 'footing' }
+
+  // Column: "column C-4", "col 1A"
+  const colFull = query.match(/\b(?:column|col)\s+([A-Z]?\d+[A-Z]?)\b/i)
+  if (colFull) return { mark: colFull[1].toUpperCase(), entityType: 'column' }
+
+  // Beam: "beam W12×26", "bm L2"
+  const beamFull = query.match(/\b(?:beam|bm|girder)\s+([\w×xX\d-]+)\b/i)
+  if (beamFull) return { mark: beamFull[1].toUpperCase(), entityType: 'beam' }
+
+  // Foundation wall: "foundation wall FW-1"
+  const fwFull = query.match(/\bfoundation\s+wall\s+([A-Z\d-]+)\b/i)
+  if (fwFull) return { mark: fwFull[1].toUpperCase(), entityType: 'foundation_wall' }
+
+  // Grid line: "grid A-3", "grid A", "grid line 3"
+  const gridFull = query.match(/\bgrid\s+(?:line\s+)?([A-Z]\d*)\b/i)
+  if (gridFull) return { mark: gridFull[1].toUpperCase(), entityType: 'grid_line' }
+
+  return { mark: null, entityType: null }
+}
+
+function extractStructGrid(query: string): string | null {
+  const patterns = [
+    /\bgrid\s+([A-Z]\d*)\b/i,
+    /\bgrid\s+([A-Z]-\d+)\b/i,
+    /\bgrid\s+([A-Z]\/\d+(?:-\d+)?)\b/i,
+    /at\s+grid\s+([A-Z][-/\d]*)/i,
+  ]
+  for (const p of patterns) {
+    const m = query.match(p)
+    if (m) return m[1].toUpperCase()
+  }
+  return null
+}
+
+function extractStructLevel(query: string): string | null {
+  const patterns = [
+    /\blevel\s+([A-Z0-9]+)\b/i,
+    /\bfloor\s+(\d+)\b/i,
+    /\b(\d+(?:st|nd|rd|th)\s+floor)\b/i,
+    /\b(roof)\s+(?:level|framing|deck)/i,
+    /\bL(\d+)\b/,
+  ]
+  for (const p of patterns) {
+    const m = query.match(p)
+    if (m) return m[1].toUpperCase()
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// MEP extractors (Phase 5A)
+// ---------------------------------------------------------------------------
+
+function extractMEPTag(query: string): {
+  tag: string | null
+  discipline: 'electrical' | 'mechanical' | 'plumbing' | null
+} {
+  // Panel tags
+  const panelFull = query.match(/\bpanel\s+([A-Z]{0,3}[LP]?\d+[A-Z]?)\b/i)
+  if (panelFull) return { tag: panelFull[1].toUpperCase(), discipline: 'electrical' }
+  const panelBare = query.match(/\b((?:LP|MDP|MCC|DP|PP|EP)-?\d*[A-Z]?)\b/)
+  if (panelBare) return { tag: panelBare[1].toUpperCase(), discipline: 'electrical' }
+
+  // Transformer
+  const xfmr = query.match(/\b(?:transformer|xfmr)\s+([TtXx]\d+[A-Z]?)\b/i)
+  if (xfmr) return { tag: xfmr[1].toUpperCase(), discipline: 'electrical' }
+  const xfmrBare = query.match(/\b(T\d+[A-Z]?)\b/)
+  if (xfmrBare) return { tag: xfmrBare[1].toUpperCase(), discipline: 'electrical' }
+
+  // AHU/RTU/FCU
+  const ahu = query.match(/\b((?:AHU|RTU|FCU)\s*[-\s]?\d+[A-Z]?)\b/i)
+  if (ahu) return { tag: ahu[1].toUpperCase().replace(/\s+/g, ''), discipline: 'mechanical' }
+
+  // VAV
+  const vav = query.match(/\b(VAV\s*[-\s]?\d+[A-Z]?)\b/i)
+  if (vav) return { tag: vav[1].toUpperCase().replace(/\s+/g, ''), discipline: 'mechanical' }
+
+  // Exhaust/supply fans
+  const fan = query.match(/\b((?:EF|SF|RF)-?\d+[A-Z]?)\b/i)
+  if (fan) return { tag: fan[1].toUpperCase(), discipline: 'mechanical' }
+
+  // Plumbing fixtures
+  const plmbFull = query.match(/\b(?:water\s+closet|wc|lavatory|sink|urinal|shower)\s+(\w\d*[A-Z]?)\b/i)
+  if (plmbFull) return { tag: plmbFull[1].toUpperCase(), discipline: 'plumbing' }
+  const plmbBare = query.match(/\b((?:WC|WH|HB|DF|FD|CO)-?\d+[A-Z]?)\b/)
+  if (plmbBare) return { tag: plmbBare[1].toUpperCase(), discipline: 'plumbing' }
+
+  return { tag: null, discipline: null }
+}
+
+// ---------------------------------------------------------------------------
+// Coordination extractors (Phase 5B)
+// ---------------------------------------------------------------------------
+
+function extractCoordRoom(query: string): string | null {
+  // Reuse the same pattern as arch extractArchRoom
+  const patterns = [
+    /\broom\s+(\w+[-\w]*)/i,
+    /\b(?:in|for|within|about)\s+room\s+(\w+[-\w]*)/i,
+  ]
+  for (const p of patterns) {
+    const m = query.match(p)
+    if (m) return m[1].toUpperCase()
+  }
+  return null
+}
+
+function extractCoordLevel(query: string): string | null {
+  // Same as extractDemoLevel
+  const patterns = [
+    /\b(?:floor|level)\s+([A-Z0-9]+)/i,
+    /\b(\d+(?:st|nd|rd|th)\s+floor)\b/i,
+    /\bL(\d+)\b/,
+  ]
+  for (const p of patterns) {
+    const m = query.match(p)
+    if (m) return m[1].toUpperCase()
+  }
+  return null
+}
+
 /**
  * Classify a user query into type and extract entities
  *
@@ -768,6 +1009,168 @@ export function classifyQuery(query: string): QueryClassification {
         keywords: ['demolish', 'remove', 'remain', 'protect', 'relocate'],
       },
     };
+  }
+
+  // ── Phase 5B: Coordination queries (checked before structural/MEP) ─────
+
+  // coordination_sequence — "what could hold this work up?" (most specific)
+  if (COORDINATION_SEQUENCE_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'coordination_sequence',
+      intent: 'informational',
+      confidence: 0.88,
+      coordRoom:  extractCoordRoom(query) ?? undefined,
+      coordLevel: extractCoordLevel(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['demo_plan', 'arch_floor_plan', 'mechanical_floor_plan', 'electrical_power_plan'],
+        keywords: ['coordinate', 'hold', 'delay', 'before', 'first'],
+      },
+    }
+  }
+
+  // affected_area — "what systems are affected on Level 1?"
+  if (AFFECTED_AREA_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'affected_area',
+      intent: 'informational',
+      confidence: 0.85,
+      coordRoom:  extractCoordRoom(query) ?? undefined,
+      coordLevel: extractCoordLevel(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['arch_floor_plan', 'mechanical_floor_plan', 'electrical_power_plan', 'plumbing_plan'],
+        keywords: ['affected', 'system', 'level', 'room'],
+      },
+    }
+  }
+
+  // trade_coordination — "what trades touch Room 105?"
+  if (TRADE_COORDINATION_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'trade_coordination',
+      intent: 'informational',
+      confidence: 0.85,
+      coordRoom:  extractCoordRoom(query) ?? undefined,
+      coordLevel: extractCoordLevel(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['arch_floor_plan', 'mechanical_floor_plan', 'electrical_power_plan', 'plumbing_plan'],
+        keywords: ['trades', 'systems', 'room', 'coordinate'],
+      },
+    }
+  }
+
+  // ── Phase 5A: Structural queries ────────────────────────────────────────
+
+  // struct_element_lookup — "what is column C-4?" (requires a mark)
+  if (STRUCTURAL_ELEMENT_PATTERNS.some(p => p.test(normalized))) {
+    const { mark, entityType } = extractStructMark(query)
+    if (mark) {
+      return {
+        type: 'struct_element_lookup',
+        intent: 'informational',
+        confidence: 0.88,
+        structMark:       mark,
+        structEntityType: entityType ?? undefined,
+        structGrid:       extractStructGrid(query) ?? undefined,
+        structLevel:      extractStructLevel(query) ?? undefined,
+        needsDirectLookup: false,
+        needsVectorSearch: true,
+        needsVision: false,
+        needsCompleteData: false,
+        isAggregationQuery: false,
+        searchHints: {
+          preferredSheetTypes: ['structural_foundation_plan', 'structural_framing_plan'],
+          keywords: [mark, entityType ?? 'structural'].filter(Boolean),
+        },
+      }
+    }
+  }
+
+  // struct_area_scope — "what structural elements are on Level 1?"
+  if (STRUCTURAL_AREA_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'struct_area_scope',
+      intent: 'informational',
+      confidence: 0.85,
+      structGrid:  extractStructGrid(query) ?? undefined,
+      structLevel: extractStructLevel(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['structural_foundation_plan', 'structural_framing_plan'],
+        keywords: ['structural', 'footing', 'column', 'beam'],
+      },
+    }
+  }
+
+  // ── Phase 5A: MEP queries ───────────────────────────────────────────────
+
+  // mep_element_lookup — "what panel is LP-1?" (requires a tag)
+  if (MEP_ELEMENT_PATTERNS.some(p => p.test(normalized))) {
+    const { tag, discipline } = extractMEPTag(query)
+    if (tag) {
+      return {
+        type: 'mep_element_lookup',
+        intent: 'informational',
+        confidence: 0.88,
+        mepTag:        tag,
+        mepDiscipline: discipline ?? undefined,
+        needsDirectLookup: false,
+        needsVectorSearch: true,
+        needsVision: false,
+        needsCompleteData: false,
+        isAggregationQuery: false,
+        searchHints: {
+          preferredSheetTypes: [
+            discipline === 'mechanical' ? 'mechanical_floor_plan' :
+            discipline === 'plumbing'   ? 'plumbing_plan'         :
+            'electrical_power_plan',
+            'equipment_schedule', 'panel_schedule',
+          ],
+          keywords: [tag, discipline ?? 'mep'].filter(Boolean),
+        },
+      }
+    }
+  }
+
+  // mep_area_scope — "what MEP is in Room 105?"
+  if (MEP_AREA_PATTERNS.some(p => p.test(normalized))) {
+    const { discipline } = extractMEPTag(query)
+    const coordRoom = extractCoordRoom(query)
+    return {
+      type: 'mep_area_scope',
+      intent: 'informational',
+      confidence: 0.85,
+      mepDiscipline: discipline ?? undefined,
+      coordRoom:     coordRoom  ?? undefined,
+      coordLevel:    extractCoordLevel(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['mechanical_floor_plan', 'electrical_power_plan', 'plumbing_plan'],
+        keywords: ['mep', 'mechanical', 'electrical', 'plumbing'].concat(coordRoom ? [coordRoom] : []),
+      },
+    }
   }
 
   // ── Architectural queries ───────────────────────────────────────────────
