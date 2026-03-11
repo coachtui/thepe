@@ -41,6 +41,15 @@ export type AnswerMode =
   | 'trade_coordination'     // What trades touch Room 105?
   | 'coordination_sequence'  // What could hold this work up?
   | 'affected_area'          // What systems are affected on Level 1?
+  // Phase 6A — specifications
+  | 'spec_section_lookup'     // What does spec section 03 30 00 require?
+  | 'spec_requirement_lookup' // What testing is required for concrete work?
+  // Phase 6B — RFI / change documents
+  | 'rfi_lookup'              // Did an RFI address footing F-1?
+  | 'change_impact_lookup'    // What changed in Addendum 1?
+  // Phase 6C — submittals + governing
+  | 'submittal_lookup'        // What submittal covers LP-1?
+  | 'governing_document_query' // What governs here: plan, spec, or RFI?
 
 // ---------------------------------------------------------------------------
 // Query analysis
@@ -130,6 +139,21 @@ export interface QueryAnalysis {
     coordRoom?: string | null
     /** Level for coordination queries */
     coordLevel?: string | null
+    // Phase 6A — spec routing
+    /** Spec section number extracted from query (e.g. "03 30 00", "03300") */
+    specSection?: string | null
+    /** Requirement type hint (material/execution/testing/submittal/closeout/inspection) */
+    specRequirementType?: 'material' | 'execution' | 'testing' | 'submittal' | 'closeout' | 'inspection' | 'protection' | null
+    // Phase 6B — RFI routing
+    /** RFI/change document identifier (e.g. "RFI-023", "ASI-002", "Addendum 1") */
+    rfiNumber?: string | null
+    /** Change document type */
+    changeDocType?: 'rfi' | 'asi' | 'bulletin' | 'addendum' | null
+    // Phase 6C — submittal / governing routing
+    /** Submittal identifier (e.g. "03-01", "16-02") */
+    submittalId?: string | null
+    /** Free-text scope description for governing document queries */
+    governingDocScope?: string | null
   }
 }
 
@@ -221,6 +245,13 @@ export type ReasoningMode =
   | 'trade_overlap_reasoning'            // disciplines per room
   | 'coordination_constraint_reasoning'  // dependencies + cautions
   | 'affected_area_reasoning'            // all systems in room/level
+  // Phase 6A — spec
+  | 'requirement_reasoning'              // spec requirements grouped by family
+  // Phase 6B — RFI / changes
+  | 'change_reasoning'                   // RFI/change impact on entities
+  // Phase 6C — governing
+  | 'governing_document_reasoning'       // plan vs spec vs RFI hierarchy
+  | 'requirement_gap_reasoning'          // missing/unresolved requirements
   | 'none'                       // pass-through
 
 /**
@@ -242,6 +273,11 @@ export type GapType =
   | 'missing_sheet_coverage'
   | 'unknown_scope'
   | 'incomplete_system_coverage'
+  // Phase 6
+  | 'missing_rfi_resolution'  // RFI open / unanswered
+  | 'conflicting_documents'   // plan vs spec vs RFI conflict
+  | 'unlinked_submittal'      // submittal not yet linked to entity
+  | 'spec_section_not_ingested' // spec section not yet in DB
 
 export interface ReasoningFinding {
   statement: string
@@ -538,6 +574,185 @@ export interface CoordinationQueryResult {
   tradesPresent: TradePresence[]
   coordinationNotes: string[]  // explicit coordination_note finding statements
   totalDisciplineCount: number
+  confidence: number
+  formattedAnswer: string
+}
+
+// ---------------------------------------------------------------------------
+// Spec entities (Phase 6A)
+// ---------------------------------------------------------------------------
+
+/** A single finding attached to a spec entity. */
+export interface SpecFinding {
+  findingType: string  // 'material_requirement' | 'execution_requirement' | 'testing_requirement' |
+                       // 'submittal_requirement' | 'closeout_requirement' | 'protection_requirement' |
+                       // 'inspection_requirement' | 'note'
+  statement: string
+  supportLevel: SupportLevel
+  textValue: string | null
+  partReference: string | null  // "PART 2 - PRODUCTS, 2.1.A"
+  confidence: number
+}
+
+/** A single spec section or requirement entity, hydrated with findings. */
+export interface SpecEntity {
+  id: string
+  entityType: string   // 'spec_section' | 'spec_part' | 'spec_requirement' | 'spec_note'
+  subtype: string | null  // requirement family: 'material' | 'execution' | 'testing' | etc.
+  canonicalName: string
+  displayName: string
+  label: string | null  // section number: "03 30 00"
+  status: string
+  confidence: number
+  sectionNumber: string | null  // normalized section: "03 30 00"
+  divisionNumber: string | null // "03"
+  sheetNumber: string | null    // used as section citation
+  findings: SpecFinding[]
+}
+
+/** Grouped spec requirements by family for display. */
+export interface SpecRequirementGroup {
+  family: string  // 'material' | 'execution' | 'testing' | 'submittal' | 'closeout' | 'protection' | 'inspection'
+  requirements: SpecFinding[]
+}
+
+/** Return value of querySpecSection / querySpecRequirements. */
+export interface SpecQueryResult {
+  success: boolean
+  projectId: string
+  queryType: 'section' | 'requirement_family' | 'all'
+  sectionFilter: string | null     // "03 30 00"
+  requirementTypeFilter: string | null
+  sections: SpecEntity[]
+  requirementGroups: SpecRequirementGroup[]
+  totalRequirements: number
+  sectionsCited: string[]
+  confidence: number
+  formattedAnswer: string
+}
+
+// ---------------------------------------------------------------------------
+// RFI / change-document entities (Phase 6B)
+// ---------------------------------------------------------------------------
+
+/** A single finding attached to an RFI or change-document entity. */
+export interface RFIFinding {
+  findingType: string  // 'clarification_statement' | 'superseding_language' | 'revision_metadata' | 'note'
+  statement: string
+  supportLevel: SupportLevel
+  textValue: string | null
+  confidence: number
+}
+
+/** A referenced entity/sheet in a change document. */
+export interface RFIReference {
+  refType: 'sheet' | 'detail' | 'spec_section' | 'entity'
+  ref: string      // "S-201", "5/S-201", "03 30 00", "F-1"
+  entityId: string | null  // linked project_entity id if resolved
+}
+
+/** A single RFI / change-document entity. */
+export interface RFIEntity {
+  id: string
+  entityType: string   // 'rfi' | 'asi' | 'addendum' | 'bulletin' | 'clarification'
+  subtype: string | null
+  canonicalName: string
+  displayName: string
+  label: string | null  // "RFI-023", "ASI-002"
+  status: string        // 'new'=open | 'existing'=answered | 'to_remove'=voided
+  confidence: number
+  dateIssued: string | null    // ISO date string
+  dateAnswered: string | null  // ISO date string
+  sheetNumber: string | null
+  findings: RFIFinding[]
+  references: RFIReference[]   // resolved references via entity_relationships
+}
+
+/** Return value of queryRFIs / queryRFIsByEntity. */
+export interface RFIQueryResult {
+  success: boolean
+  projectId: string
+  queryType: 'by_number' | 'by_entity' | 'by_area' | 'recent_changes'
+  rfiFilter: string | null        // RFI number queried
+  entityFilter: string | null     // entity tag or ID queried
+  answered: RFIEntity[]
+  open: RFIEntity[]
+  voided: RFIEntity[]
+  totalCount: number
+  hasOpenItems: boolean
+  confidence: number
+  formattedAnswer: string
+}
+
+// ---------------------------------------------------------------------------
+// Submittal entities (Phase 6C)
+// ---------------------------------------------------------------------------
+
+/** A single finding attached to a submittal entity. */
+export interface SubmittalFinding {
+  findingType: string  // 'approval_status' | 'manufacturer_info' | 'product_tag' | 'note'
+  statement: string
+  supportLevel: SupportLevel
+  textValue: string | null
+  confidence: number
+}
+
+/** A single submittal entity. */
+export interface SubmittalEntity {
+  id: string
+  entityType: string   // 'submittal' | 'product_data' | 'shop_drawing'
+  subtype: string | null  // 'product_data' | 'shop_drawing' | 'sample' | 'certificate'
+  canonicalName: string
+  displayName: string
+  label: string | null  // submittal ID: "03-01", "16-02"
+  status: string        // 'to_remain'=approved | 'new'=submitted | 'proposed'=pending | 'to_remove'=rejected
+  specSection: string | null  // spec section this covers
+  confidence: number
+  sheetNumber: string | null
+  findings: SubmittalFinding[]
+}
+
+/** Return value of querySubmittals. */
+export interface SubmittalQueryResult {
+  success: boolean
+  projectId: string
+  queryType: 'by_id' | 'by_entity' | 'by_spec_section'
+  submittalFilter: string | null
+  entityFilter: string | null
+  approved: SubmittalEntity[]
+  pending: SubmittalEntity[]
+  rejected: SubmittalEntity[]
+  totalCount: number
+  confidence: number
+  formattedAnswer: string
+}
+
+// ---------------------------------------------------------------------------
+// Governing document result (Phase 6C)
+// ---------------------------------------------------------------------------
+
+/** A single governing authority with support level and citation. */
+export interface GoverningAuthority {
+  document: string         // "RFI-023", "Spec 03 30 00", "Sheet S-201"
+  discipline: string       // 'rfi' | 'spec' | 'architectural' | 'structural' etc.
+  governs: string          // what it governs: "depth requirement", "material specification"
+  supportLevel: SupportLevel
+  citation: StructuredCitation | null
+  conflictsWith: string | null  // if in conflict with another authority
+}
+
+/** Return value of resolveGoverningDocument. */
+export interface GoverningDocResult {
+  success: boolean
+  projectId: string
+  scope: string            // what was queried
+  authorities: GoverningAuthority[]
+  conflicts: Array<{
+    descr: string
+    between: [string, string]
+    resolution: string | null  // explicit resolution text if found; null = unresolved
+  }>
+  hasUnresolvedConflicts: boolean
   confidence: number
   formattedAnswer: string
 }

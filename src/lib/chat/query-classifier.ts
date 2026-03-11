@@ -32,6 +32,15 @@ export type QueryType =
   | 'trade_coordination'     // What trades touch Room 105?
   | 'coordination_sequence'  // What could hold this work up?
   | 'affected_area'          // What systems are affected on Level 1?
+  // Phase 6A
+  | 'spec_section_lookup'    // What does spec section 03 30 00 require?
+  | 'spec_requirement_lookup' // What testing is required for concrete?
+  // Phase 6B
+  | 'rfi_lookup'             // Did an RFI address this detail?
+  | 'change_impact_lookup'   // What changed in Addendum 1?
+  // Phase 6C
+  | 'submittal_lookup'       // What submittal covers LP-1?
+  | 'governing_document_query' // What governs here: plan, spec, or RFI?
   | 'general';           // General question
 
 /**
@@ -83,6 +92,18 @@ export interface QueryClassification {
   // Coordination routing extras (Phase 5B)
   coordRoom?: string;      // Room for coordination queries
   coordLevel?: string;     // Level for coordination queries
+
+  // Spec routing extras (Phase 6A)
+  specSection?: string;    // CSI section number, e.g. "03 30 00"
+  specRequirementType?: 'material' | 'execution' | 'testing' | 'submittal' | 'closeout' | 'inspection' | 'protection';
+
+  // RFI routing extras (Phase 6B)
+  rfiNumber?: string;      // RFI/change doc identifier, e.g. "RFI-023"
+  changeDocType?: 'rfi' | 'asi' | 'bulletin' | 'addendum';
+
+  // Submittal / governing routing extras (Phase 6C)
+  submittalId?: string;    // Submittal identifier, e.g. "03-01"
+  governingDocScope?: string; // Scope description for governing doc query
 
   // Flags for retrieval strategy
   needsDirectLookup: boolean;  // Should try database lookup first
@@ -659,6 +680,124 @@ const TRADE_COORDINATION_PATTERNS = [
   /coordinate\s+before\s+/i,
   /what\s+(?:contractors?|subs?|subcontractors?)\s+(?:are|work)\s+/i,
 ]
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Spec / RFI / Submittal / Governing patterns
+// ---------------------------------------------------------------------------
+
+const SPEC_SECTION_PATTERNS = [
+  /\bspec(?:ification)?\s+section\s+\d{2}\s*\d{2}\s*\d{2}\b/i,
+  /\bsection\s+\d{2}\s*\d{2}\s*\d{2}\b/i,
+  /\b\d{2}\s+\d{2}\s+\d{2}\b/,   // bare "03 30 00" format
+  /\bdivision\s+\d+\s+(?:spec(?:ification)?|require)/i,
+]
+
+const SPEC_REQUIREMENT_PATTERNS = [
+  /what\s+(?:does?\s+(?:the\s+)?spec|do\s+(?:the\s+)?specs?)\s+(?:say|require|call\s+for|specify)\b/i,
+  /what\s+(?:testing|test(?:s)?|inspection|submittal|closeout|material|execution)\s+(?:is|are)\s+required\b/i,
+  /what\s+(?:are\s+(?:the\s+)?)?(?:spec(?:ification)?\s+)?requirements?\s+for\b/i,
+  /(?:spec(?:ification)?\s+)?requirements?\s+for\s+(?:concrete|masonry|steel|roofing|mechanical|electrical|plumbing)\b/i,
+  /what\s+(?:materials?|products?)\s+(?:does?\s+)?the\s+spec\s+(?:require|allow|call\s+for)\b/i,
+  /are\s+there\s+(?:any\s+)?(?:spec|specification)\s+requirements?\s+for\b/i,
+]
+
+const RFI_LOOKUP_PATTERNS = [
+  /\bRFI\s*[-#]?\s*\d+\b/i,
+  /\bdid\s+(?:an?\s+)?(?:rfi|request\s+for\s+information)\s+/i,
+  /(?:is|was)\s+there\s+(?:an?\s+)?(?:rfi|change\s+order|clarification)\s+/i,
+  /\b(?:rfi|request\s+for\s+information)\s+(?:address|cover|clarif|change)\b/i,
+  /\bASI\s*[-#]?\s*\d+\b/i,
+]
+
+const CHANGE_IMPACT_PATTERNS = [
+  /what\s+changed\s+(?:in|with|after|per)\s+(?:addendum|bulletin|rfi|asi|change\s+order)\b/i,
+  /\baddendum\s+\d+\b.{0,40}\b(?:change|affect|modify|revise|update)/i,
+  /what\s+(?:was|were)\s+(?:revised|changed|updated|superseded)\b/i,
+  /\b(?:change\s+order|addendum|bulletin|asi)\b.{0,40}(?:what|which)\b/i,
+  /what\s+(?:clarification|change)\s+(?:applies?|governs?|affects?)\b/i,
+]
+
+const SUBMITTAL_LOOKUP_PATTERNS = [
+  /what\s+submittal\s+(?:covers?|is\s+for|applies?\s+to)\b/i,
+  /(?:is|was)\s+there\s+a\s+submittal\s+for\b/i,
+  /\bsubmittal\s+(?:log|schedule|register|status)\b/i,
+  /\bshop\s+drawing\s+(?:for|of)\b/i,
+  /\bproduct\s+data\s+(?:for|on)\b/i,
+  /what\s+(?:products?|materials?)\s+(?:have\s+been\s+)?(?:approved|submitted)\b/i,
+]
+
+const GOVERNING_DOCUMENT_PATTERNS = [
+  /what\s+(?:document\s+)?governs\b/i,
+  /what\s+(?:should\s+I|do\s+I)\s+(?:rely|follow|use)\s+(?:on|for)\b/i,
+  /(?:plan|spec(?:ification)?|rfi|drawing)\s+(?:vs\.?|versus|or)\s+(?:plan|spec(?:ification)?|rfi|drawing)\b/i,
+  /which\s+(?:document|drawing|spec)\s+(?:controls?|governs?|takes?\s+precedence)\b/i,
+  /(?:conflict|discrepancy)\s+between\s+(?:the\s+)?(?:plan|spec|drawing|rfi)\b/i,
+  /what\s+takes?\s+precedence\b/i,
+  /does\s+(?:the\s+)?(?:rfi|spec|plan|drawing)\s+(?:supersede|override|change)\b/i,
+]
+
+// ---------------------------------------------------------------------------
+// Phase 6 extractors
+// ---------------------------------------------------------------------------
+
+function extractSpecSection(query: string): string | null {
+  // "spec section 03 30 00", "Section 033000", "03 30 00"
+  const patterns = [
+    /\b(?:spec(?:ification)?|section)\s+(\d{2}\s*\d{2}\s*\d{2})\b/i,
+    /\b(\d{2}\s+\d{2}\s+\d{2})\b/,
+    /\b(\d{6})\b/,
+  ]
+  for (const p of patterns) {
+    const m = query.match(p)
+    if (m) {
+      const raw = m[1].replace(/\s+/g, '')
+      return `${raw.slice(0, 2)} ${raw.slice(2, 4)} ${raw.slice(4, 6)}`
+    }
+  }
+  return null
+}
+
+function extractSpecRequirementType(
+  query: string
+): 'material' | 'execution' | 'testing' | 'submittal' | 'closeout' | 'inspection' | 'protection' | null {
+  const q = query.toLowerCase()
+  if (/\b(testing|test(?:s)?|laboratory|field\s+test|cylinder)\b/.test(q)) return 'testing'
+  if (/\binspect(?:ion)?\b/.test(q)) return 'inspection'
+  if (/\bsubmittal\b/.test(q)) return 'submittal'
+  if (/\bcloseout|warranty|o&m|operation.*maintenance\b/.test(q)) return 'closeout'
+  if (/\bprotect(?:ion)?\b/.test(q)) return 'protection'
+  if (/\b(material|product|mix|strength|grade|type\s+of)\b/.test(q)) return 'material'
+  if (/\b(install|place|execut|procedure|method|sequence)\b/.test(q)) return 'execution'
+  return null
+}
+
+function extractRFINumber(query: string): string | null {
+  const patterns = [
+    /\bRFI\s*[-#]?\s*(\d+)\b/i,
+    /\bASI\s*[-#]?\s*(\d+)\b/i,
+    /\baddendum\s*(?:no\.?\s*)?(\d+)\b/i,
+    /\bbulletin\s*(?:no\.?\s*)?(\d+)\b/i,
+  ]
+  for (const p of patterns) {
+    const m = query.match(p)
+    if (m) {
+      const prefix = m[0].match(/^(RFI|ASI|ADDENDUM|BULLETIN)/i)?.[1]?.toUpperCase() ?? 'RFI'
+      return `${prefix}-${m[1].padStart(3, '0')}`
+    }
+  }
+  return null
+}
+
+function extractChangeDocType(
+  query: string
+): 'rfi' | 'asi' | 'bulletin' | 'addendum' | null {
+  const q = query.toLowerCase()
+  if (/\basi\b|\barchitect['\s]*s?\s+supplemental/.test(q)) return 'asi'
+  if (/\baddendum\b/.test(q)) return 'addendum'
+  if (/\bbulletin\b/.test(q)) return 'bulletin'
+  if (/\brfi\b|\brequest\s+for\s+information/.test(q)) return 'rfi'
+  return null
+}
 
 // ---------------------------------------------------------------------------
 // Structural extractors (Phase 5A)
@@ -1238,6 +1377,129 @@ export function classifyQuery(query: string): QueryClassification {
         keywords: ['room', 'finish', 'door', 'window'].concat(archRoom ? [archRoom] : []),
       },
     };
+  }
+
+  // ── Phase 6: Governing document (most specific — check before RFI/spec) ──
+
+  if (GOVERNING_DOCUMENT_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'governing_document_query',
+      intent: 'informational',
+      confidence: 0.88,
+      governingDocScope: query,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['spec_section', 'rfi', 'submittal'],
+        keywords: ['governs', 'precedence', 'spec', 'rfi', 'plan'],
+      },
+    }
+  }
+
+  // ── Phase 6: RFI lookup ──────────────────────────────────────────────────
+
+  if (RFI_LOOKUP_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'rfi_lookup',
+      intent: 'informational',
+      confidence: 0.88,
+      rfiNumber:     extractRFINumber(query) ?? undefined,
+      changeDocType: extractChangeDocType(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['rfi', 'change_document'],
+        keywords: ['rfi', 'clarification', 'change', 'supersede'],
+      },
+    }
+  }
+
+  // ── Phase 6: Change impact lookup ───────────────────────────────────────
+
+  if (CHANGE_IMPACT_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'change_impact_lookup',
+      intent: 'informational',
+      confidence: 0.85,
+      rfiNumber:     extractRFINumber(query) ?? undefined,
+      changeDocType: extractChangeDocType(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['rfi', 'addendum', 'bulletin'],
+        keywords: ['changed', 'revised', 'addendum', 'supersede'],
+      },
+    }
+  }
+
+  // ── Phase 6: Submittal lookup ────────────────────────────────────────────
+
+  if (SUBMITTAL_LOOKUP_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'submittal_lookup',
+      intent: 'informational',
+      confidence: 0.85,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['submittal_log', 'product_data'],
+        keywords: ['submittal', 'approved', 'product data', 'shop drawing'],
+      },
+    }
+  }
+
+  // ── Phase 6: Spec section lookup ─────────────────────────────────────────
+
+  if (SPEC_SECTION_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'spec_section_lookup',
+      intent: 'informational',
+      confidence: 0.87,
+      specSection:          extractSpecSection(query) ?? undefined,
+      specRequirementType:  extractSpecRequirementType(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['spec_section'],
+        keywords: ['specification', 'section', 'require', 'shall'],
+      },
+    }
+  }
+
+  // ── Phase 6: Spec requirement lookup ─────────────────────────────────────
+
+  if (SPEC_REQUIREMENT_PATTERNS.some(p => p.test(normalized))) {
+    return {
+      type: 'spec_requirement_lookup',
+      intent: 'informational',
+      confidence: 0.85,
+      specSection:          extractSpecSection(query) ?? undefined,
+      specRequirementType:  extractSpecRequirementType(query) ?? undefined,
+      needsDirectLookup: false,
+      needsVectorSearch: true,
+      needsVision: false,
+      needsCompleteData: false,
+      isAggregationQuery: false,
+      searchHints: {
+        preferredSheetTypes: ['spec_section'],
+        keywords: ['requirement', 'shall', 'required', 'testing', 'material'],
+      },
+    }
   }
 
   // Default to general query

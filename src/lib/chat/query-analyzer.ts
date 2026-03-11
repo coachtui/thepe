@@ -84,7 +84,8 @@ export function analyzeQuery(rawQuery: string): QueryAnalysis {
     // Always preserve conversation history — no path gets to be stateless.
     needsConversationContext: true,
 
-    // Spec/requirement queries have no supporting pipeline yet.
+    // requirement_lookup (legacy/unmatched spec) has no pipeline — mark unsupported.
+    // Phase 6 spec/rfi/submittal modes are now supported.
     supportLevelExpected: answerMode === 'requirement_lookup' ? 'unsupported' : 'supported',
 
     // Internal: pre-computed classification for retrieval-orchestrator so
@@ -111,6 +112,15 @@ export function analyzeQuery(rawQuery: string): QueryAnalysis {
       // Phase 5B — coordination
       coordRoom:        (effectiveClassification.coordRoom ?? effectiveClassification.archRoom) ?? null,
       coordLevel:       effectiveClassification.coordLevel ?? null,
+      // Phase 6A — spec
+      specSection:           effectiveClassification.specSection          ?? null,
+      specRequirementType:   effectiveClassification.specRequirementType  ?? null,
+      // Phase 6B — RFI
+      rfiNumber:             effectiveClassification.rfiNumber            ?? null,
+      changeDocType:         effectiveClassification.changeDocType        ?? null,
+      // Phase 6C — submittal / governing
+      submittalId:           effectiveClassification.submittalId          ?? null,
+      governingDocScope:     effectiveClassification.governingDocScope    ?? null,
     },
   }
 
@@ -136,9 +146,27 @@ function mapToAnswerMode(
       return 'project_summary'
 
     case 'specification':
-      // No spec ingestion pipeline exists. Return requirement_lookup which
-      // the evidence-evaluator will flag as unsupported domain.
+      // Legacy 'specification' type from base classifier — map to requirement_lookup
+      // (still unsupported — use spec_section_lookup / spec_requirement_lookup instead)
       return 'requirement_lookup'
+
+    case 'spec_section_lookup':
+      return 'spec_section_lookup'
+
+    case 'spec_requirement_lookup':
+      return 'spec_requirement_lookup'
+
+    case 'rfi_lookup':
+      return 'rfi_lookup'
+
+    case 'change_impact_lookup':
+      return 'change_impact_lookup'
+
+    case 'submittal_lookup':
+      return 'submittal_lookup'
+
+    case 'governing_document_query':
+      return 'governing_document_query'
 
     case 'reference':
       return 'sheet_lookup'
@@ -267,6 +295,19 @@ function buildPreferredSources(
     answerMode === 'trade_coordination'    ||
     answerMode === 'coordination_sequence' ||
     answerMode === 'affected_area'
+  ) {
+    if (!sources.includes('vision_db'))     sources.push('vision_db')
+    if (!sources.includes('vector_search')) sources.push('vector_search')
+  }
+
+  // Phase 6: spec, rfi, submittal, governing — vision_db (entity graph) first, then vector_search.
+  if (
+    answerMode === 'spec_section_lookup'    ||
+    answerMode === 'spec_requirement_lookup'||
+    answerMode === 'rfi_lookup'             ||
+    answerMode === 'change_impact_lookup'   ||
+    answerMode === 'submittal_lookup'       ||
+    answerMode === 'governing_document_query'
   ) {
     if (!sources.includes('vision_db'))     sources.push('vision_db')
     if (!sources.includes('vector_search')) sources.push('vector_search')

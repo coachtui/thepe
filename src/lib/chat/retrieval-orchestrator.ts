@@ -59,6 +59,20 @@ import {
   queryCoordinationConstraints,
   queryAffectedArea,
 } from './coordination-queries'
+import {
+  querySpecSection,
+  querySpecRequirements,
+  type SpecRequirementType,
+} from './spec-queries'
+import {
+  queryRFIByNumber,
+  queryRFIsByEntity,
+  queryRecentChanges,
+} from './rfi-queries'
+import {
+  querySubmittalByEntity,
+  resolveGoverningDocument,
+} from './submittal-queries'
 import { createDocumentAnalyzer, type PEAgentConfig } from '@/agents/constructionPEAgent'
 import type {
   QueryAnalysis,
@@ -207,6 +221,40 @@ export async function retrieveEvidence(
     if (coordItem) {
       items.push(coordItem)
       retrievalMethod = 'coordination_graph'
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 2.95: Spec graph queries (Phase 6A).
+  // Spec section and requirement lookup — runs before smart router.
+  // Falls through if no spec entities exist yet.
+  // ------------------------------------------------------------------
+  if (
+    items.length === 0 &&
+    (analysis.answerMode === 'spec_section_lookup' ||
+     analysis.answerMode === 'spec_requirement_lookup')
+  ) {
+    const specItem = await attemptSpecGraphLookup(analysis, projectId, supabase)
+    if (specItem) {
+      items.push(specItem)
+      retrievalMethod = 'spec_graph'
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 2.97: RFI + Submittal + Governing graph queries (Phase 6B/C).
+  // ------------------------------------------------------------------
+  if (
+    items.length === 0 &&
+    (analysis.answerMode === 'rfi_lookup'             ||
+     analysis.answerMode === 'change_impact_lookup'   ||
+     analysis.answerMode === 'submittal_lookup'       ||
+     analysis.answerMode === 'governing_document_query')
+  ) {
+    const phase6Item = await attemptPhase6GraphLookup(analysis, projectId, supabase)
+    if (phase6Item) {
+      items.push(phase6Item)
+      retrievalMethod = 'phase6_graph'
     }
   }
 
@@ -641,6 +689,156 @@ async function attemptCoordinationGraphLookup(
 }
 
 // ---------------------------------------------------------------------------
+// Spec graph lookup (Phase 6A)
+// ---------------------------------------------------------------------------
+
+async function attemptSpecGraphLookup(
+  analysis: QueryAnalysis,
+  projectId: string,
+  supabase: SupabaseClient
+): Promise<EvidenceItem | null> {
+  const specSection         = analysis._routing?.specSection         ?? null
+  const specRequirementType = analysis._routing?.specRequirementType ?? null
+
+  try {
+    if (analysis.answerMode === 'spec_section_lookup') {
+      const result = await querySpecSection(supabase, projectId, specSection)
+
+      if (!result.success || result.totalRequirements === 0) return null
+
+      return {
+        source:     'vision_db',
+        content:    result.formattedAnswer,
+        confidence: result.confidence,
+        rawData:    result,
+      }
+    }
+
+    // spec_requirement_lookup — query by family type, optionally scoped to section
+    const result = await querySpecRequirements(
+      supabase,
+      projectId,
+      (specRequirementType ? `${specRequirementType}_requirement` : null) as SpecRequirementType | null,
+      specSection
+    )
+
+    if (!result.success || result.totalRequirements === 0) return null
+
+    return {
+      source:     'vision_db',
+      content:    result.formattedAnswer,
+      confidence: result.confidence,
+      rawData:    result,
+    }
+  } catch (err) {
+    console.error('[RetrievalOrchestrator] Spec graph lookup error:', err)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6B/C graph lookup (RFI + Submittal + Governing)
+// ---------------------------------------------------------------------------
+
+async function attemptPhase6GraphLookup(
+  analysis: QueryAnalysis,
+  projectId: string,
+  supabase: SupabaseClient
+): Promise<EvidenceItem | null> {
+  const rfiNumber        = analysis._routing?.rfiNumber        ?? null
+  const changeDocType    = analysis._routing?.changeDocType    ?? null
+  const submittalId      = analysis._routing?.submittalId      ?? null
+  const governingScope   = analysis._routing?.governingDocScope ?? analysis.rawQuery
+
+  // Extract entity tag from query for targeted lookups
+  const entityTagMatch = analysis.rawQuery.match(
+    /\b([A-Z]-?\d{1,3}[A-Z]?|[A-Z]{2,4}-?\d{1,3}[A-Z]?)\b/
+  )
+  const entityTag = entityTagMatch?.[1] ?? null
+
+  try {
+    if (analysis.answerMode === 'governing_document_query') {
+      const result = await resolveGoverningDocument(
+        supabase,
+        projectId,
+        governingScope,
+        entityTag
+      )
+
+      if (!result.success || result.authorities.length === 0) return null
+
+      return {
+        source:     'vision_db',
+        content:    result.formattedAnswer,
+        confidence: result.confidence,
+        rawData:    result,
+      }
+    }
+
+    if (analysis.answerMode === 'submittal_lookup') {
+      const result = await querySubmittalByEntity(supabase, projectId, entityTag ?? analysis.rawQuery)
+
+      if (!result.success || result.totalCount === 0) return null
+
+      return {
+        source:     'vision_db',
+        content:    result.formattedAnswer,
+        confidence: result.confidence,
+        rawData:    result,
+      }
+    }
+
+    // rfi_lookup — by number if we have one, otherwise by entity tag
+    if (analysis.answerMode === 'rfi_lookup') {
+      if (rfiNumber) {
+        const result = await queryRFIByNumber(supabase, projectId, rfiNumber)
+        if (result.success && result.totalCount > 0) {
+          return {
+            source:     'vision_db',
+            content:    result.formattedAnswer,
+            confidence: result.confidence,
+            rawData:    result,
+          }
+        }
+      }
+
+      if (entityTag) {
+        const result = await queryRFIsByEntity(supabase, projectId, entityTag)
+        if (result.success && result.totalCount > 0) {
+          return {
+            source:     'vision_db',
+            content:    result.formattedAnswer,
+            confidence: result.confidence,
+            rawData:    result,
+          }
+        }
+      }
+
+      return null
+    }
+
+    // change_impact_lookup — all changes, optionally filtered by type
+    const result = await queryRecentChanges(
+      supabase,
+      projectId,
+      (changeDocType ?? null) as 'rfi' | 'asi' | 'addendum' | 'bulletin' | null
+    )
+
+    if (!result.success || result.totalCount === 0) return null
+
+    return {
+      source:     'vision_db',
+      content:    result.formattedAnswer,
+      confidence: result.confidence,
+      rawData:    result,
+    }
+  } catch (err) {
+    console.error('[RetrievalOrchestrator] Phase6 graph lookup error:', err)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Demo graph lookup (Phase 3)
 // ---------------------------------------------------------------------------
 
@@ -797,6 +995,15 @@ function shouldAttemptLivePDF(answerMode: string): boolean {
     'trade_coordination',
     'coordination_sequence',
     'affected_area',
+    // Phase 6A
+    'spec_section_lookup',
+    'spec_requirement_lookup',
+    // Phase 6B
+    'rfi_lookup',
+    'change_impact_lookup',
+    // Phase 6C
+    'submittal_lookup',
+    'governing_document_query',
   ]
   return supported.includes(answerMode)
 }
@@ -910,6 +1117,13 @@ function selectRelevantSheets(
                                          filePattern: /^a[-_]?\d|arch|floor|elev|a\d{3}/i },
     { test: /demo|demolition/i,         filePattern: /demo|d-\d+|dm-\d+|drcp/i },
     // Phase 5A
+    // Phase 6
+    { test: /spec(?:ification)?|section\s+\d{2}|division\s+\d+/i,
+                                         filePattern: /spec|project.?manual|division/i },
+    { test: /\brfi\b|request\s+for\s+information|addendum|bulletin|asi\b/i,
+                                         filePattern: /rfi|addendum|bulletin|asi/i },
+    { test: /submittal|product\s+data|shop\s+drawing/i,
+                                         filePattern: /submittal|product.?data|shop.?draw/i },
     { test: /structural|foundation|framing|footing|column|beam|load.?bearing/i,
                                          filePattern: /^s[-_]?\d|struct/i },
     { test: /mechanical|hvac|ahu|vav|duct|air.handler/i,

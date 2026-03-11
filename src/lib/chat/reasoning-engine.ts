@@ -134,6 +134,26 @@ function selectReasoningMode(
     case 'affected_area':
       return 'affected_area_reasoning'
 
+    // Phase 6A — spec
+    case 'spec_section_lookup':
+    case 'spec_requirement_lookup':
+      return 'requirement_reasoning'
+
+    // Phase 6B — RFI / changes
+    case 'rfi_lookup':
+    case 'change_impact_lookup':
+      return 'change_reasoning'
+
+    // Phase 6C — governing / submittal
+    case 'governing_document_query':
+      return 'governing_document_reasoning'
+
+    case 'submittal_lookup': {
+      // Only activate when we have structured data to reason over
+      const hasData = packet.items.some(i => i.source === 'vision_db')
+      return hasData ? 'governing_document_reasoning' : 'none'
+    }
+
     case 'general_chat': {
       // Activate constraint reasoning when there is substantive structured data
       const hasStructuredData = packet.items.some(
@@ -245,6 +265,15 @@ function generateFindings(
       return generateCoordinationConstraintFindings(packet)
     case 'affected_area_reasoning':
       return generateAffectedAreaFindings(packet)
+    // Phase 6
+    case 'requirement_reasoning':
+      return generateRequirementFindings(packet)
+    case 'change_reasoning':
+      return generateChangeFindings(packet)
+    case 'governing_document_reasoning':
+      return generateGoverningDocFindings(packet)
+    case 'requirement_gap_reasoning':
+      return generateRequirementGapFindings(packet)
     default:
       return []
   }
@@ -1041,6 +1070,188 @@ function generateAffectedAreaFindings(packet: EvidencePacket): ReasoningFinding[
   return findings
 }
 
+// ── requirement_reasoning (Phase 6A) ───────────────────────────────────────
+
+/**
+ * Generate findings for spec requirement queries.
+ *
+ * Support level rules:
+ *   explicit — requirement from spec entity in vision_db (ingested spec section)
+ *   inferred — from vector_search text mentioning requirement keywords
+ */
+function generateRequirementFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  // Vision DB spec graph items → explicit
+  const specItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of specItems) {
+    const sections = item.content
+      .split('\n\n')
+      .map(s => s.trim())
+      .filter(s => s.length > 20)
+
+    for (const section of sections.slice(0, 12)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Extracted from ingested specification section',
+      })
+    }
+  }
+
+  // Vector search items with requirement language → inferred supplemental
+  const REQUIREMENT_KEYWORDS = /\bshall\b|\brequired?\b|\bmust\b|\bspecified?\b/i
+  const vectorItems = packet.items.filter(
+    i =>
+      (i.source === 'vector_search' || i.source === 'complete_data') &&
+      REQUIREMENT_KEYWORDS.test(i.content)
+  )
+  for (const item of vectorItems.slice(0, 4)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — requirement language detected',
+    })
+  }
+
+  return findings
+}
+
+// ── change_reasoning (Phase 6B) ─────────────────────────────────────────────
+
+/**
+ * Generate findings for RFI / change document queries.
+ *
+ * Support level rules:
+ *   explicit — answered RFI / ASI / addendum from vision_db
+ *   inferred — open/unanswered RFI, or vector search hit mentioning change language
+ */
+function generateChangeFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  const rfiItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of rfiItems) {
+    // Open RFI warning
+    if (/OPEN\s*\/\s*Unanswered/i.test(item.content)) {
+      const lines = item.content.split('\n').filter(l => l.trim().length > 0).slice(0, 6)
+      for (const line of lines) {
+        findings.push({
+          statement:    line.replace(/^\*\*|\*\*$/g, ''),
+          supportLevel: 'inferred',
+          basis:        'Open / unanswered change document — resolution not confirmed',
+        })
+      }
+      continue
+    }
+
+    // Answered RFI → explicit
+    const sections = item.content.split('\n\n').map(s => s.trim()).filter(s => s.length > 10)
+    for (const section of sections.slice(0, 8)) {
+      findings.push({
+        statement:    section,
+        supportLevel: 'explicit',
+        basis:        'Answered change document — issued and acknowledged',
+      })
+    }
+  }
+
+  // Vector items with change language → inferred
+  const CHANGE_KEYWORDS = /\bRFI\b|\baddendum\b|\bclarif|\bsupersed|\brevise|\bchange\b/i
+  const vectorItems = packet.items.filter(
+    i =>
+      (i.source === 'vector_search' || i.source === 'complete_data') &&
+      CHANGE_KEYWORDS.test(i.content)
+  )
+  for (const item of vectorItems.slice(0, 3)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — change or clarification language detected',
+    })
+  }
+
+  return findings
+}
+
+// ── governing_document_reasoning (Phase 6C) ────────────────────────────────
+
+/**
+ * Generate findings for governing document queries.
+ *
+ * Support level rules:
+ *   explicit — from resolved authority in the governing doc result
+ *   inferred — from vector search or unresolved conflict
+ */
+function generateGoverningDocFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  const govItems = packet.items.filter(i => i.source === 'vision_db')
+  for (const item of govItems) {
+    // Flag conflicts as inferred
+    const hasConflict = /⚠️|conflict|unresolved/i.test(item.content)
+
+    const sections = item.content
+      .split('\n\n')
+      .map(s => s.trim())
+      .filter(s => s.length > 15)
+
+    for (const section of sections.slice(0, 10)) {
+      const supportLevel: SupportLevel = hasConflict && /⚠️|conflict|unresolved/i.test(section)
+        ? 'inferred'
+        : 'explicit'
+
+      findings.push({
+        statement:    section,
+        supportLevel,
+        basis:        supportLevel === 'inferred'
+          ? 'Unresolved conflict between documents — verify with project team'
+          : 'Governing document analysis — precedence applied per industry default',
+      })
+    }
+  }
+
+  // Vector items → inferred supplemental (precedence language)
+  const PREC_KEYWORDS = /\bgovern|\bprecedence\b|\bsupersed|\bcontrol/i
+  const vectorItems = packet.items.filter(
+    i =>
+      (i.source === 'vector_search' || i.source === 'complete_data') &&
+      PREC_KEYWORDS.test(i.content)
+  )
+  for (const item of vectorItems.slice(0, 2)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Document text — governing / precedence language detected',
+    })
+  }
+
+  return findings
+}
+
+// ── requirement_gap_reasoning (Phase 6) ────────────────────────────────────
+
+/**
+ * Generate gap-focused findings when spec data is partial.
+ */
+function generateRequirementGapFindings(packet: EvidencePacket): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = []
+
+  // Passthrough: treat all items as inferred since this mode fires when data is sparse
+  for (const item of packet.items.slice(0, 5)) {
+    findings.push({
+      statement:    trimToSentences(item.content, 2),
+      supportLevel: 'inferred',
+      citations:    item.citation ? [item.citation] : undefined,
+      basis:        'Partial spec data — section may not yet be fully ingested',
+    })
+  }
+
+  return findings
+}
+
 // ---------------------------------------------------------------------------
 // Gap identification
 // ---------------------------------------------------------------------------
@@ -1170,6 +1381,71 @@ function identifyGaps(
     }
   }
 
+  // Phase 6A: Spec-specific gaps
+  if (
+    analysis.answerMode === 'spec_section_lookup' ||
+    analysis.answerMode === 'spec_requirement_lookup'
+  ) {
+    const hasSpecData = packet.items.some(i => i.source === 'vision_db')
+    if (!hasSpecData && !gaps.some(g => g.gapType === 'spec_section_not_ingested')) {
+      gaps.push({
+        description:
+          'No specification sections found in the project database. ' +
+          'Specification documents have not been ingested yet.',
+        gapType: 'spec_section_not_ingested',
+        actionable:
+          'Upload and process specification documents (PDF or text) to enable requirement queries.',
+      })
+    }
+  }
+
+  // Phase 6B: RFI-specific gaps
+  if (
+    analysis.answerMode === 'rfi_lookup' ||
+    analysis.answerMode === 'change_impact_lookup'
+  ) {
+    const hasRFIData = packet.items.some(i => i.source === 'vision_db')
+    if (!hasRFIData && !gaps.some(g => g.gapType === 'insufficient_structured_data')) {
+      gaps.push({
+        description:
+          'No change documents (RFIs, ASIs, addenda, bulletins) found in the project database.',
+        gapType: 'insufficient_structured_data',
+        actionable:
+          'Upload RFI logs, individual RFIs, or addenda to enable change impact queries.',
+      })
+    }
+
+    // Warn about open/unanswered RFIs in the result
+    const hasOpenRFIs = packet.items.some(
+      i => i.source === 'vision_db' && /OPEN\s*\/\s*Unanswered/i.test(i.content)
+    )
+    if (hasOpenRFIs && !gaps.some(g => g.gapType === 'missing_rfi_resolution')) {
+      gaps.push({
+        description:
+          'One or more RFIs are open and unanswered. The clarification is not yet confirmed.',
+        gapType: 'missing_rfi_resolution',
+        actionable:
+          'Verify RFI response status with the project team or architect before proceeding.',
+      })
+    }
+  }
+
+  // Phase 6C: Governing document gaps
+  if (analysis.answerMode === 'governing_document_query') {
+    const hasConflict = packet.items.some(
+      i => i.source === 'vision_db' && /conflict|unresolved|⚠️/i.test(i.content)
+    )
+    if (hasConflict && !gaps.some(g => g.gapType === 'conflicting_documents')) {
+      gaps.push({
+        description:
+          'Document conflict detected. The governing precedence cannot be fully determined from available data.',
+        gapType: 'conflicting_documents',
+        actionable:
+          'Consult with the project architect or engineer to obtain a written ruling on precedence.',
+      })
+    }
+  }
+
   // Demo-specific gaps
   if (analysis.answerMode === 'demo_scope' || analysis.answerMode === 'demo_constraint') {
     const hasDemoData = packet.items.some(i => i.source === 'vision_db')
@@ -1271,6 +1547,19 @@ function selectAnswerFrame(mode: ReasoningMode, findings: ReasoningFinding[]): s
 
     case 'affected_area_reasoning':
       return hasExplicit ? 'affected_area_by_discipline' : 'affected_area_inferred'
+
+    // Phase 6
+    case 'requirement_reasoning':
+      return hasExplicit ? 'requirements_with_citations' : 'requirements_from_text'
+
+    case 'change_reasoning':
+      return hasExplicit ? 'change_impact_documented' : 'change_impact_inferred'
+
+    case 'governing_document_reasoning':
+      return hasExplicit ? 'governing_doc_hierarchy' : 'governing_doc_partial'
+
+    case 'requirement_gap_reasoning':
+      return 'requirement_gaps_identified'
 
     default:
       return 'standard'
@@ -1399,6 +1688,14 @@ function trimToSentences(text: string, n: number): string {
 /** Classify a gap description into a GapType. */
 function classifyGapType(description: string): GapType {
   const lower = description.toLowerCase()
+  // Phase 6 specific gaps (check first — more specific)
+  if (/rfi.*open|open.*rfi|unanswered|resolution.*not.*confirm/.test(lower))
+    return 'missing_rfi_resolution'
+  if (/conflict|discrepancy|preceden/.test(lower)) return 'conflicting_documents'
+  if (/submittal.*not.*link|unlink.*submittal/.test(lower)) return 'unlinked_submittal'
+  if (/specification.*not.*ingest|spec.*section.*not.*found|spec.*not.*yet/.test(lower))
+    return 'spec_section_not_ingested'
+  // Existing
   if (/spec|requirement|standard|section/.test(lower)) return 'missing_spec'
   if (/cap|limit.*sheet|sheet.*limit/.test(lower)) return 'partial_live_analysis'
   if (/structured|vision.*data|database|vision.*process/.test(lower))

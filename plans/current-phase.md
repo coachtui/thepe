@@ -1,3 +1,164 @@
+# Phase 6: Spec + RFI + Submittal Ingestion — COMPLETE ✓
+
+Delivered 2026-03-11. TypeScript compilation passed with zero errors (`npx tsc --noEmit --skipLibCheck`).
+
+---
+
+## Phase 6 Status: COMPLETE ✓
+
+### Delivered Files
+
+| Deliverable | File | Status |
+|---|---|---|
+| Spec + RFI + submittal schema extension | `supabase/migrations/00043_spec_rfi_submittal_schema.sql` | ✓ NEW |
+| AnswerMode + ReasoningMode + entity type extensions | `src/lib/chat/types.ts` | ✓ MODIFIED |
+| Spec + RFI + submittal classification | `src/lib/chat/query-classifier.ts` | ✓ MODIFIED |
+| Spec + RFI + submittal mode mapping | `src/lib/chat/query-analyzer.ts` | ✓ MODIFIED |
+| Spec graph read queries | `src/lib/chat/spec-queries.ts` | ✓ NEW |
+| RFI graph read queries | `src/lib/chat/rfi-queries.ts` | ✓ NEW |
+| Submittal + governing doc queries | `src/lib/chat/submittal-queries.ts` | ✓ NEW |
+| Spec + RFI + submittal retrieval path | `src/lib/chat/retrieval-orchestrator.ts` | ✓ MODIFIED |
+| Phase 6 reasoning modes | `src/lib/chat/reasoning-engine.ts` | ✓ MODIFIED |
+| Spec vision extraction infrastructure | `src/lib/vision/spec-extractor.ts` | ✓ NEW |
+| RFI vision extraction infrastructure | `src/lib/vision/rfi-extractor.ts` | ✓ NEW |
+| Submittal vision extraction infrastructure | `src/lib/vision/submittal-extractor.ts` | ✓ NEW |
+| Phase 6 validation harness | `src/lib/chat/spec-validator.ts` | ✓ NEW |
+
+### Implementation Checklist
+
+#### Migration (`supabase/migrations/00043_spec_rfi_submittal_schema.sql`)
+- [x] Extend `project_entities.discipline` CHECK: adds `'spec'`, `'rfi'`, `'submittal'`
+- [x] Extend `entity_findings.finding_type` CHECK: adds 13 new types:
+  - `'material_requirement'`, `'execution_requirement'`, `'testing_requirement'`
+  - `'submittal_requirement'`, `'closeout_requirement'`, `'protection_requirement'`, `'inspection_requirement'`
+  - `'clarification_statement'`, `'superseding_language'`, `'revision_metadata'`
+  - `'approval_status'`, `'manufacturer_info'`, `'product_tag'`
+- [x] Extend `entity_relationships.relationship_type` CHECK: adds 7 new types:
+  - `'governs'`, `'requires'`, `'references'`
+  - `'clarifies'`, `'replaces'`, `'supersedes'`
+  - `'submitted_for'`
+- [x] 18 performance indexes: spec (discipline, label, canonical), RFI (discipline, label, status, finding types), submittal (discipline, label, finding types), cross-discipline (governs, clarifies, submitted_for)
+- [x] All idempotent (DO $ blocks checking existing constraint values)
+
+#### Types (`src/lib/chat/types.ts`)
+- [x] Add `spec_section_lookup`, `spec_requirement_lookup` to `AnswerMode`
+- [x] Add `rfi_lookup`, `change_impact_lookup` to `AnswerMode`
+- [x] Add `submittal_lookup`, `governing_document_query` to `AnswerMode`
+- [x] Add `requirement_reasoning`, `change_reasoning`, `governing_document_reasoning`, `requirement_gap_reasoning` to `ReasoningMode`
+- [x] Add `missing_rfi_resolution`, `conflicting_documents`, `unlinked_submittal`, `spec_section_not_ingested` to `GapType`
+- [x] Add `specSection`, `specRequirementType`, `rfiNumber`, `changeDocType`, `submittalId`, `governingDocScope` to `_routing`
+- [x] Add `SpecFinding`, `SpecEntity`, `SpecRequirementGroup`, `SpecQueryResult` interfaces
+- [x] Add `RFIFinding`, `RFIReference`, `RFIEntity`, `RFIQueryResult` interfaces
+- [x] Add `SubmittalFinding`, `SubmittalEntity`, `SubmittalQueryResult` interfaces
+- [x] Add `GoverningAuthority`, `GoverningDocResult` interfaces
+
+#### Query Classifier (`src/lib/chat/query-classifier.ts`)
+- [x] 6 new `QueryType` values
+- [x] Pattern constants: SPEC_SECTION_PATTERNS, SPEC_REQUIREMENT_PATTERNS, RFI_LOOKUP_PATTERNS, CHANGE_IMPACT_PATTERNS, SUBMITTAL_LOOKUP_PATTERNS, GOVERNING_DOCUMENT_PATTERNS
+- [x] Extractor helpers: extractSpecSection(), extractSpecRequirementType(), extractRFINumber(), extractChangeDocType()
+- [x] Classification branches in classifyQuery() (governing → rfi → change_impact → submittal → spec_section → spec_requirement, before default)
+
+#### Query Analyzer (`src/lib/chat/query-analyzer.ts`)
+- [x] 6 new case mappings in mapToAnswerMode()
+- [x] Phase 6 preferred sources in buildPreferredSources() (vision_db + vector_search for all new modes)
+- [x] Phase 6 routing fields in _routing construction
+
+#### Spec Queries (`src/lib/chat/spec-queries.ts`) — NEW
+- [x] `querySpecSection(supabase, projectId, sectionNumber)` — normalized section number match (label ilike + canonical_name ilike)
+- [x] `querySpecRequirements(supabase, projectId, requirementType, sectionFilter?)` — all-section or section-filtered requirement lookup
+- [x] `formatSpecAnswer(result)` — grouped by requirement family with part_reference citations
+- [x] `normalizeSectionNumber(s)` — "033000" → "03 30 00"
+- [x] `normalizeForCanonical(s)` — "03 30 00" → "03_30_00"
+- [x] `SPEC_REQUIREMENT_TYPES` constant array (7 families)
+- [x] Hydration, grouping (groupByRequirementFamily), deduplication helpers
+
+#### RFI Queries (`src/lib/chat/rfi-queries.ts`) — NEW
+- [x] `queryRFIByNumber(supabase, projectId, identifier)` — label match (normalizeRFILabel + ilike)
+- [x] `queryRFIsByEntity(supabase, projectId, entityTag)` — two-step: tag→entity IDs→RFI clarifies relationships + text match
+- [x] `queryRecentChanges(supabase, projectId, docType?)` — ordered by label desc, limit 20
+- [x] `formatRFIAnswer(result)` — status-grouped, superseding language flagged
+- [x] Support levels: `existing` (answered) → explicit; `new` (open) → inferred
+
+#### Submittal Queries (`src/lib/chat/submittal-queries.ts`) — NEW
+- [x] `querySubmittalByEntity(supabase, projectId, entityTag)` — two-step: tag → entity IDs → submittal submitted_for relationships
+- [x] `querySubmittalBySection(supabase, projectId, sectionNumber)` — canonical_name ilike SPEC_ prefix
+- [x] `resolveGoverningDocument(supabase, projectId, scope, entityTag?)` — conservative hierarchy: answered RFIs → specs → drawings → approved submittals
+- [x] `formatSubmittalAnswer(result)`, `formatGoverningDocAnswer(result)` — with conflict flags for open RFIs
+
+#### Retrieval (`src/lib/chat/retrieval-orchestrator.ts`)
+- [x] Step 2.95: spec graph lookup (spec_section_lookup, spec_requirement_lookup)
+- [x] Step 2.97: Phase 6B/C graph lookup (rfi_lookup, change_impact_lookup, submittal_lookup, governing_document_query)
+- [x] `attemptSpecGraphLookup()` — routes by mode: section vs. requirement
+- [x] `attemptPhase6GraphLookup()` — routes to governing / submittal / rfi-by-number / rfi-by-entity / recent-changes
+- [x] All 6 new modes added to `shouldAttemptLivePDF()`
+- [x] Spec (SP-xxx), submittal (SUB-xxx, SUBMITTAL) sheet patterns in `selectRelevantSheets()`
+
+#### Reasoning (`src/lib/chat/reasoning-engine.ts`)
+- [x] `requirement_reasoning` mode: spec_section_lookup + spec_requirement_lookup
+- [x] `change_reasoning` mode: rfi_lookup + change_impact_lookup
+- [x] `governing_document_reasoning` mode: governing_document_query + submittal_lookup
+- [x] `generateRequirementFindings()` — explicit for spec data, requirement_gap for missing families
+- [x] `generateChangeFindings()` — explicit for answered RFIs, inferred for open; superseding_language flagged
+- [x] `generateGoverningDocFindings()` — hierarchy surfaced; conflicts flagged as conflicting_documents gap
+- [x] `generateRequirementGapFindings()` — spec_section_not_ingested gap + missing_rfi_resolution gap
+- [x] Gap detection: open RFIs (missing_rfi_resolution), doc conflicts (conflicting_documents), unlinked submittals, missing spec sections
+- [x] Answer frames: requirements_with_citations, change_impact_documented, governing_doc_hierarchy, requirement_gaps_identified
+
+#### Vision Extractors
+- [x] `src/lib/vision/spec-extractor.ts` — SpecDocumentType (4 types), SPEC_DOCUMENT_PATTERNS, classifySpecDocument(), extractSpecSections(), splitIntoParts(), classifyRequirement(), extractRequirementStatements(), buildSpecSectionCanonical(), buildSpecRequirementCanonical(), SPEC_SECTION_EXTRACTION_PROMPT, SPEC_MANUAL_EXTRACTION_PROMPT
+- [x] `src/lib/vision/rfi-extractor.ts` — ChangeDocType (5 types), CHANGE_DOC_PATTERNS, classifyChangeDocument(), extractChangeDocIdentifier(), extractChangeDocDates(), extractSheetReferences(), extractDetailReferences(), extractSpecSectionReferences(), isSupersedingLanguage(), determineRFIStatus(), buildChangeDocCanonical(), RFI_EXTRACTION_PROMPT, RFI_LOG_EXTRACTION_PROMPT
+- [x] `src/lib/vision/submittal-extractor.ts` — SubmittalDocType (6 types), SUBMITTAL_DOC_PATTERNS, classifySubmittalDocument(), extractSubmittalIdentifier(), extractApprovalStatus(), extractManufacturerInfo(), extractProductTags(), buildSubmittalCanonical(), buildProductDataCanonical(), SUBMITTAL_EXTRACTION_PROMPT, SUBMITTAL_LOG_EXTRACTION_PROMPT
+
+#### Validation Harness (`src/lib/chat/spec-validator.ts`) — NEW
+- [x] `runSpecValidation(supabase, projectId)` → SpecValidationReport (5 tests, all parallel)
+- [x] `formatSpecValidationReport(report)` → string
+- [x] Tests: spec_sections_ingested, requirement_families, governs_relationships, rfi_linked, submittal_linked
+
+---
+
+## Key Design Decisions
+
+### Three new disciplines: 'spec', 'rfi', 'submittal'
+Added to the `discipline` CHECK constraint in migration 00043. Status values reused semantically: `existing` = answered RFI, `to_remain` = approved submittal, `new` = open RFI/pending submittal, `to_remove` = voided/rejected.
+
+### Requirement families are finding_type, not entity subtype
+7 requirement families (material, execution, testing, submittal, closeout, protection, inspection) are stored as `finding_type` values on `entity_findings`, not as entity subtypes. This enables cross-section queries without complex JOINs.
+
+### Section number normalization
+`normalizeSectionNumber()` handles "033000", "03 30 00", and "03300" → "03 30 00". Stored in `label`. `canonical_name` uses underscore form: "SPEC_03_30_00". Queries use both ilike matches.
+
+### Conservative governing document hierarchy
+`resolveGoverningDocument()` does NOT automatically assert precedence. It returns all authorities ranked by tier (answered RFIs > specs > drawings > approved submittals) and surfaces open RFIs as `conflicting_documents` gaps. The LLM surfaces conflicts; the system never silently resolves them.
+
+### Support levels from document status, not model
+Answered RFIs → explicit; open RFIs → inferred. Spec findings → explicit. Approved submittals → explicit; pending/rejected → inferred. Model never assigns support levels.
+
+### Two-step entity tag lookup for RFI/submittal
+`queryRFIsByEntity()` and `querySubmittalByEntity()` first resolve entity IDs from the tag, then look up relationships. Same pattern established in arch-queries.ts (Phase 4).
+
+### Retrieval step ordering
+1 → 2 (vision DB) → 2.5 (demo graph) → 2.75 (arch graph) → 2.8 (structural graph) → 2.85 (MEP graph) → 2.9 (coordination graph) → **2.95 (spec graph)** → **2.97 (RFI/submittal/governing graph)** → 3 (smart router) → 4 (live PDF).
+
+---
+
+## What Does NOT Change
+
+- All utility, demo, architectural, structural, MEP, and coordination pipeline code — untouched
+- `graph-queries.ts`, `demo-queries.ts`, `arch-queries.ts`, `structural-queries.ts`, `mep-queries.ts`, `coordination-queries.ts`, `smart-router.ts` — untouched
+- Existing answer modes and reasoning modes — untouched
+- `requirement_lookup` (legacy mode) — still distinct; new modes are `spec_requirement_lookup` / `spec_section_lookup`
+
+---
+
+## Next Phase
+
+**Phase 7: Vision Processing Wiring** — wire spec-extractor.ts, rfi-extractor.ts, and submittal-extractor.ts
+into the auto-process pipeline (same integration point as demo-extractor.ts and arch-extractor.ts).
+
+Or **Phase 6D: Spec → Drawing Linkage** — wire `governs` relationships between spec sections and drawing entities (e.g. footing F-1 governed by Section 03 30 00).
+
+---
+
 # Phase 5: Structural + MEP + Coordination Reasoning — COMPLETE ✓
 
 Delivered 2026-03-11. TypeScript compilation passed with zero errors (`npx tsc --noEmit --skipLibCheck`).
