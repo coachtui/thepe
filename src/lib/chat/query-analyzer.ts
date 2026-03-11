@@ -49,7 +49,7 @@ export function analyzeQuery(rawQuery: string): QueryAnalysis {
   const answerMode = mapToAnswerMode(effectiveClassification, rawQuery)
   const preferredSources = buildPreferredSources(effectiveClassification, answerMode, visionQueryType)
 
-  return {
+  const analysis: QueryAnalysis = {
     rawQuery,
     answerMode,
 
@@ -92,6 +92,8 @@ export function analyzeQuery(rawQuery: string): QueryAnalysis {
     // determineVisionQueryType() on the same string.
     _routing: { classification: effectiveClassification, visionQueryType },
   }
+
+  return applyPostAnalysisCorrections(analysis, rawQuery)
 }
 
 // ---------------------------------------------------------------------------
@@ -185,4 +187,145 @@ function buildPreferredSources(
   }
 
   return sources
+}
+
+// ---------------------------------------------------------------------------
+// Post-analysis correction layer
+// ---------------------------------------------------------------------------
+// These patterns catch predictable classifier errors on specific phrasings
+// without touching the underlying classifyQuery() or determineVisionQueryType().
+
+/** Sequence phrasing that the base classifier misses when install/construct
+ *  nouns get caught by the 'detail' branch before the 'general' sequence check. */
+const SEQUENCE_CORRECTION_PATTERNS = [
+  /\btypical\s+(?:construction\s+)?sequence\b/i,
+  /\bstandard\s+(?:construction\s+)?sequence\b/i,
+  /\binstallation\s+(?:sequence|order|procedure)\b/i,
+  /\bconstruction\s+(?:sequence|order|procedure)\b/i,
+  /\border\s+of\s+(?:installation|construction|operations?|work)\b/i,
+  /\bwhat\s+comes\s+first\b/i,
+  /\bsteps?\s+(?:to\s+install|for\s+installing|to\s+construct|for\s+constructing)\b/i,
+  /\bhow\s+(?:do\s+(?:i|you|we)\s+)?(?:install|construct)\b/i,
+  /\bin\s+what\s+order\b/i,
+]
+
+/** Plain-English length phrasing that fires AFTER the "how many" component
+ *  pattern in determineVisionQueryType(), leaving subtype as 'component'. */
+const PLAIN_LENGTH_PATTERNS = [
+  /\blinear\s+feet\b/i,
+  /\btotal\s+(?:length|footage|lf)\b/i,
+  /\bhow\s+(?:many|much)\s+(?:linear\s+)?feet\b/i,
+  /\bfeet\s+of\s+(?:\w+\s+)?(?:pipe|main|line|conduit)\b/i,
+]
+
+/** "across/entire/whole/overall project" aggregation context that accidentally
+ *  triggers the crossing detector because "across" is a crossing keyword. */
+const PROJECT_SCOPE_PHRASES = [
+  /\bacross\s+(?:the|this|all|whole|entire)\s+project\b/i,
+  /\bfor\s+(?:the|this)\s+(?:whole|entire)\s+project\b/i,
+  /\b(?:whole|entire|overall)\s+project\b/i,
+  /\bproject[\s-]wide\b/i,
+  /\boverall\s+(?:total|summary)\b/i,
+]
+
+/** Confirm the user actually wants crossing data (prevents false negatives
+ *  from Correction 3 on genuine crossing questions that mention "project"). */
+const EXPLICIT_CROSSING_SIGNALS = [
+  /\butilities?\s+cross\b/i,
+  /\bwhat\s+(?:cross|intersect)\b/i,
+  /\butility\s+crossing\b/i,
+  /\bcrossing\s+utilities\b/i,
+  /\bcross(?:es|ing)\s+(?:the|water|storm|sewer|gas|elec|line)/i,
+]
+
+/**
+ * Apply deterministic post-analysis corrections.
+ *
+ * Corrections (applied in priority order):
+ *   1. Sequence   — detail/general → sequence_inference for construction sequence phrasing
+ *   2. Length     — component subtype → length for plain-English length queries
+ *   3. Scope guard— crossing_lookup → project_summary when "across/entire project" with
+ *                   no explicit utility-crossing signal
+ */
+function applyPostAnalysisCorrections(
+  analysis: QueryAnalysis,
+  rawQuery: string
+): QueryAnalysis {
+  // ── Correction 1: Sequence inference ──────────────────────────────────────
+  if (
+    analysis.answerMode !== 'sequence_inference' &&
+    SEQUENCE_CORRECTION_PATTERNS.some(p => p.test(rawQuery))
+  ) {
+    return {
+      ...analysis,
+      answerMode: 'sequence_inference',
+      retrievalHints: {
+        ...analysis.retrievalHints,
+        needsVisionDBLookup: false,
+        visionQuerySubtype: undefined,
+      },
+      _routing: analysis._routing
+        ? {
+            classification: {
+              ...analysis._routing.classification,
+              type: 'general',
+              needsVectorSearch: true,
+              needsCompleteData: false,
+              needsDirectLookup: false,
+            },
+            visionQueryType: 'none' as const,
+          }
+        : analysis._routing,
+    }
+  }
+
+  // ── Correction 2: Length subtype ───────────────────────────────────────────
+  if (
+    analysis.retrievalHints.needsVisionDBLookup &&
+    analysis.retrievalHints.visionQuerySubtype === 'component' &&
+    PLAIN_LENGTH_PATTERNS.some(p => p.test(rawQuery))
+  ) {
+    return {
+      ...analysis,
+      retrievalHints: {
+        ...analysis.retrievalHints,
+        visionQuerySubtype: 'length',
+      },
+    }
+  }
+
+  // ── Correction 3: Project-scope guard ─────────────────────────────────────
+  if (
+    analysis.answerMode === 'crossing_lookup' &&
+    PROJECT_SCOPE_PHRASES.some(p => p.test(rawQuery)) &&
+    !EXPLICIT_CROSSING_SIGNALS.some(p => p.test(rawQuery))
+  ) {
+    return {
+      ...analysis,
+      answerMode: 'project_summary',
+      retrievalHints: {
+        ...analysis.retrievalHints,
+        preferredSources: ['project_summary_view', 'direct_quantity_lookup'],
+        needsVisionDBLookup: false,
+        visionQuerySubtype: undefined,
+        needsCompleteDataset: true,
+        isAggregation: true,
+      },
+      _routing: analysis._routing
+        ? {
+            classification: {
+              ...analysis._routing.classification,
+              type: 'project_summary',
+              needsDirectLookup: true,
+              needsVectorSearch: false,
+              needsCompleteData: true,
+              needsVision: false,
+            },
+            visionQueryType: 'none' as const,
+          }
+        : analysis._routing,
+    }
+  }
+
+  return analysis
 }

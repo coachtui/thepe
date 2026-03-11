@@ -186,25 +186,50 @@ function checkModeSpecificRequirements(
 
   switch (analysis.answerMode) {
     case 'quantity_lookup': {
-      // Quantities need either vision DB or complete chunk data to be reliable.
       const hasStructured = packet.items.some(
         i => i.source === 'vision_db' || i.source === 'direct_lookup'
       )
-      if (!hasStructured) {
+      const hasVectorEvidence = packet.items.some(
+        i => i.source === 'vector_search' || i.source === 'complete_data'
+      )
+      if (hasStructured) {
+        adjustment += 0.1
+        reasons.push('Quantity sourced from structured vision data — high reliability')
+      } else if (!hasVectorEvidence) {
+        // Penalize only when there is truly no supporting evidence of any kind.
         adjustment -= 0.1
         gaps.push('Quantity answers are most accurate when sourced from vision-extracted DB data.')
       } else {
-        adjustment += 0.1
-        reasons.push('Quantity sourced from structured vision data — high reliability')
+        // Vector-only: neutral — can reach partial with multiple high-confidence chunks,
+        // but never sufficient. Still flag the gap.
+        gaps.push('Quantity answers are most accurate when sourced from vision-extracted DB data.')
       }
       break
     }
 
     case 'crossing_lookup': {
+      // Mirror quantity_lookup: give a positive bonus for structured data so that
+      // two vision_db crossing records clear the 0.65 sufficient threshold.
       const hasCrossingData = packet.items.some(i => i.source === 'vision_db')
-      if (!hasCrossingData) {
+      if (hasCrossingData) {
+        adjustment += 0.1
+        reasons.push('Crossing data sourced from structured vision records — high reliability')
+      } else {
         adjustment -= 0.1
         gaps.push('Crossing queries are most reliable when sourced from vision-extracted crossing records.')
+      }
+      break
+    }
+
+    case 'sheet_lookup': {
+      // Reward items that carry explicit sheet or document citations.
+      // Concentrated same-sheet hits are far more reliable than raw item count.
+      const citedItems = packet.items.filter(
+        i => i.citation?.sheetNumber || i.citation?.documentId
+      )
+      if (citedItems.length > 0) {
+        adjustment += Math.min(0.2, citedItems.length * 0.1)
+        reasons.push(`${citedItems.length} item(s) with explicit sheet citation`)
       }
       break
     }
