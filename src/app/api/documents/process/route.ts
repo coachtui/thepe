@@ -26,7 +26,7 @@ import {
   createDocumentEmbeddings,
 } from '@/lib/embeddings/vector-search'
 import { getDocumentSignedUrl } from '@/lib/db/queries/documents'
-import { triggerVisionProcessingAsync, shouldAutoProcessVision } from '@/lib/vision/auto-process'
+import { triggerVisionWithInngest, shouldAutoProcessVision } from '@/lib/vision/auto-process'
 
 export async function POST(request: NextRequest) {
   try {
@@ -153,10 +153,10 @@ export async function POST(request: NextRequest) {
       // Only process PDFs automatically
       const shouldProcess = await shouldAutoProcessVision(documentId);
       if (shouldProcess && document.project_id) {
-        console.log(`[Document Process] Triggering automatic vision processing for ${documentId}`);
-        triggerVisionProcessingAsync(documentId, document.project_id, {
-          maxSheets: 200,
-          trigger: 'upload-auto' // identifies this code path in vision lifecycle logs
+        console.log(`[Document Process] Sending vision/document.process event to Inngest for ${documentId}`);
+        await triggerVisionWithInngest(documentId, document.project_id, {
+          maxPages: 200,
+          trigger: 'upload-auto',
         });
       } else {
         console.log(`[Document Process] Skipping automatic vision processing (not a PDF, already processed, or missing project_id)`);

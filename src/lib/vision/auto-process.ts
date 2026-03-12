@@ -10,6 +10,7 @@ import { processDocumentWithVision } from '@/lib/processing/vision-processor';
 import { debug, logProduction } from '@/lib/utils/debug';
 import { getDocumentSignedUrl } from '@/lib/db/queries/documents';
 import { getPdfMetadata } from '@/lib/vision/pdf-to-image';
+import { inngest } from '@/inngest/client';
 
 interface AutoProcessResult {
   success: boolean;
@@ -251,6 +252,38 @@ export function triggerVisionProcessingAsync(
     .catch(error => {
       logProduction.error('Auto Vision', error, { context: 'Background processing threw error', documentId });
     });
+}
+
+/**
+ * Send a vision/document.process event to Inngest.
+ *
+ * Inngest runs the job durably outside the Vercel request lifecycle —
+ * no timeouts, no fire-and-forget risk. Each page-range chunk is a
+ * separate durable step with independent retry.
+ *
+ * The event is deduplicated by document ID (id=`vision-${documentId}`),
+ * so calling this twice for the same document queues only one job.
+ */
+export async function triggerVisionWithInngest(
+  documentId: string,
+  projectId: string,
+  options?: { maxPages?: number; trigger?: string }
+): Promise<void> {
+  const triggerLabel = options?.trigger ?? 'inngest-trigger';
+  logProduction.info('Vision Lifecycle',
+    `[TRIGGER→inngest] document=${documentId} project=${projectId} trigger=${triggerLabel}`
+  );
+  await inngest.send({
+    // Deduplicate: same document within 24 h will not queue a second job.
+    id: `vision-${documentId}`,
+    name: 'vision/document.process',
+    data: {
+      documentId,
+      projectId,
+      trigger: triggerLabel,
+      maxPages: options?.maxPages ?? 200,
+    },
+  });
 }
 
 // How long a document can stay in 'processing' before it is considered

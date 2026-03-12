@@ -20,6 +20,7 @@
     "@types/react-dom": "^19.2.3",
     "ai": "^6.0.56",
     "autoprefixer": "^10.4.23",
+    "inngest": "^3.52.6",
     "js-tiktoken": "^1.0.21",
     "llamaindex": "^0.12.1",
     "next": "^14.2.35",
