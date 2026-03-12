@@ -1,5 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Force the pdfjs worker file into the serverless bundle for /api/documents/process.
+  // pdfjs-dist is kept external (not webpack-bundled) but its worker is referenced via
+  // a runtime path string — file tracing won't find it automatically.
+  outputFileTracingIncludes: {
+    '/api/documents/process': ['./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: '500mb',
