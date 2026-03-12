@@ -10,9 +10,15 @@
 
 export const dynamicParams = true;
 
+// Vision processing a large PDF can take 10–20 min. Without maxDuration
+// Vercel kills this function at the default timeout, leaving vision_status
+// permanently stuck at 'processing'.
+export const maxDuration = 300;
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/db/supabase/server';
 import { processDocumentWithVision } from '@/lib/processing/vision-processor';
+import { logProduction } from '@/lib/utils/debug';
 
 export async function POST(
   request: NextRequest,
@@ -72,8 +78,20 @@ export async function POST(
       );
     }
 
-    console.log(`[Vision API] Processing document: ${document.filename}`);
-    console.log(`[Vision API] Max sheets: ${maxSheets}`);
+    logProduction.info('Vision Lifecycle',
+      `[TRIGGER] document=${documentId} trigger=manual-api maxSheets=${maxSheets}`
+    );
+
+    // Set status to 'processing' before starting so the UI shows progress
+    // and stuck-state detection can track elapsed time.
+    await supabase
+      .from('documents')
+      .update({ vision_status: 'processing', vision_error: null })
+      .eq('id', documentId);
+
+    logProduction.info('Vision Lifecycle',
+      `[STATUS→processing] document=${documentId} trigger=manual-api`
+    );
 
     // Process the document with vision
     // Process ALL pages to ensure we capture all material quantities
@@ -86,8 +104,21 @@ export async function POST(
     });
 
     if (result.success) {
-      console.log(`[Vision API] Success: Processed ${result.sheetsProcessed} sheets, extracted ${result.quantitiesExtracted} quantities`);
-      console.log(`[Vision API] Cost: $${result.totalCost.toFixed(4)}`);
+      await supabase
+        .from('documents')
+        .update({
+          vision_status: 'completed',
+          vision_processed_at: new Date().toISOString(),
+          vision_sheets_processed: result.sheetsProcessed,
+          vision_quantities_extracted: result.quantitiesExtracted,
+          vision_cost_usd: result.totalCost,
+          vision_error: null
+        })
+        .eq('id', documentId);
+
+      logProduction.info('Vision Lifecycle',
+        `[STATUS→completed] document=${documentId} trigger=manual-api sheets=${result.sheetsProcessed} quantities=${result.quantitiesExtracted} cost=$${result.totalCost.toFixed(4)}`
+      );
 
       return NextResponse.json({
         success: true,
@@ -100,7 +131,21 @@ export async function POST(
         }
       });
     } else {
-      console.error('[Vision API] Processing failed:', result.errors);
+      const errorMsg = result.errors?.join(', ') || 'Vision processing failed';
+      await supabase
+        .from('documents')
+        .update({
+          vision_status: 'failed',
+          vision_error: errorMsg,
+          vision_sheets_processed: result.sheetsProcessed,
+          vision_quantities_extracted: result.quantitiesExtracted,
+          vision_cost_usd: result.totalCost
+        })
+        .eq('id', documentId);
+
+      logProduction.info('Vision Lifecycle',
+        `[STATUS→failed] document=${documentId} trigger=manual-api error="${errorMsg}" sheets=${result.sheetsProcessed}`
+      );
 
       return NextResponse.json({
         success: false,

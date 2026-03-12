@@ -31,9 +31,10 @@ export async function autoProcessDocumentVision(
   options: {
     maxSheets?: number;
     skipIfAlreadyProcessed?: boolean;
+    trigger?: string; // caller label for trace logging
   } = {}
 ): Promise<AutoProcessResult> {
-  const { maxSheets = 200, skipIfAlreadyProcessed = true } = options;
+  const { maxSheets = 200, skipIfAlreadyProcessed = true, trigger = 'unknown' } = options;
 
   const supabase = await createServiceClient();
 
@@ -44,12 +45,18 @@ export async function autoProcessDocumentVision(
     if (skipIfAlreadyProcessed) {
       const { data: doc } = await supabase
         .from('documents')
-        .select('vision_status')
+        .select('vision_status, updated_at')
         .eq('id', documentId)
         .single();
 
+      logProduction.info('Vision Lifecycle',
+        `[START] document=${documentId} trigger=${trigger} prior_vision_status=${doc?.vision_status ?? 'unknown'}`
+      );
+
       if (doc?.vision_status === 'completed') {
-        debug.vision('Document already processed, skipping');
+        logProduction.info('Vision Lifecycle',
+          `[SKIP] document=${documentId} — already completed, skipping (trigger=${trigger})`
+        );
         return {
           success: true,
           documentId,
@@ -58,6 +65,19 @@ export async function autoProcessDocumentVision(
           totalCost: 0
         };
       }
+
+      if (doc?.vision_status === 'processing') {
+        const elapsedMin = doc.updated_at
+          ? ((Date.now() - new Date(doc.updated_at).getTime()) / 60000).toFixed(1)
+          : 'unknown';
+        logProduction.info('Vision Lifecycle',
+          `[WARN] document=${documentId} — already in processing (${elapsedMin} min), proceeding anyway (trigger=${trigger})`
+        );
+      }
+    } else {
+      logProduction.info('Vision Lifecycle',
+        `[START] document=${documentId} trigger=${trigger} skipIfAlreadyProcessed=false`
+      );
     }
 
     // Update status to processing
@@ -69,7 +89,9 @@ export async function autoProcessDocumentVision(
       })
       .eq('id', documentId);
 
-    debug.vision('Status updated to "processing"');
+    logProduction.info('Vision Lifecycle',
+      `[STATUS→processing] document=${documentId} trigger=${trigger}`
+    );
 
     // Check document size to determine processing strategy
     const { data: doc, error: docError } = await supabase
@@ -122,6 +144,9 @@ export async function autoProcessDocumentVision(
         })
         .eq('id', documentId);
 
+      logProduction.info('Vision Lifecycle',
+        `[STATUS→completed] document=${documentId} trigger=${trigger} sheets=${result.sheetsProcessed} quantities=${result.quantitiesExtracted} cost=$${result.totalCost.toFixed(4)}`
+      );
       logProduction.info('Auto Vision Success',
         `Processed ${result.sheetsProcessed} sheets, ${result.quantitiesExtracted} quantities`,
         { documentId, totalCost: `$${result.totalCost.toFixed(4)}` }
@@ -149,6 +174,9 @@ export async function autoProcessDocumentVision(
         })
         .eq('id', documentId);
 
+      logProduction.info('Vision Lifecycle',
+        `[STATUS→failed] document=${documentId} trigger=${trigger} error="${errorMsg}" sheets=${result.sheetsProcessed}`
+      );
       logProduction.error('Auto Vision Failed', errorMsg, { documentId });
 
       return {
@@ -174,6 +202,9 @@ export async function autoProcessDocumentVision(
           vision_error: errorMsg
         })
         .eq('id', documentId);
+      logProduction.info('Vision Lifecycle',
+        `[STATUS→failed/exception] document=${documentId} trigger=${trigger} error="${errorMsg}"`
+      );
     } catch (updateError) {
       logProduction.error('Auto Vision', updateError, { context: 'Failed to update error status' });
     }
@@ -192,12 +223,22 @@ export async function autoProcessDocumentVision(
 /**
  * Non-blocking version that triggers vision processing in the background
  * Use this in API routes to avoid blocking the response
+ *
+ * WARNING: On Vercel, background promises may be killed when the serverless
+ * function exits. If this happens, vision_status is stuck at 'processing'.
+ * shouldAutoProcessVision() includes stuck-state detection (15 min threshold)
+ * to recover from this. The maxDuration export on the calling route should be
+ * set as high as possible to give the background task time to complete.
  */
 export function triggerVisionProcessingAsync(
   documentId: string,
   projectId: string,
-  options?: { maxSheets?: number }
+  options?: { maxSheets?: number; trigger?: string }
 ): void {
+  const triggerLabel = options?.trigger ?? 'async-background';
+  logProduction.info('Vision Lifecycle',
+    `[TRIGGER] document=${documentId} project=${projectId} trigger=${triggerLabel} maxSheets=${options?.maxSheets ?? 200}`
+  );
   // Fire and forget - don't await
   autoProcessDocumentVision(documentId, projectId, options)
     .then(result => {
@@ -212,12 +253,18 @@ export function triggerVisionProcessingAsync(
     });
 }
 
+// How long a document can stay in 'processing' before it is considered
+// stuck (Vercel function was killed before completion could be written).
+const STUCK_PROCESSING_THRESHOLD_MS = 15 * 60 * 1000 // 15 minutes
+
 /**
  * Check if a document should be processed with vision
  * Criteria:
  * - Must be a PDF (vision works best on PDFs)
  * - Must have completed text processing
- * - Vision status must be 'pending'
+ * - Vision status must be 'pending' — OR stuck in 'processing' for >15 min
+ *   (Vercel may kill the function before completion is written, leaving the
+ *   status permanently at 'processing'. Detect and reset those.)
  */
 export async function shouldAutoProcessVision(documentId: string): Promise<boolean> {
   const supabase = await createServiceClient();
@@ -225,22 +272,51 @@ export async function shouldAutoProcessVision(documentId: string): Promise<boole
   try {
     const { data: doc } = await supabase
       .from('documents')
-      .select('file_type, processing_status, vision_status')
+      .select('file_type, processing_status, vision_status, updated_at')
       .eq('id', documentId)
       .single();
 
     if (!doc) return false;
 
-    // Only process PDFs automatically
     const isPdf = doc.file_type === 'application/pdf';
-
-    // Text processing must be complete
     const textComplete = doc.processing_status === 'completed';
 
-    // Vision must be pending
-    const visionPending = doc.vision_status === 'pending';
+    // Stuck-state recovery: if stuck in 'processing' longer than threshold,
+    // the serverless function was almost certainly killed before it could write
+    // 'completed'. Reset to 'pending' so the next trigger can retry.
+    if (doc.vision_status === 'processing' && doc.updated_at) {
+      const elapsedMs = Date.now() - new Date(doc.updated_at).getTime();
+      const elapsedMin = (elapsedMs / 60000).toFixed(1);
+      if (elapsedMs > STUCK_PROCESSING_THRESHOLD_MS) {
+        logProduction.info('Vision Auto-Process',
+          `[STUCK] document=${documentId} has been in 'processing' for ${elapsedMin} min — resetting to pending for retry`
+        );
+        await supabase
+          .from('documents')
+          .update({
+            vision_status: 'pending',
+            vision_error: `Reset from stuck processing state after ${elapsedMin} min (function timeout)`
+          })
+          .eq('id', documentId);
+        logProduction.info('Vision Auto-Process',
+          `[STUCK-RESET] document=${documentId} vision_status reset to pending — will re-trigger`
+        );
+        return isPdf && textComplete;
+      }
+      logProduction.info('Vision Auto-Process',
+        `[SKIP] document=${documentId} already in processing (${elapsedMin} min elapsed, threshold ${STUCK_PROCESSING_THRESHOLD_MS / 60000} min)`
+      );
+      return false;
+    }
 
-    return isPdf && textComplete && visionPending;
+    const visionPending = doc.vision_status === 'pending';
+    const result = isPdf && textComplete && visionPending;
+
+    logProduction.info('Vision Auto-Process',
+      `[CHECK] document=${documentId} isPdf=${isPdf} textComplete=${textComplete} visionStatus=${doc.vision_status} → shouldProcess=${result}`
+    );
+
+    return result;
 
   } catch (error) {
     logProduction.error('Auto Vision', error, { context: 'Error checking if should process' });
