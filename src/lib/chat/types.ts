@@ -331,6 +331,68 @@ export interface SufficiencyResult {
 }
 
 // ---------------------------------------------------------------------------
+// Debug trace (AI_DEBUG_TRACE=true or debugAi request flag)
+// ---------------------------------------------------------------------------
+
+/**
+ * Human-readable trace of a single pipeline execution.
+ * Populated by chat-handler and logged / returned when debug mode is active.
+ */
+export interface AiTrace {
+  /** ISO timestamp of this request */
+  timestamp: string
+  /** Raw user query */
+  query: string
+
+  // --- Query analysis ---
+  answerMode: AnswerMode
+  /** Post-analysis corrections applied by query-analyzer */
+  correctionsApplied: string[]
+  visionQuerySubtype: string
+  preferredSources: string[]
+  requestedSystems: string[]
+  extractedEntities: Record<string, string | undefined>
+
+  // --- Retrieval ---
+  retrievalMethod: string
+  evidenceItemCount: number
+  evidenceBySource: Record<string, number>
+  /** Whether smart-router legacy fallback was used */
+  legacySmartRouterUsed: boolean
+  /** Whether live PDF analysis ran */
+  livePDFUsed: boolean
+  livePDFMeta?: {
+    attempted: number
+    analyzed: number
+    skipped: number
+    wasCapped: boolean
+  }
+
+  // --- Sufficiency ---
+  sufficiencyLevel: string
+  sufficiencyScore: number
+  sufficiencyReasons: string[]
+  isUnsupportedDomain: boolean
+
+  // --- Reasoning ---
+  reasoningMode: string
+  reasoningActivated: boolean
+  findingCount: number
+  gapCount: number
+  evidenceStrength: string
+  recommendedAnswerFrame: string
+  /** Breakdown: explicit / inferred / unknown finding counts */
+  supportMix: { explicit: number; inferred: number; unknown: number }
+
+  // --- Response ---
+  model: string
+  temperature: number
+
+  // --- Warnings ---
+  warnings: string[]
+}
+
+// ---------------------------------------------------------------------------
 // Demo entities (Phase 3)
 // ---------------------------------------------------------------------------
 

@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Input validation
-    const { messages, projectId } = await request.json()
+    const { messages, projectId, debugAi } = await request.json()
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response('Messages array is required', { status: 400 })
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     const projectContext = await loadProjectContext(supabase, projectId)
 
     // Run the unified chat pipeline
-    return handleChatRequest({ messages, projectId, supabase, projectContext })
+    return handleChatRequest({ messages, projectId, supabase, projectContext, debugAi: !!debugAi })
   } catch (error) {
     console.error('[Chat API] Error:', error)
     return new Response(

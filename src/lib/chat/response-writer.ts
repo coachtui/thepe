@@ -471,7 +471,7 @@ This answer is based on real-time analysis of project PDFs.`
 // Temperature selection
 // ---------------------------------------------------------------------------
 
-function selectTemperature(mode: AnswerMode, sufficiency: SufficiencyLevel): number {
+export function selectTemperature(mode: AnswerMode, sufficiency: SufficiencyLevel): number {
   // Precise factual modes — keep temperature low
   if (['quantity_lookup', 'crossing_lookup', 'project_summary'].includes(mode)) {
     return 0.2
