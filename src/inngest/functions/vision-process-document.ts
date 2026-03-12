@@ -55,13 +55,13 @@ export const visionProcessDocument = inngest.createFunction(
     // -------------------------------------------------------------------------
     const jobKey = `inngest-${event.id}`
 
-    const initResult = await step.run('initialize', async (): Promise<{ skip: boolean; filePath: string }> => {
+    const initResult = await step.run('initialize', async (): Promise<{ skip: boolean }> => {
       const supabase = await createServiceClient()
 
       // Check current vision_status — skip if already completed.
       const { data: doc } = await supabase
         .from('documents')
-        .select('vision_status, file_path')
+        .select('vision_status')
         .eq('id', documentId)
         .single()
 
@@ -69,7 +69,7 @@ export const visionProcessDocument = inngest.createFunction(
         logProduction.info('Vision Lifecycle',
           `[SKIP] document=${documentId} trigger=${trigger} — already completed, skipping Inngest run`
         )
-        return { skip: true, filePath: '' }
+        return { skip: true }
       }
 
       // Check for a duplicate Inngest job (same jobKey)
@@ -78,7 +78,7 @@ export const visionProcessDocument = inngest.createFunction(
         logProduction.info('Vision Lifecycle',
           `[SKIP] document=${documentId} — job ${jobKey} already processing, skipping duplicate run`
         )
-        return { skip: true, filePath: '' }
+        return { skip: true }
       }
 
       await supabase
@@ -90,7 +90,7 @@ export const visionProcessDocument = inngest.createFunction(
         `[STATUS→processing] document=${documentId} trigger=${trigger} jobKey=${jobKey}`
       )
 
-      return { skip: false, filePath: doc?.file_path ?? '' }
+      return { skip: false }
     })
 
     if (initResult.skip) {
@@ -102,7 +102,16 @@ export const visionProcessDocument = inngest.createFunction(
     // -------------------------------------------------------------------------
     const { numPages } = await step.run('get-pdf-metadata', async (): Promise<{ numPages: number }> => {
       const supabase = await createServiceClient()
-      const signedUrl = await getDocumentSignedUrl(supabase, initResult.filePath)
+      // Re-fetch file_path inside this step — initResult.filePath can be empty
+      // if the initialize step's query returned null (e.g. race condition or
+      // Inngest step serialisation issue). Fetching it fresh guarantees correctness.
+      const { data: doc } = await supabase
+        .from('documents')
+        .select('file_path')
+        .eq('id', documentId)
+        .single()
+      if (!doc?.file_path) throw new Error(`Document ${documentId} has no file_path`)
+      const signedUrl = await getDocumentSignedUrl(supabase, doc.file_path)
       const response = await fetch(signedUrl)
       if (!response.ok) throw new Error(`Failed to download PDF: ${response.statusText}`)
       const buffer = Buffer.from(await response.arrayBuffer())
