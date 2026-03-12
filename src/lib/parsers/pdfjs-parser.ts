@@ -12,12 +12,13 @@ import path from 'path'
 // Configure worker (Node.js environment)
 // PDF.js requires a worker to parse PDFs
 if (typeof window === 'undefined') {
-  // Server-side: point to the actual worker file using path resolution
-  // This works with Next.js by pointing directly to node_modules
-  pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(
+  // Server-side: pdfjs v4 loads workerSrc via dynamic import(), which requires
+  // a file:// URL on Node.js — a bare filesystem path is not a valid module specifier.
+  const workerPath = path.join(
     process.cwd(),
     'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'
   )
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `file://${workerPath}`
 }
 
 export interface ParsedDocument {

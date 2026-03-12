@@ -4,7 +4,9 @@ const nextConfig = {
   // pdfjs-dist is kept external (not webpack-bundled) but its worker is referenced via
   // a runtime path string — file tracing won't find it automatically.
   outputFileTracingIncludes: {
-    '/api/documents/process': ['./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'],
+    // Include all pdfjs-dist legacy build files — the worker is loaded via
+    // dynamic import() relative to pdf.mjs and won't be traced automatically.
+    '/api/documents/process': ['./node_modules/pdfjs-dist/**/*'],
   },
   experimental: {
     serverActions: {
