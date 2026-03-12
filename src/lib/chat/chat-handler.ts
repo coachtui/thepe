@@ -128,6 +128,11 @@ export async function handleChatRequest(
       warnings.push('legacy_auto_detect_system_used: utility bias risk — verify autoDetectSystem() resolved correct water line')
     }
 
+    // Surface routing warnings from smart-router fallback decisions
+    if (packet.routingWarnings?.length) {
+      warnings.push(...packet.routingWarnings.map(w => `smart_router: ${w}`))
+    }
+
     const temp = selectTemperature(analysis.answerMode, sufficiency.level)
 
     const trace: AiTrace = {

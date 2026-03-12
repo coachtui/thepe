@@ -89,22 +89,27 @@ export interface QueryRoutingResult {
 
   // System prompt suggestions
   systemPromptAddition?: string;
+
+  // Warnings from fallback decisions (trace-visible)
+  routingWarnings?: string[];
 }
 
 /**
  * Auto-detect system name from project data
  *
  * Strategies:
- * 1. If project has only one major system, return it
- * 2. If item name hints at a specific system, return that
+ * 0. If multiple distinct named water-line instances exist, suppress detection
+ * 1. If project has predominantly one system category, return it
+ * 2. If item name hints at a specific utility system, return that
  * 3. Otherwise return undefined (will search all systems)
  */
 async function autoDetectSystem(
   projectId: string,
   itemName?: string
-): Promise<string | undefined> {
+): Promise<{ system: string | undefined; warnings: string[] }> {
   const { createClient } = await import('@/lib/db/supabase/server');
   const supabase = await createClient();
+  const warnings: string[] = [];
 
   try {
     // Strategy 1: Check if project has predominantly one system
@@ -116,7 +121,7 @@ async function autoDetectSystem(
       .limit(100);
 
     if (!systems || systems.length === 0) {
-      return undefined;
+      return { system: undefined, warnings };
     }
 
     // Count system mentions
@@ -135,31 +140,66 @@ async function autoDetectSystem(
       if (content.includes('fire line')) systemCounts.fireLine++;
     });
 
+    // Strategy 0: Check for multiple named water-line instances before returning 'WATER LINE'
+    if (systemCounts.waterLine > 0) {
+      const allContent = systems.map(s => s.content.toLowerCase()).join(' ');
+      const namedMatches = allContent.match(/water\s+line\s+[a-z]/gi) ?? [];
+      const uniqueNames = new Set(namedMatches.map(m => m.toLowerCase().replace(/\s+/g, ' ')));
+      if (uniqueNames.size > 1) {
+        warnings.push('multiple_named_water_lines_detected: auto-detection suppressed — query should name the specific line');
+        return { system: undefined, warnings };
+      }
+    }
+
     // Find dominant system
     const maxCount = Math.max(...Object.values(systemCounts));
     const totalCount = Object.values(systemCounts).reduce((a, b) => a + b, 0);
 
     // If one system is >80% of mentions, use it
     if (maxCount > totalCount * 0.8) {
-      if (systemCounts.waterLine === maxCount) return 'WATER LINE';
-      if (systemCounts.stormDrain === maxCount) return 'STORM DRAIN';
-      if (systemCounts.sewer === maxCount) return 'SEWER';
-      if (systemCounts.fireLine === maxCount) return 'FIRE LINE';
+      if (systemCounts.waterLine === maxCount) {
+        warnings.push('auto_detected_system: WATER LINE (dominant system >80% of mentions)');
+        return { system: 'WATER LINE', warnings };
+      }
+      if (systemCounts.stormDrain === maxCount) {
+        warnings.push('auto_detected_system: STORM DRAIN (dominant system >80% of mentions)');
+        return { system: 'STORM DRAIN', warnings };
+      }
+      if (systemCounts.sewer === maxCount) {
+        warnings.push('auto_detected_system: SEWER (dominant system >80% of mentions)');
+        return { system: 'SEWER', warnings };
+      }
+      if (systemCounts.fireLine === maxCount) {
+        warnings.push('auto_detected_system: FIRE LINE (dominant system >80% of mentions)');
+        return { system: 'FIRE LINE', warnings };
+      }
     }
 
-    // Strategy 2: Check item name for hints
+    // Strategy 2: Check item name for explicit utility system terms (not substrings like 'water meter')
     if (itemName) {
       const itemLower = itemName.toLowerCase();
-      if (itemLower.includes('water')) return 'WATER LINE';
-      if (itemLower.includes('storm')) return 'STORM DRAIN';
-      if (itemLower.includes('sewer')) return 'SEWER';
-      if (itemLower.includes('fire')) return 'FIRE LINE';
+      if (itemLower.includes('water line') || itemLower.includes('waterline')) {
+        warnings.push('auto_detected_system: WATER LINE (item name heuristic)');
+        return { system: 'WATER LINE', warnings };
+      }
+      if (itemLower.includes('storm')) {
+        warnings.push('auto_detected_system: STORM DRAIN (item name heuristic)');
+        return { system: 'STORM DRAIN', warnings };
+      }
+      if (itemLower.includes('sewer')) {
+        warnings.push('auto_detected_system: SEWER (item name heuristic)');
+        return { system: 'SEWER', warnings };
+      }
+      if (itemLower.includes('fire')) {
+        warnings.push('auto_detected_system: FIRE LINE (item name heuristic)');
+        return { system: 'FIRE LINE', warnings };
+      }
     }
 
-    return undefined; // Multiple systems, search all
+    return { system: undefined, warnings }; // Multiple systems, search all
   } catch (error) {
     console.error('[Smart Router] Error auto-detecting system:', error);
-    return undefined;
+    return { system: undefined, warnings };
   }
 }
 
@@ -423,6 +463,7 @@ export async function routeQuery(
     let hybridSearchResult: any;
     let context: string;
     let method: 'direct_only' | 'vector_only' | 'hybrid' | 'complete_data';
+    const routingWarnings: string[] = [];
 
     // Check if this is a QUANTITATIVE query requiring complete data
     if (classification.needsCompleteData) {
@@ -434,7 +475,9 @@ export async function routeQuery(
       if (!systemName) {
         console.log('[Smart Router] No system name in query - attempting auto-detection...');
         // Try to auto-detect system from project
-        systemName = await autoDetectSystem(projectId, classification.itemName);
+        const autoDetectResult = await autoDetectSystem(projectId, classification.itemName);
+        systemName = autoDetectResult.system;
+        routingWarnings.push(...autoDetectResult.warnings);
 
         if (systemName) {
           console.log('[Smart Router] Auto-detected system:', systemName);
@@ -509,6 +552,11 @@ export async function routeQuery(
           console.log(`[Smart Router] Complete data retrieval: ${completeData.totalChunks} chunks from ${completeData.sheets.length} sheets`);
         } else {
           // No complete data found, fallback to vector search
+          if (systemName && classification.searchHints.systemName) {
+            // systemName came from the query (not auto-detection) but has no data
+            console.warn(`[Smart Router] Named system "${systemName}" not found in structured data — falling back to vector search`);
+            routingWarnings.push(`named_system_not_found: "${systemName}" has no structured data — vector search used`);
+          }
           console.log('[Smart Router] No complete data found, falling back to vector search');
           console.log('[Smart Router] Performing station-aware vector search...');
           hybridSearchResult = await performHybridSearch(
@@ -611,7 +659,8 @@ export async function routeQuery(
       // Visual analysis flags for chat API to use
       needsVisualAnalysis: needsVisual,
       visualAnalysisTask: visualTask,
-      visualAnalysisParams: visualParams
+      visualAnalysisParams: visualParams,
+      routingWarnings: routingWarnings.length > 0 ? routingWarnings : undefined,
     };
 
     console.log('[Smart Router] Routing complete:', {
@@ -760,7 +809,7 @@ function buildSystemPromptAddition(
           'A direct quantity lookup from the project database has been provided. ' +
           'This data was extracted using Claude Vision API from the construction plan PDFs.\n\n' +
           '**SANITY CHECK THE RESULTS:**\n' +
-          '- Does the count seem reasonable? (5-10 valves on a water line is typical, 50 is suspicious)\n' +
+          '- Does the count seem reasonable for this project? If quantities seem unexpectedly high, check for duplication (same component listed in both profile view and callout box).\n' +
           '- Are station numbers in valid format? (e.g., "24+93.06" is valid, "2+16-27 RT" is not)\n' +
           '- Were sizes filtered correctly? (12-IN ≠ 8-IN - they are DIFFERENT components)\n\n' +
           '**SIZE FILTERING IS CRITICAL:**\n' +
@@ -919,12 +968,15 @@ Construction components are specified as: "[SIZE] [COMPONENT TYPE]"
 
 **5. UNDERSTAND UTILITY SYSTEMS**
 
-Main lines vs. laterals:
-- **Main line**: The primary utility (e.g., "Water Line A" = 12-inch main)
-- **Laterals**: Branches off the main (may be smaller diameter)
-- **Services**: Connections to buildings (usually smaller)
+A project can have multiple named alignments of the same utility type (water, storm drain, sewer, gas, fire line, etc.). Naming conventions vary by project — there is no universal standard:
+- Letters: Water Line A / Storm Drain B / Sewer C
+- Numbers: Water Line 1 / Storm Drain 2
+- Combinations: Water Line A1 / Sewer B2 / Storm Drain C-3
+- Descriptors: Water Line North / Sewer Main / Storm Drain East
 
-When user asks about "Water Line A", they typically mean the main line, not every branch and lateral.
+Each named alignment is a **completely separate system** with its own route, components, quantities, and sheets. They share a utility type but are otherwise independent.
+
+**STRICT ISOLATION RULE**: When the user names a specific alignment (e.g., "Water Line B", "Storm Drain A1", "Sewer North"), answer ONLY from data for that exact named alignment. Do not include, average, or substitute data from any other alignment — even if another has more data available. If data for the named alignment is absent, say so explicitly rather than substituting from a different one.
 
 **6. UTILITY CROSSINGS REQUIRE VISUAL CONFIRMATION**
 
@@ -940,7 +992,7 @@ NOT crossings:
 - ❌ Main utility's own labels ("INVERT OF 12-IN WATER")
 - ❌ Components on the main line (valves, tees, caps)
 
-Common sense: A water line project typically has 0-5 utility crossings, not 20.
+Count only crossings with a distinct utility abbreviation label (ELEC, SS, STM, GAS, TEL, W, FO) and a station reference. If the same crossing appears on multiple sheets at the same station, count it once.
 
 **7. STATION NUMBERS CORRELATE TO POSITION**
 

@@ -211,6 +211,7 @@ export interface EvidencePacket {
   sources: string[]          // Deduplicated human-readable source list
   liveAnalysisMeta?: LiveAnalysisMeta
   retrievalMethod: string
+  routingWarnings?: string[] // Warnings from smart-router fallback decisions
 }
 
 // ---------------------------------------------------------------------------

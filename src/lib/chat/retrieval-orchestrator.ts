@@ -111,6 +111,7 @@ export async function retrieveEvidence(
   const items: EvidenceItem[] = []
   let retrievalMethod = 'none'
   let liveAnalysisMeta: LiveAnalysisMeta | undefined
+  const smartRouterWarnings: string[] = []
 
   // ------------------------------------------------------------------
   // Step 1: Unsupported domains — skip all retrieval.
@@ -311,6 +312,10 @@ export async function retrieveEvidence(
     if (items.length > 0) {
       retrievalMethod = routingResult.method
     }
+
+    if (routingResult.routingWarnings?.length) {
+      smartRouterWarnings.push(...routingResult.routingWarnings)
+    }
   }
 
   // ------------------------------------------------------------------
@@ -343,6 +348,7 @@ export async function retrieveEvidence(
     sources: extractSources(items),
     liveAnalysisMeta,
     retrievalMethod,
+    routingWarnings: smartRouterWarnings.length > 0 ? smartRouterWarnings : undefined,
   }
 }
 
