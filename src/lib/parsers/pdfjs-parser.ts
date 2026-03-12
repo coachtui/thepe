@@ -7,6 +7,12 @@
  */
 
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+// Static import so Next.js/Vercel file tracing (nft) includes the worker
+// in the serverless bundle. pdfjs v4 does a dynamic import('./pdf.worker.mjs')
+// at runtime — nft won't trace that automatically. This import gives nft
+// a static path to follow. Safe to import: pdfjs worker is a no-op when
+// not in a WorkerGlobalScope context.
+import 'pdfjs-dist/legacy/build/pdf.worker.mjs'
 import path from 'path'
 
 // Configure worker (Node.js environment)
