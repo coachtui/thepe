@@ -5,7 +5,7 @@
  * Utility crossings are found primarily on profile views showing where different utilities intersect.
  */
 
-import { createClient } from '@/lib/db/supabase/server';
+import { createServiceRoleClient } from '@/lib/db/supabase/service';
 import type { VisionAnalysisResult } from './claude-vision';
 
 /**
@@ -50,7 +50,7 @@ export async function storeUtilityCrossings(
   sheetNumber: string | null,
   visionResult: VisionAnalysisResult
 ): Promise<number> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   if (!visionResult.utilityCrossings || visionResult.utilityCrossings.length === 0) {
     return 0;
@@ -126,7 +126,7 @@ export async function getUtilityCrossings(
   projectId: string,
   utilityFilter?: string
 ): Promise<any[]> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     const { data, error } = await (supabase as any).rpc('search_utility_crossings', {
@@ -163,7 +163,7 @@ export async function countCrossingsByType(
   existingCount: number;
   proposedCount: number;
 }>> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     const { data, error } = await (supabase as any).rpc('count_utility_crossings_by_type', {
@@ -196,7 +196,7 @@ export async function countCrossingsByType(
 export async function deleteCrossingsForDocument(
   documentId: string
 ): Promise<number> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     const { data, error } = await (supabase as any)

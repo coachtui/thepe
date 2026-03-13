@@ -5,7 +5,7 @@
  * and metadata. This runs after the standard LlamaParse processing.
  */
 
-import { createClient } from '@/lib/db/supabase/server';
+import { createServiceRoleClient } from '@/lib/db/supabase/service';
 import { getDocumentSignedUrl } from '@/lib/db/queries/documents';
 import {
   convertPdfPageToImage,
@@ -106,7 +106,7 @@ export async function processDocumentWithVision(
   let quantitiesExtracted = 0;
   let totalCost = 0;
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     // Step 1: Get document from database
@@ -425,7 +425,7 @@ export async function processDocumentPageRange(
   let quantitiesExtracted = 0;
   let totalCost = 0;
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     // Step 1: Get document from database
@@ -617,7 +617,7 @@ export async function processSingleSheetWithVision(
   pageNumber: number,
   sheetType?: string
 ): Promise<VisionAnalysisResult> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   // Get document
   const { data: document, error: docError } = await supabase
@@ -685,7 +685,7 @@ export async function getVisionProcessingStatus(
   sheetsWithVision: number;
   quantitiesExtracted: number;
 }> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   // Check chunks with vision data
   const { count: visionCount } = await supabase

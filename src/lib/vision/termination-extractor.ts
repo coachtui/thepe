@@ -5,7 +5,7 @@
  * These termination points are THE MOST ACCURATE source for utility length calculations.
  */
 
-import { createClient } from '@/lib/db/supabase/server';
+import { createServiceRoleClient } from '@/lib/db/supabase/service';
 import type { VisionAnalysisResult } from './claude-vision';
 
 /**
@@ -78,7 +78,7 @@ export async function storeTerminationPoints(
   sheetNumber: string | null,
   visionResult: VisionAnalysisResult
 ): Promise<number> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   if (!visionResult.terminationPoints || visionResult.terminationPoints.length === 0) {
     return 0;
@@ -168,7 +168,7 @@ export async function getTerminationPointsForUtility(
   projectId: string,
   utilityName: string
 ): Promise<any[]> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     const { data, error } = await (supabase as any).rpc('search_termination_points', {
@@ -209,7 +209,7 @@ export async function calculateLengthFromTerminations(
   confidence: number;
   method: string;
 } | null> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     const { data, error } = await (supabase as any).rpc('calculate_utility_length', {
@@ -258,7 +258,7 @@ export async function getUtilitiesWithTerminations(
   endStation: string | null;
   calculatedLength: number | null;
 }>> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     const { data, error } = await (supabase as any)
@@ -294,7 +294,7 @@ export async function getUtilitiesWithTerminations(
 export async function deleteTerminationPointsForDocument(
   documentId: string
 ): Promise<number> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     const { data, error } = await (supabase as any)
@@ -378,7 +378,7 @@ export async function validateTerminationPoints(
   missingBegin: string[];
   missingEnd: string[];
 }> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   try {
     // Get all termination points

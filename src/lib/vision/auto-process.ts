@@ -5,7 +5,7 @@
  * Runs asynchronously in the background to avoid blocking the upload flow.
  */
 
-import { createClient as createServiceClient } from '@/lib/db/supabase/server';
+import { createServiceRoleClient } from '@/lib/db/supabase/service';
 import { processDocumentWithVision } from '@/lib/processing/vision-processor';
 import { debug, logProduction } from '@/lib/utils/debug';
 import { getDocumentSignedUrl } from '@/lib/db/queries/documents';
@@ -37,7 +37,7 @@ export async function autoProcessDocumentVision(
 ): Promise<AutoProcessResult> {
   const { maxSheets = 200, skipIfAlreadyProcessed = true, trigger = 'unknown' } = options;
 
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   try {
     debug.vision(`Starting automatic vision processing for document: ${documentId}`);
@@ -300,7 +300,7 @@ const STUCK_PROCESSING_THRESHOLD_MS = 15 * 60 * 1000 // 15 minutes
  *   status permanently at 'processing'. Detect and reset those.)
  */
 export async function shouldAutoProcessVision(documentId: string): Promise<boolean> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   try {
     const { data: doc } = await supabase
