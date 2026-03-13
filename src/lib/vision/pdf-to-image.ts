@@ -21,6 +21,9 @@ if (typeof Promise.withResolvers === 'undefined') {
 
 // Use PDF.js with @napi-rs/canvas (its native Node.js canvas support)
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+// Static import forces Vercel/nft to include the worker file in every
+// route bundle that imports this module (inngest route, documents/process, etc.)
+import 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import path from 'path';
 
 // Lazy-load @napi-rs/canvas to avoid webpack bundling issues
@@ -33,9 +36,10 @@ async function getCanvas() {
   return napiCanvas;
 }
 
-// Configure PDF.js worker for Node.js
+// Configure PDF.js worker for Node.js.
+// file:// prefix is required for dynamic import resolution in Node.js on Vercel.
 const workerPath = path.join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerPath;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `file://${workerPath}`;
 
 /**
  * Configuration for PDF to image conversion
