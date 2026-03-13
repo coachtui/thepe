@@ -5,7 +5,7 @@
  * for fast lookup during chat queries.
  */
 
-import { createClient } from '@/lib/db/supabase/server';
+import { createServiceRoleClient } from '@/lib/db/supabase/service';
 import type { VisionAnalysisResult } from '@/lib/vision/claude-vision';
 
 /**
@@ -203,7 +203,7 @@ export async function storeQuantitiesInDatabase(
     return 0;
   }
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   // Step 1: Fetch existing quantities for this project to check for duplicates
   const { data: existingQuantities } = await supabase
@@ -288,7 +288,7 @@ export async function updateChunkWithVisionData(
   sheetType?: string,
   isCritical?: boolean
 ): Promise<boolean> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   // Extract station numbers for easy querying
   const stations = visionResult.stations.map(s => s.station);
@@ -337,7 +337,7 @@ export async function searchQuantities(
   searchTerm: string,
   limit: number = 10
 ): Promise<any[]> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   console.log(`[searchQuantities] Searching for "${searchTerm}" in project ${projectId}`);
 
@@ -378,7 +378,7 @@ export async function getProjectQuantities(
     sheetNumber?: string;
   }
 ): Promise<any[]> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   let query = supabase
     .from('project_quantities')
@@ -415,7 +415,7 @@ export async function getProjectQuantities(
  * @returns Summary grouped by item type
  */
 export async function getQuantitySummary(projectId: string): Promise<any[]> {
-  const supabase = await createClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('project_quantity_summary')
