@@ -33,7 +33,9 @@ import {
 } from '@/lib/batch-processing/chunk-manager'
 
 // Pages processed per Inngest step. Each step has its own retry budget.
-const PAGES_PER_CHUNK = 20
+// 5 pages per chunk keeps each Vercel invocation well under 3 minutes even on
+// large, complex sheets with many Claude API calls.
+const PAGES_PER_CHUNK = 5
 
 export const visionProcessDocument = inngest.createFunction(
   {

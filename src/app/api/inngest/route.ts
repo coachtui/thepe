@@ -12,6 +12,11 @@ import { serve } from 'inngest/next'
 import { inngest } from '@/inngest/client'
 import { visionProcessDocument } from '@/inngest/functions/vision-process-document'
 
+// Allow each step invocation up to 5 minutes — vision processing (PDF render +
+// Claude API) for a page-range chunk can take 2-3 minutes on a large document.
+// Vercel Pro supports up to 300s; Hobby is capped at 60s.
+export const maxDuration = 300
+
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
