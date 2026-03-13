@@ -243,6 +243,10 @@ If NO, continue with normal analysis below.
 
 ### 1. SHEET METADATA
 - Sheet number (e.g., "C-001", "SD-1", "INDEX", "I-1")
+  **OCR ACCURACY RULE:** Sheet numbers contain only letters and digits 0-9.
+  The digit 8 is NEVER the letter B. The digit 0 is NEVER the letter O.
+  If you read "CU11B" but the sheet is part of a numbered sequence (CU110, CU111…), it is "CU118".
+  Re-read any sheet number that contains an unexpected letter where a digit is likely.
 - Sheet title/description
 - Sheet type (index, toc, title, summary, plan, profile, detail, legend)
 - Discipline (Civil, Structural, Mechanical, Electrical, etc.)
@@ -351,15 +355,18 @@ Profile views contain VERTICAL TEXT LABELS showing components along the utility 
 
 **EXTRACTION RULES FOR VERTICAL LABELS:**
 1. READ THE ROTATED TEXT even if it appears vertical or at an angle
-2. For EACH vertical label found, parse SIZE separately:
-   - itemName: Component type only (e.g., "GATE VALVE AND VALVE BOX")
-   - size: Size prefix (e.g., "12-IN" or "8-IN") - CRITICAL TO PARSE CORRECTLY
+2. For EACH vertical label found:
+   - itemName: FULL canonical name INCLUDING size prefix — "12-IN GATE VALVE AND VALVE BOX" not just "GATE VALVE AND VALVE BOX"
+     This is critical: the item name in the database must be self-contained so a query for "12-IN gate valves" finds this row.
+   - itemType: classify using the taxonomy below (REQUIRED — do not leave null)
    - quantity: 1 (each label = one component)
+   - unit: "EA"
    - stationFrom: From the horizontal station scale at bottom
    - sourceContext: "profile_vertical_label"
-   - confidence: 0.9+ for clearly readable labels
-3. **SIZE PARSING IS CRITICAL:** 12-IN and 8-IN are DIFFERENT components - don't confuse them
+   - confidence: 0.9+ for clearly readable labels, < 0.65 if the text is unclear
+3. **SIZE IS PART OF THE NAME:** "12-IN GATE VALVE AND VALVE BOX" and "8-IN GATE VALVE AND VALVE BOX" are DIFFERENT items — always include the size in itemName
 4. DO NOT MISS any vertical text - scan the entire profile view systematically
+5. **IF YOU CANNOT CLEARLY READ A LABEL:** set confidence below 0.65 and describe what you think you see in the description field. Do not invent a plausible component name.
 
 ### 10. STATION NUMBER VALIDATION
 
@@ -388,10 +395,11 @@ WATER LINE "A" STA 32+44.21
 
 **EXTRACTION RULES FOR CALLOUT BOXES:**
 - Parse each line SEPARATELY with its own size
-- "1 - 12-IN GATE VALVE" → size: "12-IN", itemName: "GATE VALVE"
-- "1 - 8-IN GATE VALVE" → size: "8-IN", itemName: "GATE VALVE"
-- These are TWO DIFFERENT valves with TWO DIFFERENT sizes
+- "1 - 12-IN GATE VALVE AND VALVE BOX" → itemName: "12-IN GATE VALVE AND VALVE BOX", quantity: 1, unit: "EA"
+- "1 - 8-IN GATE VALVE AND VALVE BOX"  → itemName: "8-IN GATE VALVE AND VALVE BOX",  quantity: 1, unit: "EA"
+- These are TWO DIFFERENT items — size MUST be included in itemName
 - Station is explicitly shown in the callout header (use this station)
+- itemType: classify using the taxonomy below (REQUIRED)
 - Mark these with sourceContext: "profile_callout_box"
 
 ### 12. WHAT NOT TO EXTRACT
@@ -404,6 +412,13 @@ WATER LINE "A" STA 32+44.21
 ❌ Text in title blocks or borders
 ❌ Legend items or notes
 ❌ Quantity summary tables (these aggregate from profile views)
+❌ Elevation and grade labels — these describe the ground or pipe level, NOT a component:
+   - "INVERT OF 8-IN SEWER", "INVERT OF 12-IN WATER" → elevation label, NOT a component
+   - "FINISHED GRADE AT SEWER LINE A" → grade line label, NOT a component
+   - "EXISTING GROUND AT [utility name]" → existing ground elevation, NOT a component
+   - "TOP OF PIPE", "FLOWLINE", "RIM ELEVATION" → elevation datum labels, NOT components
+   - "8-IN SEWER INVERT" → elevation label, NOT a component
+   If the label describes where the ground or pipe surface IS (an elevation datum), skip it.
 
 **CRITICAL DEDUPLICATION RULE:**
 - If the SAME component appears as BOTH a vertical label AND in a callout box, count it ONLY ONCE
@@ -423,10 +438,42 @@ WATER LINE "A" STA 32+44.21
 - Are there callout boxes that duplicate this info?
 - Extract from the most reliable, least ambiguous source
 
-**2. PARSE SIZES ACCURATELY:**
+**2. ITEM TYPE CLASSIFICATION (REQUIRED FOR EVERY QUANTITY):**
+
+Every quantity row MUST have an itemType. Use this taxonomy exactly:
+
+itemType values (use exactly as shown, no quotes):
+- waterline   — Water pipe segments ("Water Line A", "12-IN DI WATER PIPE")
+- sewer       — Gravity sewer pipe ("Sewer Line A", "8-IN PVC SEWER PIPE")
+- force_main  — Pressure sewer pipe ("Sewer Force Main A", "2-IN FORCE MAIN PIPE")
+- storm_drain — Storm drain pipe ("Storm Drain", "18-IN RCP")
+- valve       — Any valve type ("12-IN GATE VALVE AND VALVE BOX", "8-IN BALL VALVE", "AIR RELEASE VALVE")
+- fitting     — Pipe fittings ("12-IN X 8-IN TEE", "45-DEG BEND", "LONG SWEEP", "CAP", "REDUCER")
+- structure   — Manholes, inlets, vaults ("SANITARY SEWER MANHOLE", "CATCH BASIN", "CLEANOUT")
+- hydrant     — Fire hydrants ("FIRE HYDRANT", "FH ASSEMBLY")
+- service     — Service connections ("WATER SERVICE", "SERVICE LATERAL")
+- general     — Anything that does not fit the above categories
+
+**3. PIPE LENGTH COMPUTATION (CRITICAL — DO NOT SKIP):**
+
+For any pipe segment where you can read a station range from the profile:
+- Identify the starting station (left end of this segment on this sheet)
+- Identify the ending station (right end or where sheet ends / match line)
+- Compute quantity = endStation_numeric - startStation_numeric (in LF)
+- Set unit = "LF"
+- Set stationFrom and stationTo to the station strings
+
+**Station arithmetic:**
+- "5+23.50" = 5×100 + 23.50 = 523.50 LF from baseline
+- "12+00" to "18+45.30" = 1200.00 to 1845.30 = 645.30 LF
+- If the sheet shows a match line at one end, use the match line station as the boundary
+
+If you can see the utility line spans from STA 12+00 to STA 18+45 on this sheet, the quantity is 645 LF — extract it. Do not leave pipe lengths as null when the station range is visible.
+
+**4. PARSE SIZES ACCURATELY:**
 - Component format: "[SIZE] [TYPE]" (e.g., "12-IN GATE VALVE")
-- Size is part of the specification (8-IN ≠ 12-IN)
-- Extract size separately from component name
+- Size MUST be included in itemName — never strip it out
+- 8-IN ≠ 12-IN — they are different line items in any takeoff
 
 **3. AVOID DUPLICATION:**
 - Same component may appear in plan view AND profile view
@@ -631,15 +678,16 @@ Return your analysis as structured JSON with the following schema:
   ],
   "quantities": [
     {
-      "itemName": "string",
+      "itemName": "string (FULL name including size — e.g., '12-IN GATE VALVE AND VALVE BOX')",
+      "itemType": "string — REQUIRED: waterline|sewer|force_main|storm_drain|valve|fitting|structure|hydrant|service|general",
       "itemNumber": "string or null",
-      "quantity": number or null,
-      "unit": "string or null",
+      "quantity": "number or null — for pipe segments compute from station range (do not leave null if stations are visible)",
+      "unit": "string or null — EA for components, LF for pipe segments",
       "stationFrom": "string or null",
       "stationTo": "string or null",
-      "description": "string or null",
+      "description": "string or null — use this for unclear labels (describe what you think you see)",
       "confidence": 0.0 to 1.0,
-      "sourceContext": "string or null (index_list|quantity_table|drawing_label)"
+      "sourceContext": "string or null (profile_vertical_label|profile_callout_box|quantity_table|drawing_label)"
     }
   ],
   "utilityCrossings": [
