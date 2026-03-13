@@ -6,7 +6,7 @@
  * Used by Inngest functions to track individual chunk status and results.
  */
 
-import { createClient as createServiceClient } from '@/lib/db/supabase/server';
+import { createServiceRoleClient } from '@/lib/db/supabase/service';
 import type { Database } from '@/types/supabase';
 
 type VisionChunk = Database['public']['Tables']['vision_processing_chunks']['Row'];
@@ -17,7 +17,7 @@ type VisionChunkUpdate = Database['public']['Tables']['vision_processing_chunks'
  * Get a chunk by ID
  */
 export async function getVisionChunk(chunkId: string): Promise<VisionChunk | null> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_chunks')
@@ -37,7 +37,7 @@ export async function getVisionChunk(chunkId: string): Promise<VisionChunk | nul
  * Get all chunks for a job
  */
 export async function getJobChunks(jobId: string): Promise<VisionChunk[]> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_chunks')
@@ -59,7 +59,7 @@ export async function getChunksByStatus(
   jobId: string,
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
 ): Promise<VisionChunk[]> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_chunks')
@@ -82,7 +82,7 @@ export async function updateVisionChunk(
   chunkId: string,
   updates: VisionChunkUpdate
 ): Promise<VisionChunk> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_chunks')
@@ -197,7 +197,7 @@ export async function getJobChunkSummary(jobId: string): Promise<{
   failed: number;
   skipped: number;
 }> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_chunks')
@@ -233,7 +233,7 @@ export async function getJobAggregatedResults(jobId: string): Promise<{
   totalTokensOutput: number;
   averageProcessingTimeMs: number;
 }> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_chunks')
@@ -298,7 +298,7 @@ export async function getPendingChunks(
   jobId: string,
   limit?: number
 ): Promise<VisionChunk[]> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   let query = supabase
     .from('vision_processing_chunks')
@@ -327,7 +327,7 @@ export async function getRetryableChunks(
   jobId: string,
   maxRetries: number = 3
 ): Promise<VisionChunk[]> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_chunks')

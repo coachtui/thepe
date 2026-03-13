@@ -13,7 +13,7 @@
  */
 
 import { inngest } from '@/inngest/client'
-import { createClient as createServiceClient } from '@/lib/db/supabase/server'
+import { createServiceRoleClient } from '@/lib/db/supabase/service'
 import { processDocumentPageRange } from '@/lib/processing/vision-processor'
 import { getPdfMetadata } from '@/lib/vision/pdf-to-image'
 import { getDocumentSignedUrl } from '@/lib/db/queries/documents'
@@ -56,7 +56,7 @@ export const visionProcessDocument = inngest.createFunction(
     const jobKey = `inngest-${event.id}`
 
     const initResult = await step.run('initialize', async (): Promise<{ skip: boolean }> => {
-      const supabase = await createServiceClient()
+      const supabase = await createServiceRoleClient()
 
       // Check current vision_status — skip if already completed.
       const { data: doc } = await supabase
@@ -101,7 +101,7 @@ export const visionProcessDocument = inngest.createFunction(
     // Step 2: Get PDF page count
     // -------------------------------------------------------------------------
     const { numPages } = await step.run('get-pdf-metadata', async (): Promise<{ numPages: number }> => {
-      const supabase = await createServiceClient()
+      const supabase = await createServiceRoleClient()
       // Re-fetch file_path inside this step — initResult.filePath can be empty
       // if the initialize step's query returned null (e.g. race condition or
       // Inngest step serialisation issue). Fetching it fresh guarantees correctness.
@@ -218,7 +218,7 @@ export const visionProcessDocument = inngest.createFunction(
     // Step 5: Finalize — write completion to documents table
     // -------------------------------------------------------------------------
     await step.run('finalize', async () => {
-      const supabase = await createServiceClient()
+      const supabase = await createServiceRoleClient()
       const allFailed = totalSheetsProcessed === 0 && chunkErrors.length > 0
 
       if (allFailed) {

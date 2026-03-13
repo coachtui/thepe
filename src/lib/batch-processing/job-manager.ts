@@ -6,7 +6,7 @@
  * Used by Inngest functions to track batch processing progress.
  */
 
-import { createClient as createServiceClient } from '@/lib/db/supabase/server';
+import { createServiceRoleClient } from '@/lib/db/supabase/service';
 import type { Database } from '@/types/supabase';
 
 type VisionJob = Database['public']['Tables']['vision_processing_jobs']['Row'];
@@ -27,7 +27,7 @@ export async function createVisionJob(data: {
   maxParallelChunks?: number;
   metadata?: Record<string, any>;
 }): Promise<VisionJob> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const jobData: VisionJobInsert = {
     job_key: data.jobKey,
@@ -59,7 +59,7 @@ export async function createVisionJob(data: {
  * Get a vision processing job by ID
  */
 export async function getVisionJob(jobId: string): Promise<VisionJob | null> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_jobs')
@@ -79,7 +79,7 @@ export async function getVisionJob(jobId: string): Promise<VisionJob | null> {
  * Get a vision processing job by job key (Inngest ID)
  */
 export async function getVisionJobByKey(jobKey: string): Promise<VisionJob | null> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_jobs')
@@ -102,7 +102,7 @@ export async function updateVisionJob(
   jobId: string,
   updates: VisionJobUpdate
 ): Promise<VisionJob> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_jobs')
@@ -199,7 +199,7 @@ export async function incrementJobProgress(
     addCost?: number;
   }
 ): Promise<VisionJob> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   // Get current job state
   const job = await getVisionJob(jobId);
@@ -239,7 +239,7 @@ export async function getJobProgress(jobId: string): Promise<{
   totalChunks: number;
   estimatedTimeRemaining: number | null; // in minutes
 }> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .rpc('get_job_progress', { job_id: jobId });
@@ -269,7 +269,7 @@ export async function getJobProgress(jobId: string): Promise<{
  * Get jobs for a document
  */
 export async function getJobsForDocument(documentId: string): Promise<VisionJob[]> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_jobs')
@@ -288,7 +288,7 @@ export async function getJobsForDocument(documentId: string): Promise<VisionJob[
  * Get active jobs (pending or processing)
  */
 export async function getActiveJobs(): Promise<VisionJob[]> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { data, error } = await supabase
     .from('vision_processing_jobs')
@@ -312,7 +312,7 @@ export async function logJobEvent(
   eventData?: Record<string, any>,
   chunkId?: string
 ): Promise<void> {
-  const supabase = await createServiceClient();
+  const supabase = createServiceRoleClient();
 
   const { error } = await supabase
     .from('vision_job_events')
