@@ -29,6 +29,7 @@ import {
 import {
   storeUtilityCrossings
 } from '@/lib/vision/crossing-extractor';
+import { indexDocumentPage } from './sheet-indexer';
 import { debug, logProduction } from '@/lib/utils/debug';
 
 /**
@@ -497,12 +498,13 @@ export async function processDocumentPageRange(
         // Find the chunk(s) for this page
         const { data: chunks } = await supabase
           .from('document_chunks')
-          .select('id')
+          .select('id, content')
           .eq('document_id', documentId)
           .eq('page_number', pageNumber)
           .limit(1);
 
         const chunkId = chunks && chunks.length > 0 ? chunks[0].id : null;
+        const chunkContent = chunks && chunks.length > 0 ? chunks[0].content as string | undefined : undefined;
 
         // Store termination points
         if (visionResult.terminationPoints && visionResult.terminationPoints.length > 0) {
@@ -552,6 +554,19 @@ export async function processDocumentPageRange(
             sheetType,
             true // Mark as critical sheet
           );
+        }
+
+        // Phase 2: Index this page into document_pages + sheet_entities
+        try {
+          await indexDocumentPage({
+            documentId,
+            projectId,
+            pageNumber,
+            visionResult,
+            textContent: chunkContent,
+          });
+        } catch (idxErr) {
+          debug.vision(`[SheetIndexer] Non-fatal index error page ${pageNumber}: ${idxErr instanceof Error ? idxErr.message : idxErr}`);
         }
 
         // Small delay between API calls to avoid rate limiting

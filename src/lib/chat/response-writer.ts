@@ -91,26 +91,54 @@ function buildSystemPrompt(
   // 2. Answer mode contract — what format is expected
   parts.push(buildAnswerModeInstructions(analysis.answerMode, sufficiency))
 
-  // 3. Evidence context — what the model is allowed to reference
+  // 3. Verification block — for Type B/C/D queries, inject confirmed findings
+  //    BEFORE any other context so the model sees them as ground truth.
+  if (packet.verificationMeta?.wasVerified && packet.verificationMeta.confirmedContext) {
+    parts.push(packet.verificationMeta.confirmedContext)
+    if (packet.verificationMeta.evidenceGaps.length > 0) {
+      parts.push(buildVerificationGapWarning(packet.verificationMeta.evidenceGaps, packet.verificationMeta.sheetsInspected))
+    }
+  }
+
+  // 4. Evidence context — what the model is allowed to reference
   if (sufficiency.level !== 'insufficient' && packet.formattedContext) {
     parts.push('---\n## PROJECT DATA\n\n' + packet.formattedContext)
   }
 
-  // 4. Reasoning analysis — pre-classified findings (only when activated)
+  // 5. Reasoning analysis — pre-classified findings (only when activated)
   if (reasoning.wasActivated) {
     parts.push(buildReasoningBlock(reasoning))
     parts.push(REASONING_WRITER_INSTRUCTION)
   }
 
-  // 5. Retrieval transparency — how the data was sourced
+  // 6. Retrieval transparency — how the data was sourced
   if (packet.liveAnalysisMeta) {
     parts.push(buildLivePDFDisclaimer(packet.liveAnalysisMeta))
   }
 
-  // 6. Sufficiency constraints — what the model must or must not claim
+  // 7. Sufficiency constraints — what the model must or must not claim
   parts.push(buildSufficiencyConstraints(sufficiency, packet))
 
   return parts.join('\n\n')
+}
+
+// ---------------------------------------------------------------------------
+// Verification gap warning
+// ---------------------------------------------------------------------------
+
+function buildVerificationGapWarning(gaps: string[], sheetsInspected: string[]): string {
+  const sheetsStr = sheetsInspected.length > 0 ? sheetsInspected.join(', ') : 'none indexed'
+  const gapLines = gaps.map(g => `  - ${g}`).join('\n')
+  return `## VERIFICATION GAPS
+
+The following aspects **could not be confirmed** from the indexed drawings:
+
+${gapLines}
+
+When answering, use the hallucination-prevention rule:
+"The information could not be confirmed from the available drawings. Relevant sheets analyzed: ${sheetsStr}"
+
+Do NOT invent data for the gaps above. Report them honestly.`
 }
 
 // ---------------------------------------------------------------------------

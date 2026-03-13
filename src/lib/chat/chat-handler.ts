@@ -20,6 +20,7 @@ import { retrieveEvidence } from './retrieval-orchestrator'
 import { evaluateSufficiency } from './evidence-evaluator'
 import { applyReasoning } from './reasoning-engine'
 import { writeResponse, selectTemperature, type ChatMessage } from './response-writer'
+import { verifyBeforeAnswering, verificationToEvidenceItems } from './sheet-verifier'
 import type { PEAgentConfig } from '@/agents/constructionPEAgent'
 import type { AiTrace } from './types'
 
@@ -78,8 +79,31 @@ export async function handleChatRequest(
     liveAnalysis: !!packet.liveAnalysisMeta,
   })
 
+  // 2.5. Sheet verification — for Type B/C/D queries, confirm all relevant
+  //      sheets have been consulted and every finding is cited.
+  const verification = await verifyBeforeAnswering(analysis, projectId, supabase)
+  console.log('[ChatHandler] Verification:', {
+    class: verification.verificationClass,
+    verified: verification.wasVerified,
+    findings: verification.verifiedFindings.length,
+    sheets: verification.sheetsInspected.length,
+  })
+
+  // Merge verified findings into the evidence packet (prepended = highest priority)
+  const verifiedItems = verificationToEvidenceItems(verification)
+  const augmentedPacket = verification.wasVerified
+    ? {
+        ...packet,
+        items: [...verifiedItems, ...packet.items],
+        formattedContext: verification.confirmedContext
+          ? `${verification.confirmedContext}\n\n---\n\n## ADDITIONAL RETRIEVED CONTEXT\n\n${packet.formattedContext}`
+          : packet.formattedContext,
+        verificationMeta: verification,
+      }
+    : packet
+
   // 3. Evaluate sufficiency
-  const sufficiency = evaluateSufficiency(packet, analysis)
+  const sufficiency = evaluateSufficiency(augmentedPacket, analysis)
   console.log('[ChatHandler] Sufficiency:', {
     level: sufficiency.level,
     score: sufficiency.score,
@@ -87,7 +111,7 @@ export async function handleChatRequest(
   })
 
   // 3.5. Apply reasoning layer — transforms evidence into structured findings
-  const reasoning = applyReasoning(analysis, packet, sufficiency)
+  const reasoning = applyReasoning(analysis, augmentedPacket, sufficiency)
   console.log('[ChatHandler] Reasoning:', {
     mode: reasoning.mode,
     activated: reasoning.wasActivated,
@@ -97,16 +121,16 @@ export async function handleChatRequest(
   })
 
   // 4. Write a streaming response with full conversation history
-  const streamResponse = writeResponse(analysis, packet, sufficiency, reasoning, messages)
+  const streamResponse = writeResponse(analysis, augmentedPacket, sufficiency, reasoning, messages)
 
   // --- Debug trace ---
   if (traceEnabled) {
-    const legacyUsed = packet.retrievalMethod === 'complete_data' ||
-      packet.retrievalMethod === 'vector_search' ||
-      packet.retrievalMethod === 'direct_quantity_lookup'
+    const legacyUsed = augmentedPacket.retrievalMethod === 'complete_data' ||
+      augmentedPacket.retrievalMethod === 'vector_search' ||
+      augmentedPacket.retrievalMethod === 'direct_quantity_lookup'
 
     const evidenceBySource: Record<string, number> = {}
-    for (const item of packet.items) {
+    for (const item of augmentedPacket.items) {
       evidenceBySource[item.source] = (evidenceBySource[item.source] ?? 0) + 1
     }
 
@@ -118,10 +142,18 @@ export async function handleChatRequest(
     const warnings: string[] = []
     if (sufficiency.isUnsupportedDomain) warnings.push('unsupported_domain')
     if (sufficiency.level === 'partial') warnings.push('partial_evidence')
-    if (packet.liveAnalysisMeta?.wasCapped) warnings.push('live_pdf_sheet_cap_hit')
-    if ((packet.liveAnalysisMeta?.sheetsSkipped ?? 0) > 0) warnings.push(`skipped_sheets: ${packet.liveAnalysisMeta!.sheetsSkipped}`)
+    if (augmentedPacket.liveAnalysisMeta?.wasCapped) warnings.push('live_pdf_sheet_cap_hit')
+    if ((augmentedPacket.liveAnalysisMeta?.sheetsSkipped ?? 0) > 0) warnings.push(`skipped_sheets: ${augmentedPacket.liveAnalysisMeta!.sheetsSkipped}`)
     if (sufficiency.gaps.length > 0) warnings.push(...sufficiency.gaps.map(g => `gap: ${g}`))
     if (analysis.requestedSystems.length > 1) warnings.push('multiple_systems_in_query')
+
+    // Verification status
+    if (verification.wasVerified) {
+      warnings.push(`sheet_verification: class=${verification.verificationClass} findings=${verification.verifiedFindings.length} sheets=${verification.sheetsInspected.length}`)
+    }
+    if (verification.evidenceGaps.length > 0) {
+      warnings.push(...verification.evidenceGaps.map(g => `verification_gap: ${g}`))
+    }
 
     // Detect Water Line A / utility bias risks
     if (legacyUsed && analysis.entities.utilitySystem === 'WATER LINE' && !analysis.entities.itemName) {
@@ -129,8 +161,8 @@ export async function handleChatRequest(
     }
 
     // Surface routing warnings from smart-router fallback decisions
-    if (packet.routingWarnings?.length) {
-      warnings.push(...packet.routingWarnings.map(w => `smart_router: ${w}`))
+    if (augmentedPacket.routingWarnings?.length) {
+      warnings.push(...augmentedPacket.routingWarnings.map(w => `smart_router: ${w}`))
     }
 
     const temp = selectTemperature(analysis.answerMode, sufficiency.level)
@@ -152,16 +184,16 @@ export async function handleChatRequest(
         sizeFilter: analysis.entities.sizeFilter,
         material: analysis.entities.material,
       },
-      retrievalMethod: packet.retrievalMethod,
-      evidenceItemCount: packet.items.length,
+      retrievalMethod: augmentedPacket.retrievalMethod,
+      evidenceItemCount: augmentedPacket.items.length,
       evidenceBySource,
       legacySmartRouterUsed: legacyUsed,
-      livePDFUsed: !!packet.liveAnalysisMeta,
-      livePDFMeta: packet.liveAnalysisMeta ? {
-        attempted: packet.liveAnalysisMeta.sheetsAttempted,
-        analyzed: packet.liveAnalysisMeta.sheetsAnalyzed,
-        skipped: packet.liveAnalysisMeta.sheetsSkipped,
-        wasCapped: packet.liveAnalysisMeta.wasCapped,
+      livePDFUsed: !!augmentedPacket.liveAnalysisMeta,
+      livePDFMeta: augmentedPacket.liveAnalysisMeta ? {
+        attempted: augmentedPacket.liveAnalysisMeta.sheetsAttempted,
+        analyzed: augmentedPacket.liveAnalysisMeta.sheetsAnalyzed,
+        skipped: augmentedPacket.liveAnalysisMeta.sheetsSkipped,
+        wasCapped: augmentedPacket.liveAnalysisMeta.wasCapped,
       } : undefined,
       sufficiencyLevel: sufficiency.level,
       sufficiencyScore: Math.round(sufficiency.score * 100) / 100,

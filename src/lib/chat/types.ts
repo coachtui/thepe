@@ -212,6 +212,12 @@ export interface EvidencePacket {
   liveAnalysisMeta?: LiveAnalysisMeta
   retrievalMethod: string
   routingWarnings?: string[] // Warnings from smart-router fallback decisions
+
+  /**
+   * Sheet verification result — present only for Type B/C/D queries.
+   * When present the response-writer MUST enforce evidence-based citations.
+   */
+  verificationMeta?: import('./sheet-verifier').SheetVerificationResult
 }
 
 // ---------------------------------------------------------------------------
