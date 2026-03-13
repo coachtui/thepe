@@ -29,14 +29,81 @@ export function evaluateSufficiency(
   packet: EvidencePacket,
   analysis: QueryAnalysis
 ): SufficiencyResult {
-  // General chat and sequence inference are backed by domain knowledge —
-  // the model does not need project evidence to answer. Always sufficient.
+  // ── Hard verification gate ───────────────────────────────────────────────
+  // If sheet verification ran (Type B/C/D query) and returned coverageStatus
+  // 'insufficient', the answer MUST be gated regardless of what other
+  // retrieval sources found.  This is code-level enforcement — not prompt-based.
+  if (
+    packet.verificationMeta?.wasVerified &&
+    packet.verificationMeta.coverageStatus === 'insufficient'
+  ) {
+    const meta = packet.verificationMeta
+    const missingEvidence = meta.missingEvidence.length > 0 ? meta.missingEvidence : meta.evidenceGaps
+    const candidateCount = meta.candidateSheets.length
+
+    const gaps = missingEvidence.length > 0
+      ? missingEvidence
+      : ['No confirmed findings in structured tables for this query.']
+
+    if (candidateCount > 0) {
+      gaps.unshift(
+        `${candidateCount} candidate sheet(s) identified in the project, but none produced confirmed findings for this query.`
+      )
+    }
+
+    return {
+      level: 'insufficient',
+      score: 0,
+      reasons: [
+        `Type ${meta.questionType} verification ran but found no confirmed evidence`,
+        `Coverage status: INSUFFICIENT (0 findings from ${candidateCount} candidate sheets)`,
+      ],
+      gaps,
+      isUnsupportedDomain: false,
+    }
+  }
+
+  // General chat: always sufficient — no project data required.
   // (The response-writer still injects any available evidence as context.)
-  if (analysis.answerMode === 'general_chat' || analysis.answerMode === 'sequence_inference') {
+  if (analysis.answerMode === 'general_chat') {
     return {
       level: 'sufficient',
       score: 1.0,
-      reasons: ['Domain-knowledge query — PE expertise is the primary source'],
+      reasons: ['General knowledge query — no project evidence required'],
+      gaps: [],
+      isUnsupportedDomain: false,
+    }
+  }
+
+  // Sequence inference: use PE expertise when the query is purely procedural,
+  // but downgrade to 'partial' if the query names a specific system and no
+  // structured evidence was retrieved — the crew needs project-specific context.
+  if (analysis.answerMode === 'sequence_inference') {
+    const hasProjectContext = packet.items.length > 0
+    const mentionsSpecificSystem = analysis.requestedSystems.length > 0 || !!analysis.entities.itemName
+    if (mentionsSpecificSystem && !hasProjectContext) {
+      return {
+        level: 'partial',
+        score: 0.3,
+        reasons: [
+          'Sequence inference for a named system — PE expertise provides the framework but project-specific conditions are needed',
+          'No structured project evidence was retrieved for the referenced system',
+        ],
+        gaps: [
+          `No indexed data found for "${analysis.entities.itemName ?? analysis.requestedSystems[0] ?? 'referenced system'}"`,
+          'Construction sequence may depend on project-specific constraints not available from general knowledge',
+        ],
+        isUnsupportedDomain: false,
+      }
+    }
+    return {
+      level: 'sufficient',
+      score: hasProjectContext ? 0.8 : 0.6,
+      reasons: [
+        hasProjectContext
+          ? 'Sequence inference with project context — PE expertise + project data'
+          : 'Procedural sequence query — PE expertise is primary source',
+      ],
       gaps: [],
       isUnsupportedDomain: false,
     }
@@ -254,18 +321,35 @@ function checkModeSpecificRequirements(
 }
 
 function scoreToLevel(score: number, answerMode: string): SufficiencyLevel {
-  // Precise queries (quantity, crossing) require higher thresholds.
-  const isPrecise = ['quantity_lookup', 'crossing_lookup'].includes(answerMode)
+  // High-precision factual queries — quantities, crossings, element lookups,
+  // schedule queries, spec lookups. All require structured evidence to reach
+  // 'sufficient'. Vector-search alone cannot clear the bar.
+  const isPrecise = [
+    'quantity_lookup',
+    'crossing_lookup',
+    'arch_element_lookup',
+    'arch_schedule_query',
+    'struct_element_lookup',
+    'mep_element_lookup',
+    'spec_section_lookup',
+    'spec_requirement_lookup',
+    'rfi_lookup',
+    'submittal_lookup',
+  ].includes(answerMode)
 
   if (isPrecise) {
     if (score >= 0.65) return 'sufficient'
     if (score >= 0.35) return 'partial'
     return 'insufficient'
-  } else {
-    if (score >= 0.40) return 'sufficient'
-    if (score >= 0.20) return 'partial'
-    return 'insufficient'
   }
+
+  // All other modes with project-evidence requirement.
+  // Raised from 0.40 → 0.50: embeddings alone can reach ~0.35 (0.3 vector + 0.05 confidence).
+  // A field answer backed only by embeddings is not sufficient — it needs at
+  // least some structured data (0.4 structured) or live analysis to reach 0.50.
+  if (score >= 0.50) return 'sufficient'
+  if (score >= 0.25) return 'partial'
+  return 'insufficient'
 }
 
 function averageConfidence(items: EvidenceItem[]): number {

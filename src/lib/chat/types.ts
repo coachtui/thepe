@@ -218,6 +218,13 @@ export interface EvidencePacket {
    * When present the response-writer MUST enforce evidence-based citations.
    */
   verificationMeta?: import('./sheet-verifier').SheetVerificationResult
+
+  /**
+   * Plan Reader result — present when actual sheet images were inspected
+   * at query time for a Type B/C/D question.
+   * Findings here are direct visual evidence and rank above all other sources.
+   */
+  planReaderMeta?: import('./plan-reader').PlanReaderResult
 }
 
 // ---------------------------------------------------------------------------

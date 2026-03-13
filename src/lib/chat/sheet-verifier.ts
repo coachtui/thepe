@@ -27,6 +27,14 @@ import type { QueryAnalysis, EvidenceItem } from './types'
 
 export type VerificationClass = 'skip' | 'enumeration' | 'measurement' | 'global'
 
+/**
+ * Coverage result from verification:
+ *   complete     — findings found with no evidence gaps
+ *   partial      — findings found but some aspects could not be confirmed
+ *   insufficient — no confirmed findings; answer must be gated
+ */
+export type CoverageStatus = 'complete' | 'partial' | 'insufficient'
+
 export interface VerifiedFinding {
   /** Human-readable statement of what was confirmed */
   statement: string
@@ -42,16 +50,34 @@ export interface VerifiedFinding {
 
 export interface SheetVerificationResult {
   verificationClass: VerificationClass
+  /**
+   * A/B/C/D query type letter:
+   *   A — simple retrieval (skip, trust the pipeline)
+   *   B — enumeration ("how many waterlines?", "what utilities exist?")
+   *   C — measurement / attribute lookup ("what size is Water Line B?")
+   *   D — global / cross-sheet reasoning ("where does Water Line B start?")
+   */
+  questionType: 'A' | 'B' | 'C' | 'D'
   /** True when verification actually ran (false for 'skip' class) */
   wasVerified: boolean
   /** Confirmed findings with citations */
   verifiedFindings: VerifiedFinding[]
   /** All sheet numbers inspected (confirmed + checked-but-empty) */
   sheetsInspected: string[]
+  /**
+   * All sheets in the project that have indexed structured data —
+   * gathered at the start of verification so callers can see how many
+   * sheets were candidates vs. how many were actually matched.
+   */
+  candidateSheets: string[]
+  /** Overall coverage result — drives hard answer gating */
+  coverageStatus: CoverageStatus
   /** Formatted context block injected into the system prompt */
   confirmedContext: string
   /** Aspects not confirmed — used for the "could not be confirmed" footer */
   evidenceGaps: string[]
+  /** Canonical alias for evidenceGaps */
+  missingEvidence: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -108,14 +134,94 @@ export function classifyVerificationNeed(analysis: QueryAnalysis): VerificationC
   }
 
   // ── Type C: measurement / attribute ─────────────────────────────────────
-  if (
-    analysis.entities.itemName &&
-    /\bsize\b|\bdiameter\b|\bwidth\b|\bdepth\b|\bmaterial\b|\bpipe\b|\bclass\b|\bgauge\b|\bpressure\b|\bspec\b|\bstrength\b|\bwall thickness\b|\bhow long\b|\blength\b|\bhow far\b|\bdistance\b|\btotal lf\b|\blinear feet\b/i.test(q)
-  ) {
-    return 'measurement'
+  // Require measurement keywords. itemName is preferred but not mandatory —
+  // a query like "What size is the storm drain pipe near station 15+00?" may
+  // have utilitySystem set instead, or nothing (ambiguous system). Either way
+  // the user expects a document-backed measurement answer, not a skip.
+  const hasMeasurementKeyword = /\bsize\b|\bdiameter\b|\bwidth\b|\bdepth\b|\bmaterial\b|\bpipe\b|\bclass\b|\bgauge\b|\bpressure\b|\bspec\b|\bstrength\b|\bwall thickness\b|\bhow long\b|\blength\b|\bhow far\b|\bdistance\b|\btotal lf\b|\blinear feet\b/i.test(q)
+
+  if (hasMeasurementKeyword) {
+    // Has a named target system OR is asking about an entity attribute
+    const hasTarget = !!(
+      analysis.entities.itemName ||
+      analysis.entities.utilitySystem ||
+      analysis.entities.componentType ||
+      analysis.entities.sheetNumber ||
+      // Structural/arch/MEP tag patterns in query
+      /\b([fcbw][-\s]?\d+|d[-\s]\d+[a-z]?|lp[-\s]\d+|ahu[-\s]\d+)\b/i.test(q)
+    )
+    if (hasTarget) return 'measurement'
   }
 
   return 'skip'
+}
+
+/** Map VerificationClass to its A/B/C/D letter. */
+function classToQuestionType(vc: VerificationClass): 'A' | 'B' | 'C' | 'D' {
+  switch (vc) {
+    case 'skip':        return 'A'
+    case 'enumeration': return 'B'
+    case 'measurement': return 'C'
+    case 'global':      return 'D'
+  }
+}
+
+/** Derive CoverageStatus from the verification findings and gaps. */
+function computeCoverageStatus(findings: VerifiedFinding[], gaps: string[]): CoverageStatus {
+  if (findings.length === 0) return 'insufficient'
+  if (gaps.length === 0) return 'complete'
+  return 'partial'
+}
+
+/**
+ * Query all distinct sheet numbers that have been indexed for a project.
+ * These are the "candidate sheets" — sheets that should have been inspected
+ * for any global/enumeration/measurement query.
+ */
+async function queryCandidateSheets(
+  projectId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any
+): Promise<string[]> {
+  try {
+    // Query all data sources in parallel.
+    // entity_locations covers structural, architectural, MEP, demo, spec, RFI —
+    // every discipline that has been extracted into the project_entities graph.
+    const [qResult, tResult, cResult, eResult] = await Promise.all([
+      supabase
+        .from('project_quantities')
+        .select('sheet_number')
+        .eq('project_id', projectId)
+        .not('sheet_number', 'is', null),
+      supabase
+        .from('utility_termination_points')
+        .select('sheet_number')
+        .eq('project_id', projectId)
+        .not('sheet_number', 'is', null),
+      supabase
+        .from('utility_crossings')
+        .select('sheet_number')
+        .eq('project_id', projectId)
+        .not('sheet_number', 'is', null),
+      // entity_locations joins all disciplines via project_entities
+      supabase
+        .from('entity_locations')
+        .select('sheet_number, project_entities!inner(project_id)')
+        .eq('project_entities.project_id', projectId)
+        .not('sheet_number', 'is', null),
+    ])
+
+    const all = [
+      ...(qResult.data ?? []).map((r: { sheet_number: string }) => r.sheet_number),
+      ...(tResult.data ?? []).map((r: { sheet_number: string }) => r.sheet_number),
+      ...(cResult.data ?? []).map((r: { sheet_number: string }) => r.sheet_number),
+      ...(eResult.data ?? []).map((r: { sheet_number: string }) => r.sheet_number),
+    ]
+
+    return [...new Set(all.filter(Boolean).map(normalizeSheetNumber))].sort()
+  } catch {
+    return []
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,18 +1248,27 @@ export async function verifyBeforeAnswering(
 ): Promise<SheetVerificationResult> {
   const verificationClass = classifyVerificationNeed(analysis)
 
-  console.log('[SheetVerifier] Class:', verificationClass, '| Mode:', analysis.answerMode)
+  const questionType = classToQuestionType(verificationClass)
+  console.log('[SheetVerifier] Class:', verificationClass, `(Type ${questionType})`, '| Mode:', analysis.answerMode)
 
   if (verificationClass === 'skip') {
     return {
       verificationClass: 'skip',
+      questionType: 'A',
       wasVerified: false,
       verifiedFindings: [],
       sheetsInspected: [],
+      candidateSheets: [],
+      coverageStatus: 'complete',  // Type A: trust the existing pipeline
       confirmedContext: '',
       evidenceGaps: [],
+      missingEvidence: [],
     }
   }
+
+  // Gather candidate sheets before running verification so callers can compare
+  // what was available vs. what was found.
+  const candidateSheets = await queryCandidateSheets(projectId, supabase)
 
   let findings: VerifiedFinding[] = []
   let sheets: string[] = []
@@ -1174,22 +1289,30 @@ export async function verifyBeforeAnswering(
   }
 
   const distinctSheets = [...new Set(sheets)].sort()
+  const coverageStatus = computeCoverageStatus(findings, gaps)
   const confirmedContext = formatConfirmedContext(verificationClass, findings, distinctSheets, gaps)
 
   console.log('[SheetVerifier] Verified:', {
     class: verificationClass,
+    questionType,
     findings: findings.length,
     sheets: distinctSheets.length,
+    candidates: candidateSheets.length,
+    coverageStatus,
     gaps: gaps.length,
   })
 
   return {
     verificationClass,
+    questionType,
     wasVerified: true,
     verifiedFindings: findings,
     sheetsInspected: distinctSheets,
+    candidateSheets,
+    coverageStatus,
     confirmedContext,
     evidenceGaps: gaps,
+    missingEvidence: gaps,
   }
 }
 

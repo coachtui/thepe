@@ -27,6 +27,8 @@ import type {
   ReasoningFinding,
   ReasoningGap,
 } from './types'
+import type { SheetVerificationResult } from './sheet-verifier'
+import type { PlanReaderResult } from './plan-reader'
 
 const anthropicAI = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -85,11 +87,18 @@ function buildSystemPrompt(
 ): string {
   const parts: string[] = []
 
-  // 1. PE persona — consistent across all modes
-  parts.push(PE_PERSONA)
+  // 1. Discipline-aware persona
+  parts.push(buildPersona(analysis.answerMode))
 
   // 2. Answer mode contract — what format is expected
   parts.push(buildAnswerModeInstructions(analysis.answerMode, sufficiency))
+
+  // 2b. Plan Reader block — direct visual evidence from actual sheet images.
+  //     This is the highest-priority source and must come before everything else.
+  if (packet.planReaderMeta?.wasRun && packet.planReaderMeta.findings.length > 0) {
+    parts.push(packet.planReaderMeta.formattedContext)
+    parts.push(PLAN_READER_AUTHORITY_INSTRUCTION)
+  }
 
   // 3. Verification block — for Type B/C/D queries, inject confirmed findings
   //    BEFORE any other context so the model sees them as ground truth.
@@ -98,6 +107,12 @@ function buildSystemPrompt(
     if (packet.verificationMeta.evidenceGaps.length > 0) {
       parts.push(buildVerificationGapWarning(packet.verificationMeta.evidenceGaps, packet.verificationMeta.sheetsInspected))
     }
+  }
+
+  // 3b. Verification response format requirements — injected for all verified queries.
+  //     This is the structural contract the model must follow for verified answers.
+  if (packet.verificationMeta?.wasVerified) {
+    parts.push(buildVerificationResponseRequirements(packet.verificationMeta))
   }
 
   // 4. Evidence context — what the model is allowed to reference
@@ -142,22 +157,174 @@ Do NOT invent data for the gaps above. Report them honestly.`
 }
 
 // ---------------------------------------------------------------------------
-// PE persona — same for every mode
+// Verification response format requirements
 // ---------------------------------------------------------------------------
 
-const PE_PERSONA = `You are a Senior Project Engineer (PE) with 15+ years of experience in heavy civil construction. You've worked on hundreds of projects ranging from $5M utility installations to $500M highway programs.
+/**
+ * Injects a required response-format contract for all Type B/C/D verified queries.
+ *
+ * For sufficient/partial coverage: requires the model to end with a
+ * "Verification Status" footer showing coverage, sheets reviewed, and any limitation.
+ *
+ * For insufficient coverage: requires a guarded opening statement before
+ * explaining what was searched and what action would enable a proper answer.
+ */
+function buildVerificationResponseRequirements(meta: SheetVerificationResult): string {
+  const typeLabel = {
+    A: 'A — simple retrieval',
+    B: 'B — enumeration',
+    C: 'C — measurement / attribute lookup',
+    D: 'D — global / cross-sheet reasoning',
+  }[meta.questionType]
 
-You are direct, evidence-based, and honest about what you know and don't know. You cite sources when you have them. You flag gaps explicitly rather than filling them with guesses.
+  const sheetsStr = meta.sheetsInspected.length > 0
+    ? meta.sheetsInspected.join(', ')
+    : 'none indexed'
+
+  const candidateNote = meta.candidateSheets.length > 0
+    ? `${meta.candidateSheets.length} candidate sheets in project`
+    : 'candidate sheet count unknown'
+
+  if (meta.coverageStatus === 'insufficient') {
+    return `## VERIFIED QUERY — COVERAGE INSUFFICIENT
+
+This is a Type ${meta.questionType} (${typeLabel}) query that required verification.
+Verification ran and found **zero confirmed findings** in the indexed drawings.
+(${candidateNote}, ${meta.sheetsInspected.length} sheets inspected)
+
+Your response MUST:
+1. Open with: "This question requires verified document evidence, but no confirmed findings were found in the indexed drawings."
+2. State clearly what was searched (sheets and data sources)
+3. List the specific evidence that is missing
+4. Tell the user exactly what action would enable a proper answer (e.g., run vision processing, upload additional sheets)
+
+Do NOT attempt to answer the question from general knowledge or partial evidence.
+Do NOT guess at quantities, sizes, locations, or system names.`
+  }
+
+  const coverageLabel = meta.coverageStatus === 'complete' ? 'COMPLETE' : 'PARTIAL'
+
+  const lines = [
+    `## VERIFIED QUERY — COVERAGE ${coverageLabel}`,
+    '',
+    `This is a Type ${meta.questionType} (${typeLabel}) query. Verification ran and found ${meta.verifiedFindings.length} confirmed finding(s).`,
+    `Sheets inspected: ${sheetsStr}`,
+    '',
+    'Your response MUST:',
+    '1. Give a **direct answer** using only the verified findings above — no fabrication',
+    '2. Include **sheet references** for every fact stated (e.g., "Sheet CU110", "Sheets CU110, CU120")',
+    '3. End with a **Verification Status** block in this exact format:',
+    '',
+    '---',
+    `**Verification:** ${coverageLabel} | **Query Type:** ${meta.questionType} | **Sheets reviewed:** ${sheetsStr}`,
+  ]
+
+  if (meta.coverageStatus === 'partial') {
+    lines.push('**Limitation:** [State what could not be confirmed from the available drawings]')
+  }
+
+  lines.push('---')
+  lines.push('')
+
+  if (meta.coverageStatus === 'partial' && meta.missingEvidence.length > 0) {
+    lines.push('Known gaps to disclose in the Limitation statement:')
+    meta.missingEvidence.forEach(g => lines.push(`  - ${g}`))
+    lines.push('')
+    lines.push('Do NOT invent data to fill the gaps above. Report them exactly as limitations.')
+  }
+
+  return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Plan Reader authority instruction
+// ---------------------------------------------------------------------------
+
+/**
+ * Appended immediately after the DIRECT PLAN INSPECTION context block.
+ * Tells the model how to treat direct visual findings vs. other sources.
+ */
+const PLAN_READER_AUTHORITY_INSTRUCTION = `## PLAN INSPECTION AUTHORITY
+
+The DIRECT PLAN INSPECTION section above contains findings from physically reading the actual sheet images.
+
+Evidence hierarchy — use in this order:
+  1. DIRECT PLAN INSPECTION (highest — visual ground truth)
+  2. VERIFICATION RESULT (structured table data)
+  3. PROJECT DATA (retrieved context, vector search)
+  4. PE domain expertise (lowest — use only for general guidance)
+
+Rules:
+- Facts stated in DIRECT PLAN INSPECTION override any conflicting structured data
+- Every fact from plan inspection MUST be cited with its sheet number
+- If plan inspection is marked "(partial — continued on other sheets)", state that limitation
+- Do NOT present partial plan-reader coverage as a complete answer`
+
+// ---------------------------------------------------------------------------
+// PE persona — discipline-aware
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a persona block calibrated to the answer mode.
+ * The field user needs an expert in the right discipline, not always a civil PE.
+ */
+function buildPersona(mode: AnswerMode): string {
+  const discipline = disciplineFromMode(mode)
+  return `You are a Senior ${discipline} serving as the trusted document intelligence system for field personnel — superintendents, foremen, engineers, and crews.
+
+Your purpose is to give fast, correct, sheet-backed answers. Field crews may act on your answer immediately.
+
+Rules you never break:
+- Cite the sheet number for every fact you state. No sheet number = do not state the fact.
+- If the evidence is incomplete, say what is missing — do not fill gaps with general knowledge.
+- Never fabricate project-specific data (quantities, sizes, sheet numbers, entity names).
+- A correct refusal is better than a plausible-sounding wrong answer.
 
 When project data is provided in this system prompt:
-- Use it directly and cite it precisely (sheet number, station, source)
+- Use it directly and cite it precisely (sheet number, station, data source)
 - Do not contradict it with general knowledge unless you explicitly flag the discrepancy
-- Do not add components or quantities that are not in the data
+- Do not add components, quantities, or entities that are not in the data
 
 When project data is absent or insufficient:
-- Say so clearly
-- Explain what would be needed to answer properly
-- Do not fabricate project-specific information`
+- Say so in plain language
+- State what was searched and what was missing
+- Do not guess — the crew will act on what you say`
+}
+
+/** Map answer mode to the most relevant discipline title. */
+function disciplineFromMode(mode: AnswerMode): string {
+  switch (mode) {
+    case 'struct_element_lookup':
+    case 'struct_area_scope':
+      return 'Structural Engineer'
+    case 'mep_element_lookup':
+    case 'mep_area_scope':
+      return 'MEP (Mechanical/Electrical/Plumbing) Engineer'
+    case 'arch_element_lookup':
+    case 'arch_room_scope':
+    case 'arch_schedule_query':
+      return 'Architectural Project Manager'
+    case 'demo_scope':
+    case 'demo_constraint':
+      return 'Project Engineer specializing in selective demolition'
+    case 'spec_section_lookup':
+    case 'spec_requirement_lookup':
+      return 'Specifications Engineer'
+    case 'trade_coordination':
+    case 'coordination_sequence':
+    case 'affected_area':
+      return 'Project Engineer (multi-discipline coordination)'
+    case 'quantity_lookup':
+    case 'crossing_lookup':
+    case 'sheet_lookup':
+    case 'scope_summary':
+    case 'project_summary':
+    case 'sequence_inference':
+      return 'Senior Civil/Utility Project Engineer'
+    default:
+      return 'Senior Project Engineer'
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Answer mode instructions
@@ -500,16 +667,49 @@ This answer is based on real-time analysis of project PDFs.`
 // ---------------------------------------------------------------------------
 
 export function selectTemperature(mode: AnswerMode, sufficiency: SufficiencyLevel): number {
-  // Precise factual modes — keep temperature low
-  if (['quantity_lookup', 'crossing_lookup', 'project_summary'].includes(mode)) {
+  // Insufficient evidence — explain clearly, but don't need creativity
+  if (sufficiency === 'insufficient') {
     return 0.2
   }
-  // Insufficient evidence — explain clearly
-  if (sufficiency === 'insufficient') {
+
+  // All factual lookup modes must be low temperature.
+  // Field crew acts on these answers — do not allow the model to be "creative".
+  const FACTUAL_MODES: AnswerMode[] = [
+    'quantity_lookup',
+    'crossing_lookup',
+    'project_summary',
+    'sheet_lookup',
+    'document_lookup',
+    'scope_summary',
+    'arch_element_lookup',
+    'arch_room_scope',
+    'arch_schedule_query',
+    'struct_element_lookup',
+    'struct_area_scope',
+    'mep_element_lookup',
+    'mep_area_scope',
+    'demo_scope',
+    'demo_constraint',
+    'spec_section_lookup',
+    'spec_requirement_lookup',
+    'rfi_lookup',
+    'change_impact_lookup',
+    'submittal_lookup',
+    'governing_document_query',
+    'trade_coordination',
+    'affected_area',
+  ]
+  if ((FACTUAL_MODES as string[]).includes(mode)) {
+    return 0.2
+  }
+
+  // Inference and coordination modes — allow mild reasoning
+  if (mode === 'sequence_inference' || mode === 'coordination_sequence') {
     return 0.3
   }
-  // Conversational and inference modes
-  return 0.5
+
+  // General chat / conversational
+  return 0.4
 }
 
 type SufficiencyLevel = import('./types').SufficiencyLevel

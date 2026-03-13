@@ -21,6 +21,7 @@ import { evaluateSufficiency } from './evidence-evaluator'
 import { applyReasoning } from './reasoning-engine'
 import { writeResponse, selectTemperature, type ChatMessage } from './response-writer'
 import { verifyBeforeAnswering, verificationToEvidenceItems } from './sheet-verifier'
+import { runPlanReader, planReaderToEvidenceItems } from './plan-reader'
 import type { PEAgentConfig } from '@/agents/constructionPEAgent'
 import type { AiTrace } from './types'
 
@@ -91,7 +92,7 @@ export async function handleChatRequest(
 
   // Merge verified findings into the evidence packet (prepended = highest priority)
   const verifiedItems = verificationToEvidenceItems(verification)
-  const augmentedPacket = verification.wasVerified
+  let augmentedPacket = verification.wasVerified
     ? {
         ...packet,
         items: [...verifiedItems, ...packet.items],
@@ -101,6 +102,58 @@ export async function handleChatRequest(
         verificationMeta: verification,
       }
     : packet
+
+  // 2.7. Plan Reader — for Type B/C/D queries, inspect actual sheet images.
+  //      This stage runs AFTER structural-table verification so that the candidate
+  //      sheets gathered there drive which pages to load.
+  //      Findings take precedence over all other evidence sources.
+  if (verification.verificationClass !== 'skip') {
+    const planReader = await runPlanReader(analysis, verification, projectId, supabase)
+    console.log('[ChatHandler] PlanReader:', {
+      wasRun: planReader.wasRun,
+      pages: planReader.pagesInspected.length,
+      findings: planReader.findings.length,
+      coverage: planReader.coverageAssessment,
+      matchLines: planReader.matchLinesFollowed.length,
+      costUsd: planReader.totalCostUsd.toFixed(4),
+      skipReason: planReader.skipReason,
+    })
+
+    if (planReader.wasRun) {
+      const planReaderItems = planReaderToEvidenceItems(planReader)
+
+      // Plan reader findings are highest-priority — prepend before verified items
+      augmentedPacket = {
+        ...augmentedPacket,
+        items: [...planReaderItems, ...augmentedPacket.items],
+        formattedContext: planReader.findings.length > 0
+          ? `${planReader.formattedContext}\n\n---\n\n${augmentedPacket.formattedContext}`
+          : augmentedPacket.formattedContext,
+        planReaderMeta: planReader,
+      }
+
+      // If the structured-table verification found nothing but the plan reader
+      // did, upgrade the verification coverageStatus from 'insufficient' to
+      // 'partial' so the hard gate in evidence-evaluator allows an answer.
+      if (
+        augmentedPacket.verificationMeta?.coverageStatus === 'insufficient' &&
+        planReader.findings.length > 0 &&
+        augmentedPacket.verificationMeta
+      ) {
+        augmentedPacket = {
+          ...augmentedPacket,
+          verificationMeta: {
+            ...augmentedPacket.verificationMeta,
+            coverageStatus: 'partial',
+            missingEvidence: [
+              ...augmentedPacket.verificationMeta.missingEvidence,
+              'Structured tables had no data — answer sourced from direct plan inspection only.',
+            ],
+          },
+        }
+      }
+    }
+  }
 
   // 3. Evaluate sufficiency
   const sufficiency = evaluateSufficiency(augmentedPacket, analysis)
@@ -149,10 +202,27 @@ export async function handleChatRequest(
 
     // Verification status
     if (verification.wasVerified) {
-      warnings.push(`sheet_verification: class=${verification.verificationClass} findings=${verification.verifiedFindings.length} sheets=${verification.sheetsInspected.length}`)
+      warnings.push(
+        `sheet_verification: type=${verification.questionType} class=${verification.verificationClass} ` +
+        `coverage=${verification.coverageStatus} findings=${verification.verifiedFindings.length} ` +
+        `inspected=${verification.sheetsInspected.length} candidates=${verification.candidateSheets.length}`
+      )
     }
-    if (verification.evidenceGaps.length > 0) {
-      warnings.push(...verification.evidenceGaps.map(g => `verification_gap: ${g}`))
+    if (verification.missingEvidence.length > 0) {
+      warnings.push(...verification.missingEvidence.map(g => `verification_gap: ${g}`))
+    }
+
+    // Plan Reader status
+    const planReader = augmentedPacket.planReaderMeta
+    if (planReader?.wasRun) {
+      warnings.push(
+        `plan_reader: pages=${planReader.pagesInspected.map(p => p.sheetNumber).join(',')} ` +
+        `findings=${planReader.findings.length} coverage=${planReader.coverageAssessment} ` +
+        `matchLines=${planReader.matchLinesFollowed.join(',') || 'none'} ` +
+        `cost=$${planReader.totalCostUsd.toFixed(4)}`
+      )
+    } else if (planReader) {
+      warnings.push(`plan_reader_skipped: ${planReader.skipReason}`)
     }
 
     // Detect Water Line A / utility bias risks
