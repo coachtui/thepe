@@ -110,7 +110,7 @@ export function classifyVerificationNeed(analysis: QueryAnalysis): VerificationC
   // ── Type C: measurement / attribute ─────────────────────────────────────
   if (
     analysis.entities.itemName &&
-    /\bsize\b|\bdiameter\b|\bwidth\b|\bdepth\b|\bmaterial\b|\bpipe\b|\bclass\b|\bgauge\b|\bpressure\b|\bspec\b|\bstrength\b|\bwall thickness\b/i.test(q)
+    /\bsize\b|\bdiameter\b|\bwidth\b|\bdepth\b|\bmaterial\b|\bpipe\b|\bclass\b|\bgauge\b|\bpressure\b|\bspec\b|\bstrength\b|\bwall thickness\b|\bhow long\b|\blength\b|\bhow far\b|\bdistance\b|\btotal lf\b|\blinear feet\b/i.test(q)
   ) {
     return 'measurement'
   }
@@ -722,6 +722,75 @@ async function verifyMeasurement(
     return { findings, sheets, gaps }
   }
 
+  const measureQ = analysis.rawQuery.toLowerCase()
+  const isLengthQuery = /\bhow long\b|\blength\b|\bhow far\b|\bdistance\b|\btotal lf\b|\blinear feet\b/i.test(measureQ)
+
+  // ── Length queries: compute from begin→end termination points ────────────
+  // This is authoritative and avoids trusting project_quantities segment rows
+  // which may represent individual callouts, not the full system length.
+  if (isLengthQuery) {
+    const { data: terminations } = await supabase
+      .from('utility_termination_points')
+      .select('utility_name, termination_type, station, sheet_number, confidence')
+      .eq('project_id', projectId)
+      .ilike('utility_name', `%${targetSystem}%`)
+      .order('confidence', { ascending: false })
+
+    if (terminations && terminations.length > 0) {
+      // Find the best begin and end records
+      const beginRow = (terminations as TerminationRow[]).find(r =>
+        /begin|start/i.test(r.termination_type || '')
+      )
+      const endRow = (terminations as TerminationRow[]).find(r =>
+        /end|terminus/i.test(r.termination_type || '')
+      )
+
+      if (beginRow && endRow) {
+        const beginSheet = normalizeSheetNumber(beginRow.sheet_number)
+        const endSheet   = normalizeSheetNumber(endRow.sheet_number)
+        if (beginRow.sheet_number) sheets.push(beginSheet)
+        if (endRow.sheet_number) sheets.push(endSheet)
+
+        // Parse stations to compute length
+        const parseStation = (s: string | null): number | null => {
+          if (!s) return null
+          const m = s.trim().match(/^(\d{1,3})\+(\d{2}(?:\.\d{1,2})?)$/)
+          return m ? parseFloat(m[1]) * 100 + parseFloat(m[2]) : null
+        }
+
+        const beginNum = parseStation(beginRow.station)
+        const endNum   = parseStation(endRow.station)
+
+        if (beginNum !== null && endNum !== null) {
+          const lengthLF = Math.round((endNum - beginNum) * 100) / 100
+          findings.push({
+            statement: `${targetSystem} length: ${lengthLF.toLocaleString()} LF (Station ${beginRow.station} to ${endRow.station}, Sheets: ${beginSheet}–${endSheet})`,
+            sheetNumber: beginSheet,
+            entityValue: `${lengthLF} LF`,
+            entityType: 'station',
+            confidence: Math.min(beginRow.confidence ?? 0.9, endRow.confidence ?? 0.9),
+          })
+        } else {
+          // Stations present but couldn't parse numerics — still surface them
+          findings.push({
+            statement: `${targetSystem}: begins at Station ${beginRow.station ?? 'unknown'} (Sheet: ${beginSheet}), ends at Station ${endRow.station ?? 'unknown'} (Sheet: ${endSheet})`,
+            sheetNumber: beginSheet,
+            entityValue: `${beginRow.station} to ${endRow.station}`,
+            entityType: 'station',
+            confidence: 0.8,
+          })
+          gaps.push(`Could not compute numeric length — station format may be non-standard`)
+        }
+      } else {
+        gaps.push(`Begin and/or end termination point not found for "${targetSystem}" — cannot compute length from stations`)
+      }
+    } else {
+      gaps.push(`No termination points indexed for "${targetSystem}" — length cannot be confirmed from structured data`)
+    }
+
+    return { findings: deduplicateFindings(findings), sheets, gaps }
+  }
+
   // Query project_quantities for the specific system
   const { data: quantities, error: qErr } = await supabase
     .from('project_quantities')
@@ -800,6 +869,42 @@ async function verifyMeasurement(
     }
   }
 
+  // Reverse lookup: if no size found yet, look for sized items on the same
+  // sheets as the target system. Vision often stores "12-IN WATER LINE" as a
+  // separate item rather than an attribute of "WATER LINE B".
+  if (findings.filter(f => f.entityType === 'pipe_size').length === 0 && sheets.length > 0) {
+    const distinctSheets = [...new Set(sheets)]
+    const { data: sizedItems } = await supabase
+      .from('project_quantities')
+      .select('item_name, size, sheet_number, confidence, description')
+      .eq('project_id', projectId)
+      .in('sheet_number', distinctSheets)
+      .not('item_name', 'is', null)
+
+    if (sizedItems) {
+      for (const row of sizedItems as QuantityRow[]) {
+        const sizeFromName = (row.item_name || '').match(/(\d+["\-]?\s*(?:IN|INCH|DIP|PVC|HDPE|RCP|VCP|ABS|CMP))/i)?.[1]
+        const size = row.size || sizeFromName
+        if (!size) continue
+
+        // Only include if it looks like the same utility type
+        const sameType = new RegExp(targetSystem.replace(/\s+/g, '\\s+').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(row.item_name || '')
+          || /water\s*line|waterline/i.test(row.item_name || '')
+
+        if (!sameType) continue
+
+        const sheet = normalizeSheetNumber(row.sheet_number)
+        findings.push({
+          statement: `${row.item_name}: ${size}${row.description ? ` — ${row.description}` : ''} (Sheet: ${sheet})`,
+          sheetNumber: sheet,
+          entityValue: size,
+          entityType: 'pipe_size',
+          confidence: (row.confidence ?? 0.75) * 0.9, // slight discount — inferred by co-location
+        })
+      }
+    }
+  }
+
   // Phase 2 supplement: query sheet_entities for pipe_size records matching
   // the target system (fast vision-confirmed lookup)
   const pipeSizeRows = await querySheetEntities(projectId, 'pipe_size', targetSystem, supabase)
@@ -820,9 +925,8 @@ async function verifyMeasurement(
   // Entity graph: handles non-utility measurements ("what is the concrete
   // strength for footing F3", "what size is column C-4", "what door type is D-14").
   // Run even when utility query also ran — different disciplines don't overlap.
-  const q = analysis.rawQuery.toLowerCase()
-  const entityKeyword = deriveEntityKeyword(q) || targetSystem
-  const entityDiscipline = deriveEntityDiscipline(q)
+  const entityKeyword = deriveEntityKeyword(measureQ) || targetSystem
+  const entityDiscipline = deriveEntityDiscipline(measureQ)
 
   if (entityKeyword) {
     const graphRows = await queryEntityGraph(projectId, entityKeyword, entityDiscipline, supabase)
