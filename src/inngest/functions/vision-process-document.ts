@@ -45,6 +45,24 @@ export const visionProcessDocument = inngest.createFunction(
       // At most 5 documents processing at the same time — guards Claude API rate limits.
       limit: 5,
     },
+    onFailure: async ({ event, error }) => {
+      // Runs when the function exhausts all retries or throws an unhandled error.
+      // Ensures vision_status is never left permanently stuck at 'processing'.
+      const documentId = event.data?.event?.data?.documentId
+      if (!documentId) return
+      const supabase = createServiceRoleClient()
+      const msg = error instanceof Error ? error.message : String(error)
+      await supabase
+        .from('documents')
+        .update({
+          vision_status: 'failed',
+          vision_error: `Inngest function failed: ${msg.slice(0, 500)}`,
+        })
+        .eq('id', documentId)
+      logProduction.error('Vision Lifecycle',
+        `[STATUS→failed/inngest-crash] document=${documentId} error="${msg}"`
+      )
+    },
   },
   { event: 'vision/document.process' },
   async ({ event, step }) => {
