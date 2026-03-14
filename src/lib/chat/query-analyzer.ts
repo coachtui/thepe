@@ -127,6 +127,50 @@ export function analyzeQuery(rawQuery: string): QueryAnalysis {
   return applyPostAnalysisCorrections(analysis, rawQuery)
 }
 
+/**
+ * Apply alias expansions to an already-analyzed query.
+ *
+ * Called in Step 0.5 of the chat pipeline after project memory is loaded.
+ * Returns a new QueryAnalysis with entity fields and requestedSystems
+ * replaced by their canonical values where unambiguous aliases exist.
+ *
+ * @param analysis - The QueryAnalysis produced by analyzeQuery()
+ * @param expansions - Map from entity.toUpperCase() → canonical values (from resolveAliases())
+ */
+export function applyAliasExpansions(
+  analysis: QueryAnalysis,
+  expansions: Record<string, string[]>
+): QueryAnalysis {
+  if (Object.keys(expansions).length === 0) return analysis
+
+  // Resolve a single string: replace with unambiguous (single) expansion
+  const resolve = (val: string | undefined): string | undefined => {
+    if (!val) return val
+    const exp = expansions[val.toUpperCase()]
+    return exp && exp.length === 1 ? exp[0] : val
+  }
+
+  // Expand an array: replace each item with its expansions (all, if multiple)
+  const expandArray = (vals: string[]): string[] => {
+    const expanded = vals.flatMap(v => {
+      const exp = expansions[v.toUpperCase()]
+      return exp && exp.length > 0 ? exp : [v]
+    })
+    return [...new Set(expanded)]
+  }
+
+  return {
+    ...analysis,
+    entities: {
+      ...analysis.entities,
+      itemName:      resolve(analysis.entities.itemName),
+      utilitySystem: resolve(analysis.entities.utilitySystem),
+      componentType: resolve(analysis.entities.componentType),
+    },
+    requestedSystems: expandArray(analysis.requestedSystems),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

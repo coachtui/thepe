@@ -1,7 +1,7 @@
 # Roadmap — thepe
 
 High-level phase sequence and status. Updated by CTO Builder only.
-Last updated: 2026-03-14
+Last updated: 2026-03-14 (Phase 7 checklist tightened; 7F scoped)
 
 ---
 

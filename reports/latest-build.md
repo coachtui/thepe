@@ -1,19 +1,20 @@
 # Latest Build Report
 
-Last updated: 2026-03-14
+Last updated: 2026-03-14 (Phase 7B)
 
 ---
 
 ## TypeScript Compile
 
-Last known result: **PASS** — `npx tsc --noEmit --skipLibCheck`
-Last tested: 2026-03-11 (Phase 6 delivery)
+**Status: PASS** — `npx tsc --noEmit --skipLibCheck` clean.
+Last tested: 2026-03-14 (Phase 7B session)
 
 ## Known Issues
 
-- Manual Analyze button does not populate `document_pages` / `sheet_entities` — Phase 7A fix pending
-- `supabase as any` cast used throughout graph queries — regenerate types after next schema deploy
-- Phase 7 tables (migration 00047) not yet written or applied
+- `DataSourceCounts.graph` always 0 — graph source type not yet in `EvidenceSourceType`
+- In-memory trace store (`getStoredTrace`) does not persist across serverless instances — dev-only limitation
+- `supabase as any` cast used in project-memory.ts and throughout graph queries — regenerate types after migration 00047 is applied
+- Migration 00047 written but not yet applied — run `supabase db push` before Phase 7C
 
 ## Environment Notes
 

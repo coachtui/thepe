@@ -23,7 +23,44 @@ import { writeResponse, selectTemperature, type ChatMessage } from './response-w
 import { verifyBeforeAnswering, verificationToEvidenceItems } from './sheet-verifier'
 import { runPlanReader, planReaderToEvidenceItems } from './plan-reader'
 import type { PEAgentConfig } from '@/agents/constructionPEAgent'
-import type { AiTrace } from './types'
+import type { AiTrace, EvidenceItem, DataSourceCounts } from './types'
+import { loadProjectMemory, resolveAliases } from './project-memory'
+import { applyAliasExpansions } from './query-analyzer'
+import { randomUUID } from 'crypto'
+
+// ---------------------------------------------------------------------------
+// In-memory trace store (dev / debug only)
+// Keyed by queryId. TTL: 30 minutes. Not persistent across serverless instances.
+// ---------------------------------------------------------------------------
+
+interface StoredTrace {
+  queryId: string
+  projectId: string
+  items: EvidenceItem[]
+  expiresAt: number
+}
+
+const traceStore = new Map<string, StoredTrace>()
+const TRACE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+
+function storeTrace(queryId: string, projectId: string, items: EvidenceItem[]): void {
+  // Evict expired entries
+  const now = Date.now()
+  for (const [k, v] of traceStore.entries()) {
+    if (v.expiresAt < now) traceStore.delete(k)
+  }
+  traceStore.set(queryId, { queryId, projectId, items, expiresAt: now + TRACE_TTL_MS })
+}
+
+export function getStoredTrace(queryId: string): StoredTrace | undefined {
+  const entry = traceStore.get(queryId)
+  if (!entry) return undefined
+  if (entry.expiresAt < Date.now()) {
+    traceStore.delete(queryId)
+    return undefined
+  }
+  return entry
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,10 +98,42 @@ export async function handleChatRequest(
     ? latestMessage.content
     : String(latestMessage.content)
 
-  console.log('[ChatHandler] Query:', rawQuery.slice(0, 120))
+  const queryId = randomUUID()
+  console.log('[ChatHandler] Query:', rawQuery.slice(0, 120), '| queryId:', queryId)
+
+  // Step 0: Load project memory (aliases, callout patterns, sheet hints, source quality)
+  const memoryCtx = await loadProjectMemory(projectId)
+  console.log('[ChatHandler] ProjectMemory:', {
+    aliases: memoryCtx.aliases.length,
+    calloutPatterns: memoryCtx.calloutPatterns.length,
+    sheetHints: memoryCtx.sheetHints.length,
+    sourceQuality: memoryCtx.sourceQuality.length,
+  })
 
   // 1. Analyze the query
-  const analysis = analyzeQuery(rawQuery)
+  let analysis = analyzeQuery(rawQuery)
+
+  // Step 0.5: Resolve aliases on extracted entities and apply expansions
+  if (memoryCtx.aliases.length > 0) {
+    const entityCandidates = [
+      analysis.entities.itemName,
+      analysis.entities.utilitySystem,
+      analysis.entities.componentType,
+      ...analysis.requestedSystems,
+    ].filter((e): e is string => !!e)
+
+    const expansions = resolveAliases(
+      entityCandidates,
+      memoryCtx,
+      analysis._routing?.mepDiscipline ?? null
+    )
+
+    if (Object.keys(expansions).length > 0) {
+      analysis = applyAliasExpansions(analysis, expansions)
+      console.log('[ChatHandler] AliasExpansions applied:', expansions)
+    }
+  }
+
   console.log('[ChatHandler] Analysis:', {
     answerMode: analysis.answerMode,
     supportLevel: analysis.supportLevelExpected,
@@ -108,7 +177,7 @@ export async function handleChatRequest(
   //      sheets gathered there drive which pages to load.
   //      Findings take precedence over all other evidence sources.
   if (verification.verificationClass !== 'skip') {
-    const planReader = await runPlanReader(analysis, verification, projectId, supabase)
+    const planReader = await runPlanReader(analysis, verification, projectId, supabase, memoryCtx.calloutPatterns)
     console.log('[ChatHandler] PlanReader:', {
       wasRun: planReader.wasRun,
       pages: planReader.pagesInspected.length,
@@ -155,6 +224,17 @@ export async function handleChatRequest(
     }
   }
 
+  // Stamp query_id and source_confidence_at_retrieval on all evidence items
+  const stampedItems = augmentedPacket.items.map(item => ({
+    ...item,
+    query_id: queryId,
+    source_confidence_at_retrieval: item.source_confidence_at_retrieval ?? item.confidence,
+  }))
+  augmentedPacket = { ...augmentedPacket, items: stampedItems }
+
+  // Store evidence in trace store for debug endpoint
+  storeTrace(queryId, projectId, stampedItems)
+
   // 3. Evaluate sufficiency
   const sufficiency = evaluateSufficiency(augmentedPacket, analysis)
   console.log('[ChatHandler] Sufficiency:', {
@@ -175,6 +255,24 @@ export async function handleChatRequest(
 
   // 4. Write a streaming response with full conversation history
   const streamResponse = writeResponse(analysis, augmentedPacket, sufficiency, reasoning, messages)
+
+  // Compute data_source_counts and attach as X-Data-Source-Counts header on every response
+  const dataSourceCounts: DataSourceCounts = { vision_db: 0, vector: 0, plan_reader: 0, graph: 0 }
+  for (const item of augmentedPacket.items) {
+    if (item.source === 'vision_db' || item.source === 'direct_lookup' || item.source === 'project_summary') {
+      dataSourceCounts.vision_db++
+    } else if (item.source === 'vector_search') {
+      dataSourceCounts.vector++
+    } else if (item.source === 'live_pdf_analysis') {
+      dataSourceCounts.plan_reader++
+    }
+  }
+  // plan_reader items are marked live_pdf_analysis but prepended from plan reader — count separately
+  if (augmentedPacket.planReaderMeta?.wasRun) {
+    const planReaderCount = augmentedPacket.planReaderMeta.findings.length
+    dataSourceCounts.plan_reader = planReaderCount
+    dataSourceCounts.vision_db = Math.max(0, dataSourceCounts.vision_db - planReaderCount)
+  }
 
   // --- Debug trace ---
   if (traceEnabled) {
@@ -283,16 +381,24 @@ export async function handleChatRequest(
 
     emitTrace(trace)
 
-    // Attach trace as response header so client can inspect it
+    // Attach trace + data source counts as response headers so client can inspect them
     const headers = new Headers(streamResponse.headers)
     headers.set('X-AI-Trace', JSON.stringify(trace))
+    headers.set('X-Query-Id', queryId)
+    headers.set('X-Data-Source-Counts', JSON.stringify(dataSourceCounts))
     return new Response(streamResponse.body, {
       status: streamResponse.status,
       headers,
     })
   }
 
-  return streamResponse
+  const baseHeaders = new Headers(streamResponse.headers)
+  baseHeaders.set('X-Query-Id', queryId)
+  baseHeaders.set('X-Data-Source-Counts', JSON.stringify(dataSourceCounts))
+  return new Response(streamResponse.body, {
+    status: streamResponse.status,
+    headers: baseHeaders,
+  })
 }
 
 /** Emit a human-readable trace block to the server console. */

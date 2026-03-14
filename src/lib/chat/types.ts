@@ -182,6 +182,27 @@ export interface EvidenceItem {
   citation?: StructuredCitation
   confidence: number
   rawData?: unknown
+  /** Unique ID of the chat request that produced this item. Threaded through all retrieval steps. */
+  query_id?: string
+  /** Raw confidence assigned at retrieval time, before any source-quality modifier is applied. */
+  source_confidence_at_retrieval?: number
+}
+
+// ---------------------------------------------------------------------------
+// Chat response metadata
+// ---------------------------------------------------------------------------
+
+/** Counts of evidence items by retrieval source, returned as a response header. */
+export interface DataSourceCounts {
+  vision_db: number
+  vector: number
+  plan_reader: number
+  graph: number
+}
+
+/** Structured metadata attached to every chat response (via X-Chat-Meta header when debug is on). */
+export interface ChatResponse {
+  data_source_counts: DataSourceCounts
 }
 
 /**

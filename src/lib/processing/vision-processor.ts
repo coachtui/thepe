@@ -281,12 +281,13 @@ export async function processDocumentWithVision(
         // Find the chunk(s) for this page (needed for both quantities and termination points)
         const { data: chunks } = await supabase
           .from('document_chunks')
-          .select('id')
+          .select('id, content')
           .eq('document_id', documentId)
           .eq('page_number', pageNumber)
           .limit(1);
 
         const chunkId = chunks && chunks.length > 0 ? chunks[0].id : null;
+        const chunkContent = chunks && chunks.length > 0 ? chunks[0].content as string | undefined : undefined;
 
         // Step 7a: Extract and store termination points (HIGHEST PRIORITY)
         if (visionResult.terminationPoints && visionResult.terminationPoints.length > 0) {
@@ -330,13 +331,28 @@ export async function processDocumentWithVision(
           debug.vision(`Stored ${storedCount} quantities`);
         }
 
+        // Phase 2: Index this page into document_pages + sheet_entities
+        let documentPageId: string | null = null
+        try {
+          const idxResult = await indexDocumentPage({
+            documentId,
+            projectId,
+            pageNumber,
+            visionResult,
+            textContent: chunkContent,
+          })
+          documentPageId = idxResult.documentPageId
+        } catch (idxErr) {
+          debug.vision(`[SheetIndexer] Non-fatal index error page ${pageNumber}: ${idxErr instanceof Error ? idxErr.message : idxErr}`)
+        }
+
         // Step 7d: Store component callouts (plan-view fitting labels)
         if (visionResult.componentCallouts && visionResult.componentCallouts.length > 0) {
           try {
             const calloutCount = await storeComponentCallouts(
               projectId,
               documentId,
-              null, // document_page_id not available in this path
+              documentPageId,
               pageNumber,
               document.sheet_number || visionResult.sheetMetadata?.sheetNumber || null,
               visionResult

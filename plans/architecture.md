@@ -117,6 +117,21 @@ Phase 7 tables (migration 00047 — pending):
 
 ---
 
+## Role + Access Model (Phase 7)
+
+Two distinct role axes — do not conflate:
+
+| Axis | Column | Values | Purpose |
+|---|---|---|---|
+| Access level | `project_members.role` | `owner`, `editor`, `viewer` | API/UI action gating |
+| Trust weight | `submitted_by_role` (TEXT, self-reported) | `PE`, `superintendent`, `foreman`, `engineer`, `admin`, `ai_suggestion` | Correction weight in retrieval |
+
+Action gating for all Phase 7 correction/memory APIs: `owner` or `editor` can act; `viewer` reads only.
+Trust weights: PE=3.0, Admin override=2.5, Superintendent=2.0, Engineer/Foreman=1.0, AI suggestion=0.5.
+`submitted_by_role` is honor-system in Phase 7 — `PE` and `foreman` are not in `users.role` CHECK constraint.
+
+---
+
 ## Key Architectural Constraints
 
 - **Temperature 0.2** for all factual answer modes — do not raise

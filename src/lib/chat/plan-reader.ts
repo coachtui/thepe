@@ -25,6 +25,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { convertPdfPageToImage } from '@/lib/vision/pdf-to-image'
 import { narrowCandidateSheets } from './sheet-narrower'
+import { formatCalloutPatternsForPrompt } from './project-memory'
+import type { MemoryItem } from './project-memory'
 import type { QueryAnalysis } from './types'
 import type { SheetVerificationResult } from './sheet-verifier'
 
@@ -141,7 +143,8 @@ export async function runPlanReader(
   verification: SheetVerificationResult,
   projectId: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any
+  supabase: any,
+  calloutPatterns?: MemoryItem[]
 ): Promise<PlanReaderResult> {
   // Only run for Type B/C/D
   if (verification.verificationClass === 'skip') {
@@ -197,10 +200,10 @@ export async function runPlanReader(
       isExpansionCandidate: false,
     }))
 
-    return runPlanReaderWithCandidates(syntheticCandidates, question, projectId, supabase)
+    return runPlanReaderWithCandidates(syntheticCandidates, question, projectId, supabase, calloutPatterns)
   }
 
-  return runPlanReaderWithCandidates(narrowing.candidates, question, projectId, supabase)
+  return runPlanReaderWithCandidates(narrowing.candidates, question, projectId, supabase, calloutPatterns)
 }
 
 /**
@@ -222,7 +225,8 @@ async function runPlanReaderWithCandidates(
   question: string,
   projectId: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any
+  supabase: any,
+  calloutPatterns?: MemoryItem[]
 ): Promise<PlanReaderResult> {
   if (candidates.length === 0) {
     return notRun('No candidates provided to plan reader inspection phase')
@@ -262,7 +266,7 @@ async function runPlanReaderWithCandidates(
       const sheetNumber = candidate.sheetNumber
       const sheetTitle = candidate.sheetTitle
 
-      const result = await inspectPageForQuestion(imageBuffer, question, sheetNumber, sheetTitle)
+      const result = await inspectPageForQuestion(imageBuffer, question, sheetNumber, sheetTitle, calloutPatterns)
       totalCost += result.costUsd
 
       inspectedPages.push({
@@ -328,7 +332,7 @@ async function runPlanReaderWithCandidates(
       const sheetNumber = row.sheet_number ?? `p${row.page_number}`
       const sheetTitle = row.sheet_title ?? ''
 
-      const result = await inspectPageForQuestion(imageBuffer, question, sheetNumber, sheetTitle)
+      const result = await inspectPageForQuestion(imageBuffer, question, sheetNumber, sheetTitle, calloutPatterns)
       totalCost += result.costUsd
 
       inspectedPages.push({ sheetNumber, sheetTitle, documentId, pageNumber: row.page_number })
@@ -408,11 +412,12 @@ async function inspectPageForQuestion(
   imageBuffer: Buffer,
   question: string,
   sheetNumber: string,
-  sheetTitle: string
+  sheetTitle: string,
+  calloutPatterns?: MemoryItem[]
 ): Promise<InspectionCallResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  const prompt = buildInspectionPrompt(question, sheetNumber, sheetTitle)
+  const prompt = buildInspectionPrompt(question, sheetNumber, sheetTitle, calloutPatterns)
   const base64Image = imageBuffer.toString('base64')
 
   try {
@@ -456,12 +461,21 @@ async function inspectPageForQuestion(
 // Inspection prompt
 // ---------------------------------------------------------------------------
 
-function buildInspectionPrompt(question: string, sheetNumber: string, sheetTitle: string): string {
+function buildInspectionPrompt(
+  question: string,
+  sheetNumber: string,
+  sheetTitle: string,
+  calloutPatterns?: MemoryItem[]
+): string {
+  const calloutBlock = calloutPatterns && calloutPatterns.length > 0
+    ? formatCalloutPatternsForPrompt(calloutPatterns)
+    : null
+
   return `You are inspecting a construction drawing to answer a specific question.
 
 QUESTION: "${question}"
 
-SHEET: ${sheetNumber}${sheetTitle ? ` — ${sheetTitle}` : ''}
+SHEET: ${sheetNumber}${sheetTitle ? ` — ${sheetTitle}` : ''}${calloutBlock ? `\n\n${calloutBlock}` : ''}
 
 Instructions:
 1. Read ALL visible text, labels, callouts, dimension strings, table entries, and notes
