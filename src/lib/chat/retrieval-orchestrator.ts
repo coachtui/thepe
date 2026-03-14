@@ -25,6 +25,7 @@ import { routeQuery } from './smart-router'
 import type { QueryClassification } from './query-classifier'
 import {
   queryComponentCount,
+  queryAllComponentsByUtility,
   queryCrossings,
   queryUtilityLength,
   detectComponentType,
@@ -917,16 +918,35 @@ async function attemptVisionDBLookup(
       const componentType = analysis.entities.componentType
         ?? detectComponentType(analysis.rawQuery)
         ?? undefined
-      if (!componentType) return []
+      const utilitySystem = analysis.entities.utilitySystem
 
       const sizeFilter = analysis.entities.sizeFilter
         ?? extractSizeFromQuery(analysis.rawQuery)
         ?? undefined
 
+      // When a utility system is specified and no size filter, try the
+      // sheet-based "all components on this utility" query first.
+      // This handles "what fittings are on Water Line B?" correctly because
+      // project_quantities rows are never tagged with utility name — only sheet.
+      if (utilitySystem && !sizeFilter) {
+        const allResult = await queryAllComponentsByUtility(projectId, utilitySystem)
+        if (allResult.success) {
+          return [{
+            source: 'vision_db',
+            content: allResult.formattedAnswer,
+            confidence: allResult.confidence,
+            rawData: allResult,
+          }]
+        }
+        // Fall through to single-type query if no sheets found
+      }
+
+      if (!componentType) return []
+
       const result = await queryComponentCount(
         projectId,
         componentType,
-        analysis.entities.utilitySystem,
+        utilitySystem,
         sizeFilter
       )
 

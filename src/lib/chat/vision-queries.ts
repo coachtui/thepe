@@ -769,17 +769,166 @@ export async function getVisionDataSummary(projectId: string): Promise<{
   }
 }
 
+// Item types that represent installed components (not pipe segments or earthwork)
+const COMPONENT_ITEM_TYPES = ['valve', 'fitting', 'hydrant', 'structure', 'service', 'general']
+
+/**
+ * Query ALL installed components on a specific utility system.
+ *
+ * "What fittings are on Water Line B?" — this is an enumeration query, not a
+ * count of a single component type. The approach:
+ *   1. Find all sheet numbers that reference the utility via document_pages or
+ *      sheet_entities (handles apostrophes / case variations in designation).
+ *   2. Return every project_quantities row on those sheets whose item_type is
+ *      a component (valve, fitting, hydrant, structure, service, general).
+ *
+ * No utility-name filter is applied to item_name because items like
+ * "12-IN GATE VALVE AND VALVE BOX" never contain the utility name.
+ */
+export async function queryAllComponentsByUtility(
+  projectId: string,
+  utilitySystem: string
+): Promise<ComponentQueryResult> {
+  const supabase = await createClient()
+  const componentType = 'all_fittings'
+
+  console.log(`[Vision Queries] queryAllComponentsByUtility: utility="${utilitySystem}" project=${projectId}`)
+
+  try {
+    // document_pages and sheet_entities are not in the generated Supabase types
+    // (added in migration 00044). Cast to any, same pattern used elsewhere.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any
+
+    // --- Step 1: resolve sheet numbers for this utility ---
+
+    // Attempt A: exact array-contains on utility_designations
+    const { data: exactPages } = await sb
+      .from('document_pages')
+      .select('sheet_number')
+      .eq('project_id', projectId)
+      .contains('utility_designations', [utilitySystem])
+      .not('sheet_number', 'is', null)
+
+    // Attempt B: ilike via sheet_entities (handles apostrophes, case differences)
+    // Normalise the utility name: strip apostrophes, collapse spaces
+    const utilNorm = utilitySystem.replace(/['"]/g, '').replace(/\s+/g, ' ').trim()
+    const { data: entityPages } = await sb
+      .from('sheet_entities')
+      .select('sheet_number')
+      .eq('project_id', projectId)
+      .eq('entity_type', 'utility_designation')
+      .ilike('entity_value', `%${utilNorm}%`)
+      .not('sheet_number', 'is', null)
+
+    const sheetNumbers = [
+      ...(exactPages  ?? []).map((r: any) => r.sheet_number as string),
+      ...(entityPages ?? []).map((r: any) => r.sheet_number as string),
+    ].filter(Boolean)
+
+    const uniqueSheets = [...new Set(sheetNumbers)]
+    console.log(`[Vision Queries] Found ${uniqueSheets.length} sheets for "${utilitySystem}": ${uniqueSheets.join(', ')}`)
+
+    if (uniqueSheets.length === 0) {
+      return {
+        success: false,
+        componentType,
+        totalCount: 0,
+        items: [],
+        source: 'vision_db',
+        confidence: 0,
+        formattedAnswer: `No sheets found for utility "${utilitySystem}". The document may not have been processed yet, or the utility name may differ from what is on the plans.`,
+      }
+    }
+
+    // --- Step 2: fetch all component quantities on those sheets ---
+    const { data: quantities, error } = await supabase
+      .from('project_quantities')
+      .select('*')
+      .eq('project_id', projectId)
+      .in('sheet_number', uniqueSheets)
+      .in('item_type', COMPONENT_ITEM_TYPES)
+      .order('sheet_number', { ascending: true })
+
+    if (error) throw error
+
+    const { valid } = filterSuspiciousEntries(quantities ?? [])
+
+    if (valid.length === 0) {
+      return {
+        success: false,
+        componentType,
+        totalCount: 0,
+        items: [],
+        source: 'vision_db',
+        confidence: 0,
+        formattedAnswer: `No components found on ${utilitySystem} sheets (${uniqueSheets.join(', ')}). Vision processing may not have extracted components from these sheets yet.`,
+      }
+    }
+
+    // --- Step 3: group by item name, aggregate quantity ---
+    const grouped: Record<string, { count: number; station?: string; sheet?: string; type: string; confidence: number }> = {}
+    for (const item of valid) {
+      const key = (item.item_name as string).trim()
+      if (!grouped[key]) {
+        grouped[key] = { count: 0, station: item.station_from, sheet: item.sheet_number, type: item.item_type || '', confidence: item.confidence || 0.8 }
+      }
+      grouped[key].count += (item.quantity as number) || 1
+    }
+
+    const totalCount = Object.values(grouped).reduce((s, v) => s + v.count, 0)
+    const avgConf = Object.values(grouped).reduce((s, v) => s + v.confidence, 0) / Object.keys(grouped).length
+
+    // --- Step 4: format ---
+    const lines: string[] = [
+      `**Components on ${utilitySystem}** (${uniqueSheets.length} sheet${uniqueSheets.length > 1 ? 's' : ''}: ${uniqueSheets.join(', ')})\n`,
+    ]
+    for (const [name, data] of Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b))) {
+      const loc = data.station ? ` — STA ${data.station}` : data.sheet ? ` — ${data.sheet}` : ''
+      lines.push(`- ${data.count > 1 ? `${data.count}× ` : ''}${name}${loc}`)
+    }
+
+    return {
+      success: true,
+      componentType,
+      totalCount,
+      items: Object.entries(grouped).map(([name, data]) => ({
+        itemName: name,
+        quantity: data.count,
+        station: data.station,
+        sheetNumber: data.sheet,
+        confidence: data.confidence,
+      })),
+      source: `Vision-extracted data from sheets: ${uniqueSheets.join(', ')}`,
+      confidence: avgConf,
+      formattedAnswer: lines.join('\n'),
+    }
+  } catch (err) {
+    console.error('[Vision Queries] queryAllComponentsByUtility error:', err)
+    return {
+      success: false,
+      componentType,
+      totalCount: 0,
+      items: [],
+      source: 'vision_db',
+      confidence: 0,
+      formattedAnswer: `Error querying components for ${utilitySystem}: ${err instanceof Error ? err.message : 'unknown error'}`,
+    }
+  }
+}
+
 /**
  * Determine the best data source for a query
  */
 export function determineVisionQueryType(query: string): 'component' | 'crossing' | 'length' | 'none' {
   const normalized = query.toLowerCase();
 
-  // Check for component count queries
+  // Check for component count / enumeration queries
   const componentType = detectComponentType(query);
   if (componentType) {
-    // Check if asking "how many" or similar
-    if (/how\s+many|count|total|number\s+of|list\s+all/i.test(normalized)) {
+    // "how many", "count", "list all" → explicit count request
+    // "what/which fittings/valves are on" → enumeration by utility
+    if (/how\s+many|count|total|number\s+of|list\s+all|what|which|show\s+me|tell\s+me/i.test(normalized)) {
       return 'component';
     }
   }
