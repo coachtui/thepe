@@ -810,20 +810,41 @@ export async function queryAllComponentsByUtility(
       .contains('utility_designations', [utilitySystem])
       .not('sheet_number', 'is', null)
 
-    // Attempt B: ilike via sheet_entities (handles apostrophes, case differences)
-    // Normalise the utility name: strip apostrophes, collapse spaces
+    // Attempt B: ilike via sheet_entities — try multiple apostrophe variants.
+    // Civil plans often write "WATER LINE 'B'" with apostrophes around the letter.
+    // The user types "Water Line B" without apostrophes, so we try both patterns.
     const utilNorm = utilitySystem.replace(/['"]/g, '').replace(/\s+/g, ' ').trim()
-    const { data: entityPages } = await sb
-      .from('sheet_entities')
+    // Build apostrophe-quoted variant: "Water Line B" → "Water Line 'B'"
+    const utilWithQuotes = utilNorm.replace(/\s+([A-Z0-9]+)\s*$/, " '$1'")
+
+    // Run both patterns — separate queries to avoid PostgREST URL-encoding issues
+    const [entityPagesA, entityPagesB] = await Promise.all([
+      sb.from('sheet_entities').select('sheet_number')
+        .eq('project_id', projectId)
+        .eq('entity_type', 'utility_designation')
+        .ilike('entity_value', `%${utilNorm}%`)
+        .not('sheet_number', 'is', null),
+      sb.from('sheet_entities').select('sheet_number')
+        .eq('project_id', projectId)
+        .eq('entity_type', 'utility_designation')
+        .ilike('entity_value', `%${utilWithQuotes}%`)
+        .not('sheet_number', 'is', null),
+    ])
+
+    // Attempt C: text_content fallback on document_pages (catches anything not
+    // extracted into sheet_entities, e.g., pages with missing designation rows)
+    const { data: textPages } = await sb
+      .from('document_pages')
       .select('sheet_number')
       .eq('project_id', projectId)
-      .eq('entity_type', 'utility_designation')
-      .ilike('entity_value', `%${utilNorm}%`)
+      .ilike('text_content', `%${utilNorm}%`)
       .not('sheet_number', 'is', null)
 
     const sheetNumbers = [
-      ...(exactPages  ?? []).map((r: any) => r.sheet_number as string),
-      ...(entityPages ?? []).map((r: any) => r.sheet_number as string),
+      ...(exactPages          ?? []).map((r: any) => r.sheet_number as string),
+      ...(entityPagesA.data   ?? []).map((r: any) => r.sheet_number as string),
+      ...(entityPagesB.data   ?? []).map((r: any) => r.sheet_number as string),
+      ...(textPages           ?? []).map((r: any) => r.sheet_number as string),
     ].filter(Boolean)
 
     const uniqueSheets = [...new Set(sheetNumbers)]
