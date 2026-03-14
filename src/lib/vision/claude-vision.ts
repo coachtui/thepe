@@ -135,6 +135,20 @@ export interface VisionAnalysisResult {
     description?: string;
   }>;
 
+  // Abbreviated fitting/component callout labels from plan views.
+  // Examples: "HORIZ DEFL", "DEFL COUPLING", "MJ BEND", "RED", "TEE", "CAP".
+  // Stored separately from quantities so raw text is never discarded even when
+  // classification confidence is low.
+  componentCallouts: Array<{
+    rawText: string;          // Exact text as written on the plan
+    normalizedComponent?: string; // Human-readable interpretation
+    componentFamily?: string; // fitting | valve | structure | hydrant | unknown_fitting
+    associatedSystem?: string; // e.g., "Water Line B"
+    station?: string;
+    sourceView: 'plan' | 'profile' | 'detail' | 'unknown';
+    confidence: number;
+  }>;
+
   // Cost and performance
   tokensUsed: {
     input: number;
@@ -404,8 +418,11 @@ WATER LINE "A" STA 32+44.21
 
 ### 12. WHAT NOT TO EXTRACT
 
-**DO NOT EXTRACT AS COMPONENTS:**
-❌ Plan view callout boxes (top section) - they duplicate profile data
+**DO NOT EXTRACT AS COMPONENTS in the "quantities" array:**
+❌ Multi-line plan view callout boxes that list fittings at a station — these duplicate the profile and would cause double-counting.
+   (A multi-line box looks like: "WATER LINE 'A' STA 32+44.21 / 1 - 12-IN X 8-IN TEE / 1 - 12-IN GV")
+   → Do NOT put these in "quantities"; they are already captured from the profile.
+   → BUT do capture any abbreviated labels near fitting symbols (see Section 13 below).
 ❌ Match line text ("MATCH LINE - WATER LINE 'A'...")
 ❌ Offset measurements (like "Q/S 24-FT RT" or "2+16-27 RT")
 ❌ Road station references (like "ROAD 'A' B STA XX+XX")
@@ -430,6 +447,30 @@ WATER LINE "A" STA 32+44.21
 - Summary quantity tables (these aggregate from profile views - would cause duplicates)
 - Plan view only sheets without profile section
 - Legend/symbol explanations
+
+### 13. PLAN VIEW FITTING CALLOUTS — CAPTURE ALL (componentCallouts array)
+
+Plan view sheets often have abbreviated fitting/component labels placed next to symbols on the utility alignment. These are NOT the same as multi-line quantity tables.
+
+**What they look like:**
+- A short word or abbreviation placed near a symbol on the pipe alignment
+- Examples: "HORIZ DEFL", "DEFL COUPLING", "MJ BEND", "RED", "TEE", "CAP", "45 BEND", "22.5 BEND"
+- They may be 1–4 words, often uppercase, no quantity prefix
+
+**Capture rule:** ANY short text label that appears near a utility line in the plan view AND is not a utility name, station, pipe size, or elevation datum should be captured in the "componentCallouts" array. Capture the exact text as written.
+
+**Do NOT put these in "quantities"** — they go in "componentCallouts" only.
+
+**Classification guidance (best-effort, do not discard on uncertainty):**
+- HORIZ DEFL, DEFL → componentFamily: "fitting", normalizedComponent: "horizontal deflection fitting"
+- DEFL COUPLING → componentFamily: "fitting", normalizedComponent: "deflection coupling"
+- MJ BEND, 45 BEND, 22.5 BEND → componentFamily: "fitting", normalizedComponent: "mechanical joint bend"
+- RED, REDUCER → componentFamily: "fitting", normalizedComponent: "reducer"
+- TEE → componentFamily: "fitting", normalizedComponent: "tee fitting"
+- CAP → componentFamily: "fitting", normalizedComponent: "end cap"
+- If uncertain → componentFamily: "unknown_fitting"
+
+**NEVER discard a callout because you don't recognise the abbreviation.** Store it with componentFamily: "unknown_fitting" and confidence < 0.7.
 
 ## CONTEXTUAL EXTRACTION GUIDELINES
 
@@ -724,6 +765,17 @@ Return your analysis as structured JSON with the following schema:
       "reference": "string",
       "description": "string or null"
     }
+  ],
+  "componentCallouts": [
+    {
+      "rawText": "string — exact text as written on the plan (e.g., 'HORIZ DEFL', 'MJ BEND', 'RED')",
+      "normalizedComponent": "string or null — human-readable interpretation",
+      "componentFamily": "fitting|valve|structure|hydrant|unknown_fitting",
+      "associatedSystem": "string or null — e.g., 'Water Line B'",
+      "station": "string or null",
+      "sourceView": "plan|profile|detail|unknown",
+      "confidence": 0.0
+    }
   ]
 }
 
@@ -879,7 +931,8 @@ export async function analyzeSheetWithVision(
           hasDetailCallouts: false,
           keyFeatures: []
         },
-        crossReferences: []
+        crossReferences: [],
+        componentCallouts: []
       };
     }
 
@@ -912,6 +965,7 @@ export async function analyzeSheetWithVision(
         keyFeatures: []
       },
       crossReferences: parsedData.crossReferences || [],
+      componentCallouts: parsedData.componentCallouts || [],
       tokensUsed: {
         input: inputTokens,
         output: outputTokens

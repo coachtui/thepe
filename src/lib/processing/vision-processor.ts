@@ -28,7 +28,10 @@ import {
 } from '@/lib/vision/termination-extractor';
 import {
   storeUtilityCrossings
-} from '@/lib/vision/crossing-extractor';
+} from '@/lib/vision/crossing-extractor'
+import {
+  storeComponentCallouts
+} from '@/lib/vision/callout-extractor';
 import { indexDocumentPage } from './sheet-indexer';
 import { debug, logProduction } from '@/lib/utils/debug';
 
@@ -327,6 +330,23 @@ export async function processDocumentWithVision(
           debug.vision(`Stored ${storedCount} quantities`);
         }
 
+        // Step 7d: Store component callouts (plan-view fitting labels)
+        if (visionResult.componentCallouts && visionResult.componentCallouts.length > 0) {
+          try {
+            const calloutCount = await storeComponentCallouts(
+              projectId,
+              documentId,
+              null, // document_page_id not available in this path
+              pageNumber,
+              document.sheet_number || visionResult.sheetMetadata?.sheetNumber || null,
+              visionResult
+            )
+            debug.vision(`Stored ${calloutCount} component callouts from page ${pageNumber}`)
+          } catch (calloutErr) {
+            debug.vision(`[CalloutExtractor] Non-fatal error page ${pageNumber}: ${calloutErr instanceof Error ? calloutErr.message : calloutErr}`)
+          }
+        }
+
         // Step 8: Update chunk with vision data
         if (storeVisionData) {
           const { data: chunks } = await supabase
@@ -557,16 +577,34 @@ export async function processDocumentPageRange(
         }
 
         // Phase 2: Index this page into document_pages + sheet_entities
+        let documentPageId: string | null = null
         try {
-          await indexDocumentPage({
+          const idxResult = await indexDocumentPage({
             documentId,
             projectId,
             pageNumber,
             visionResult,
             textContent: chunkContent,
           });
+          documentPageId = idxResult.documentPageId
         } catch (idxErr) {
           debug.vision(`[SheetIndexer] Non-fatal index error page ${pageNumber}: ${idxErr instanceof Error ? idxErr.message : idxErr}`);
+        }
+
+        // Phase 2b: Store component callouts (plan-view fitting labels)
+        if (visionResult.componentCallouts && visionResult.componentCallouts.length > 0) {
+          try {
+            await storeComponentCallouts(
+              projectId,
+              documentId,
+              documentPageId,
+              pageNumber,
+              document.sheet_number || visionResult.sheetMetadata?.sheetNumber || null,
+              visionResult
+            )
+          } catch (calloutErr) {
+            debug.vision(`[CalloutExtractor] Non-fatal error page ${pageNumber}: ${calloutErr instanceof Error ? calloutErr.message : calloutErr}`)
+          }
         }
 
         // Small delay between API calls to avoid rate limiting

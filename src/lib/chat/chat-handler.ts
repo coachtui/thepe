@@ -362,31 +362,20 @@ export async function loadProjectContext(
 ): Promise<PEAgentConfig['projectContext']> {
   const { data: project } = await supabase
     .from('projects')
-    .select('name, location, project_value, start_date, end_date')
+    .select('name, address, start_date, end_date, metadata')
     .eq('id', projectId)
     .single()
 
   if (!project) return undefined
 
   // Build only the partial context fields we have data for.
-  // PEAgentConfig['projectContext'] is Partial<ProjectContext>, so nested
-  // objects must match the full interface shape. We cast to avoid listing
-  // every required field for contract/schedule which we don't have.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ctx: any = {
     projectName: project.name,
   }
 
-  if (project.location) {
-    ctx.location = {
-      city: project.location.city,
-      state: project.location.state,
-      county: project.location.county,
-    }
-  }
-
-  if (project.project_value) {
-    ctx.projectValue = project.project_value
+  if (project.address) {
+    ctx.address = project.address
   }
 
   if (project.start_date && project.end_date) {

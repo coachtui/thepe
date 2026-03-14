@@ -155,6 +155,21 @@ function extractEntitiesFromVision(result: VisionAnalysisResult): RawEntity[] {
     }
   }
 
+  // Component callouts (abbreviated plan-view fitting labels) → callout entities
+  for (const co of result.componentCallouts ?? []) {
+    if (!co.rawText) continue
+    entities.push({
+      entityType: 'callout',
+      entityValue: co.rawText.trim().toUpperCase(),
+      entityContext: [
+        co.normalizedComponent,
+        co.associatedSystem ? `on ${co.associatedSystem}` : null,
+        co.station ? `at ${co.station}` : null,
+      ].filter(Boolean).join(' — ') || co.componentFamily || '',
+      confidence: co.confidence ?? 0.8,
+    })
+  }
+
   // Utility crossings → crossing utility labels
   for (const cx of (result as VisionAnalysisResult & { utilityCrossings?: Array<{ crossingUtility?: string; utilityFullName?: string; station?: string; confidence?: number }> }).utilityCrossings ?? []) {
     if (cx.crossingUtility) {
