@@ -52,7 +52,9 @@ export function buildTools(
         system: z
           .string()
           .optional()
-          .describe('Optional utility system name to scope the search (e.g. "WATER LINE A")'),
+          .describe(
+            'Optional utility system name to scope the search (e.g. "WATER LINE A"). Appended to query text to scope results — may not reliably filter to a specific system.'
+          ),
       })
     ),
     execute: async ({ query, system }: { query: string; system?: string }): Promise<string> => {
@@ -95,6 +97,10 @@ export function buildTools(
       keyword?: string
     }): Promise<string> => {
       try {
+        if (!sectionNumber && !keyword) {
+          return 'Please provide either a sectionNumber or a keyword to search for spec sections.'
+        }
+
         if (sectionNumber) {
           const result = await querySpecSection(supabase, projectId, sectionNumber)
           return result.formattedAnswer || 'No spec section found for that number.'
@@ -134,6 +140,10 @@ export function buildTools(
       keyword?: string
     }): Promise<string> => {
       try {
+        if (!rfiNumber && !keyword) {
+          return 'Please provide either an rfiNumber or a keyword to search RFIs.'
+        }
+
         if (rfiNumber) {
           const result = await queryRFIByNumber(supabase, projectId, rfiNumber)
           return result.formattedAnswer || 'No RFI found for that identifier.'
@@ -157,20 +167,14 @@ export function buildTools(
         focus: z
           .string()
           .describe('What to look for on this sheet, e.g. "pipe size at station 15+00"'),
-        pages: z
-          .array(z.number())
-          .optional()
-          .describe('Specific page numbers within the PDF to inspect (1-based)'),
       })
     ),
     execute: async ({
       sheetNumber,
       focus,
-      pages,
     }: {
       sheetNumber: string
       focus: string
-      pages?: number[]
     }): Promise<string> => {
       try {
         // Construct a minimal QueryAnalysis — plan reader only needs rawQuery
@@ -275,8 +279,10 @@ export function buildTools(
         ]
 
         if (result.verifiedFindings.length > 0) {
-          lines.push('\nVerified findings:')
-          result.verifiedFindings.slice(0, 5).forEach(f => {
+          const shown = result.verifiedFindings.slice(0, 5)
+          const truncated = result.verifiedFindings.length > 5 ? ` (showing 5 of ${result.verifiedFindings.length})` : ''
+          lines.push(`\nVerified findings${truncated}:`)
+          shown.forEach(f => {
             lines.push(`  - [${f.sheetNumber}] ${f.statement}`)
           })
         }
@@ -287,8 +293,8 @@ export function buildTools(
 
         return lines.join('\n')
       } catch (err) {
-        // Informational tool — never block
-        return `checkSheetCoverage error (non-blocking): ${err instanceof Error ? err.message : String(err)}`
+        // Informational tool — never block; error is non-fatal
+        return `checkSheetCoverage error: ${err instanceof Error ? err.message : String(err)}`
       }
     },
   })
