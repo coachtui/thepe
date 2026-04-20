@@ -97,7 +97,7 @@ export async function processDocumentWithVision(
   options: VisionProcessingOptions = {}
 ): Promise<VisionProcessingResult> {
   const {
-    maxSheets = 200, // Process up to 200 critical sheets for complete project coverage
+    maxSheets = 500, // Process up to 500 critical sheets for complete project coverage
     processAllSheets = false,
     imageScale = 2.0,
     storeVisionData = true,

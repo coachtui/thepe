@@ -20,7 +20,7 @@ export type Events = {
       projectId: string
       /** Label identifying which code path triggered this event */
       trigger: string
-      /** Max pages to process (default 200) */
+      /** Max pages to process (default 500) */
       maxPages?: number
     }
   }

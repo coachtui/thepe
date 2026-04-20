@@ -113,7 +113,7 @@ export async function POST(
         batch.map(async (doc) => {
           try {
             const result = await processDocumentWithVision(doc.id, projectId, {
-              maxSheets: 200, // Process up to 200 sheets per document
+              maxSheets: 500, // Process up to 500 sheets per document
               processAllSheets: false, // Use smart critical sheet selection
               extractQuantities: true,
               storeVisionData: true,

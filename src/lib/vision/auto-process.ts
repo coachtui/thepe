@@ -35,7 +35,7 @@ export async function autoProcessDocumentVision(
     trigger?: string; // caller label for trace logging
   } = {}
 ): Promise<AutoProcessResult> {
-  const { maxSheets = 200, skipIfAlreadyProcessed = true, trigger = 'unknown' } = options;
+  const { maxSheets = 500, skipIfAlreadyProcessed = true, trigger = 'unknown' } = options;
 
   const supabase = createServiceRoleClient();
 
@@ -124,7 +124,7 @@ export async function autoProcessDocumentVision(
     // For construction plans, process ALL pages to ensure we don't miss any material quantities
     // Smart detection can miss pages with critical callout boxes
     const result = await processDocumentWithVision(documentId, projectId, {
-      maxSheets, // Will use 200 by default
+      maxSheets, // Will use 500 by default
       processAllSheets: true, // Process ALL pages for construction plans
       imageScale: 2.0,
       extractQuantities: true,
@@ -238,7 +238,7 @@ export function triggerVisionProcessingAsync(
 ): void {
   const triggerLabel = options?.trigger ?? 'async-background';
   logProduction.info('Vision Lifecycle',
-    `[TRIGGER] document=${documentId} project=${projectId} trigger=${triggerLabel} maxSheets=${options?.maxSheets ?? 200}`
+    `[TRIGGER] document=${documentId} project=${projectId} trigger=${triggerLabel} maxSheets=${options?.maxSheets ?? 500}`
   );
   // Fire and forget - don't await
   autoProcessDocumentVision(documentId, projectId, options)
@@ -281,7 +281,7 @@ export async function triggerVisionWithInngest(
       documentId,
       projectId,
       trigger: triggerLabel,
-      maxPages: options?.maxPages ?? 200,
+      maxPages: options?.maxPages ?? 500,
     },
   });
 }

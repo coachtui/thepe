@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
       if (shouldProcess && document.project_id) {
         console.log(`[Document Process] Sending vision/document.process event to Inngest for ${documentId}`);
         await triggerVisionWithInngest(documentId, document.project_id, {
-          maxPages: 200,
+          maxPages: 500,
           trigger: 'upload-auto',
         });
       } else {

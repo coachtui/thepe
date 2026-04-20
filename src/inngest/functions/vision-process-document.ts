@@ -68,7 +68,7 @@ export const visionProcessDocument = inngest.createFunction(
   },
   { event: 'vision/document.process' },
   async ({ event, step }) => {
-    const { documentId, projectId, trigger, maxPages = 200 } = event.data
+    const { documentId, projectId, trigger, maxPages = 500 } = event.data
 
     // -------------------------------------------------------------------------
     // Step 1: Guard + set vision_status = 'processing'

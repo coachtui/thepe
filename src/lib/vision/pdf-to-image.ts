@@ -255,7 +255,7 @@ export async function convertPdfPagesToImages(
 export async function identifyCriticalSheets(
   pdfBuffer: Buffer,
   sheetNames?: string[],
-  maxSheets: number = 200
+  maxSheets: number = 500
 ): Promise<number[]> {
   // Get PDF metadata to determine page count
   const metadata = await getPdfMetadata(pdfBuffer);
@@ -287,7 +287,7 @@ export async function identifyCriticalSheets(
   }
 
   // Sample every Nth page to get coverage across entire project
-  // For 3000 pages with maxSheets=200: sample every ~15th page
+  // For 3000 pages with maxSheets=500: sample every ~6th page
   const remainingBudget = maxSheets - 20; // Reserve 20 for first/last pages
   const sampleInterval = Math.max(1, Math.floor((totalPages - 20) / remainingBudget));
 
