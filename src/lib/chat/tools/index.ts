@@ -12,7 +12,7 @@
 import { tool, zodSchema } from 'ai'
 import { z } from 'zod'
 
-import { routeQuery } from '../smart-router'
+import { routeQuery, WARNING_MULTIPLE_WATER_LINES } from '../smart-router'
 import { querySpecSection, querySpecRequirements } from '../spec-queries'
 import { queryRFIByNumber, queryRFIsByEntity } from '../rfi-queries'
 import { runPlanReader } from '../plan-reader'
@@ -66,13 +66,13 @@ export function buildTools(
         )
 
         const warnings = result.routingWarnings ?? []
-        const multiLineWarning = warnings.find(w => w.includes('multiple_named_water_lines_detected'))
+        const multiLineWarning = warnings.find(w => w.includes(WARNING_MULTIPLE_WATER_LINES))
 
         if (multiLineWarning && !system) {
           const baseResponse = result.formattedContext
             ? `Results searched across all systems:\n\n${result.formattedContext}`
             : 'No results found.'
-          return `SYSTEM NOTE: This project has multiple named water lines. You must ask the user to specify which water line they mean (e.g., "Water Line A" or "Water Line B") before giving a count or quantity answer. Do not aggregate across lines without asking.\n\n${baseResponse}`
+          return `SYSTEM NOTE: This project has multiple named water lines. You must ask the user to specify which water line they mean (e.g., "Water Line A" or "Water Line B") before answering questions about this project's water lines. Do not assume or aggregate across lines without asking.\n\n${baseResponse}`
         }
 
         return result.formattedContext || 'No results found for that search.'

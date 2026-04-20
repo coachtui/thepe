@@ -51,6 +51,8 @@ import {
   type VisualAnalysisTask
 } from './visual-analysis';
 
+export const WARNING_MULTIPLE_WATER_LINES = 'multiple_named_water_lines_detected';
+
 /**
  * Query routing result containing all context and metadata
  */
@@ -146,7 +148,7 @@ async function autoDetectSystem(
       const namedMatches = allContent.match(/water\s+line\s+[a-z]/gi) ?? [];
       const uniqueNames = new Set(namedMatches.map(m => m.toLowerCase().replace(/\s+/g, ' ')));
       if (uniqueNames.size > 1) {
-        warnings.push('multiple_named_water_lines_detected: auto-detection suppressed — query should name the specific line');
+        warnings.push(`${WARNING_MULTIPLE_WATER_LINES}: auto-detection suppressed — query should name the specific line`);
         return { system: undefined, warnings };
       }
     }
