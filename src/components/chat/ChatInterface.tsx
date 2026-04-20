@@ -19,6 +19,25 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // Flag Issue modal state
+  const [flagModal, setFlagModal] = useState<{
+    messageId: string
+    messageContent: string
+  } | null>(null)
+  const [flagForm, setFlagForm] = useState<{
+    expected_value: string
+    submitted_by_role: string
+    sheet_number: string
+    notes: string
+  }>({
+    expected_value: '',
+    submitted_by_role: 'engineer',
+    sheet_number: '',
+    notes: '',
+  })
+  const [flagSubmitting, setFlagSubmitting] = useState(false)
+  const [flagSuccess, setFlagSuccess] = useState(false)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -102,6 +121,39 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
     }
   }
 
+  const handleFlagSubmit = async () => {
+    if (!flagModal || !flagForm.expected_value) return
+    setFlagSubmitting(true)
+    try {
+      // Find the user message that preceded this assistant message
+      const msgIndex = messages.findIndex(m => m.id === flagModal.messageId)
+      const precedingUserMsg = msgIndex > 0 ? messages[msgIndex - 1] : null
+
+      await fetch(`/api/projects/${projectId}/corrections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query_text: precedingUserMsg?.content ?? '',
+          ai_response_excerpt: flagModal.messageContent.slice(0, 500),
+          expected_value: flagForm.expected_value,
+          submitted_by_role: flagForm.submitted_by_role,
+          sheet_number: flagForm.sheet_number || null,
+          notes: flagForm.notes || null,
+        }),
+      })
+      setFlagSuccess(true)
+      setTimeout(() => {
+        setFlagModal(null)
+        setFlagSuccess(false)
+        setFlagForm({ expected_value: '', submitted_by_role: 'engineer', sheet_number: '', notes: '' })
+      }, 1500)
+    } catch {
+      // silent — user already flagged
+    } finally {
+      setFlagSubmitting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col h-[600px] border border-gray-200 rounded-lg bg-white">
       {/* Header */}
@@ -167,9 +219,9 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
               </div>
               <div className="text-xs text-gray-400 space-y-1">
                 <p>Try asking:</p>
-                <p>"What are the ammunition storage requirements?"</p>
-                <p>"Summarize the safety protocols"</p>
-                <p>"When is the project timeline?"</p>
+                <p>"How many gate valves are on Water Line A?"</p>
+                <p>"What is the bedding requirement for 12-inch DI pipe?"</p>
+                <p>"What does Sheet C-003 show at Sta 12+50?"</p>
               </div>
             </div>
           </div>
@@ -182,34 +234,47 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
                   message.role === 'user' ? 'justify-end' : 'justify-start'
                 }`}
               >
-                <div
-                  className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                    message.role === 'user'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-900'
-                  }`}
-                >
-                  {message.role === 'assistant' && (
-                    <div className="flex items-center space-x-2 mb-2">
-                      <svg
-                        className="h-5 w-5 text-blue-600"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
+                <div className="max-w-[80%] space-y-1">
+                  <div
+                    className={`rounded-lg px-4 py-2 ${
+                      message.role === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-900'
+                    }`}
+                  >
+                    {message.role === 'assistant' && (
+                      <div className="flex items-center space-x-2 mb-2">
+                        <svg
+                          className="h-5 w-5 text-blue-600"
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                        <span className="text-xs font-medium text-gray-500">
+                          Assistant
+                        </span>
+                      </div>
+                    )}
+                    <div className="text-sm whitespace-pre-wrap">
+                      {message.content}
+                    </div>
+                  </div>
+                  {message.role === 'assistant' && message.content && (
+                    <div className="flex justify-start pl-1">
+                      <button
+                        onClick={() => setFlagModal({ messageId: message.id, messageContent: message.content })}
+                        className="text-xs text-gray-400 hover:text-red-500 transition-colors flex items-center space-x-1"
                       >
-                        <path
-                          fillRule="evenodd"
-                          d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                      <span className="text-xs font-medium text-gray-500">
-                        Assistant
-                      </span>
+                        <span>⚑</span>
+                        <span>Flag Issue</span>
+                      </button>
                     </div>
                   )}
-                  <div className="text-sm whitespace-pre-wrap">
-                    {message.content}
-                  </div>
                 </div>
               </div>
             ))}
@@ -275,6 +340,89 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
           </button>
         </div>
       </form>
+
+      {/* Flag Issue Modal */}
+      {flagModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Flag an Issue</h3>
+              <button onClick={() => setFlagModal(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+
+            {flagSuccess ? (
+              <p className="text-green-600 text-sm font-medium">Correction saved. Thank you.</p>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    What should the correct answer be? *
+                  </label>
+                  <textarea
+                    value={flagForm.expected_value}
+                    onChange={e => setFlagForm(f => ({ ...f, expected_value: e.target.value }))}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                    rows={3}
+                    placeholder="e.g. There are 14 gate valves, not 12. Sheet C-003 shows 2 additional at Sta 12+50."
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Your Role</label>
+                    <select
+                      value={flagForm.submitted_by_role}
+                      onChange={e => setFlagForm(f => ({ ...f, submitted_by_role: e.target.value }))}
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                    >
+                      <option value="PE">PE</option>
+                      <option value="superintendent">Superintendent</option>
+                      <option value="admin">Admin</option>
+                      <option value="engineer">Engineer</option>
+                      <option value="foreman">Foreman</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Sheet Number</label>
+                    <input
+                      value={flagForm.sheet_number}
+                      onChange={e => setFlagForm(f => ({ ...f, sheet_number: e.target.value }))}
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                      placeholder="e.g. C-003"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                  <input
+                    value={flagForm.notes}
+                    onChange={e => setFlagForm(f => ({ ...f, notes: e.target.value }))}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                    placeholder="Additional context..."
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2">
+                  <button
+                    onClick={() => setFlagModal(null)}
+                    className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleFlagSubmit}
+                    disabled={flagSubmitting || !flagForm.expected_value}
+                    className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {flagSubmitting ? 'Saving...' : 'Submit Correction'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
