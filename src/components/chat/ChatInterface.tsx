@@ -37,6 +37,19 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
   })
   const [flagSubmitting, setFlagSubmitting] = useState(false)
   const [flagSuccess, setFlagSuccess] = useState(false)
+  const [flagError, setFlagError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!flagModal) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setFlagModal(null)
+        setFlagError(null)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [flagModal])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -129,7 +142,7 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
       const msgIndex = messages.findIndex(m => m.id === flagModal.messageId)
       const precedingUserMsg = msgIndex > 0 ? messages[msgIndex - 1] : null
 
-      await fetch(`/api/projects/${projectId}/corrections`, {
+      const res = await fetch(`/api/projects/${projectId}/corrections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -141,14 +154,19 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
           notes: flagForm.notes || null,
         }),
       })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error((body as { error?: string }).error ?? `Server error ${res.status}`)
+      }
       setFlagSuccess(true)
       setTimeout(() => {
         setFlagModal(null)
         setFlagSuccess(false)
+        setFlagError(null)
         setFlagForm({ expected_value: '', submitted_by_role: 'engineer', sheet_number: '', notes: '' })
       }, 1500)
-    } catch {
-      // silent — user already flagged
+    } catch (err) {
+      setFlagError(err instanceof Error ? err.message : 'Failed to save correction. Please try again.')
     } finally {
       setFlagSubmitting(false)
     }
@@ -343,11 +361,17 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
 
       {/* Flag Issue Modal */}
       {flagModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 space-y-4">
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => { setFlagModal(null); setFlagError(null) }}
+        >
+          <div
+            className="bg-white rounded-lg p-6 w-full max-w-md mx-4 space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Flag an Issue</h3>
-              <button onClick={() => setFlagModal(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+              <button onClick={() => { setFlagModal(null); setFlagError(null) }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
             </div>
 
             {flagSuccess ? (
@@ -403,9 +427,13 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
                   />
                 </div>
 
+                {flagError && (
+                  <p className="text-red-600 text-sm">{flagError}</p>
+                )}
+
                 <div className="flex justify-end space-x-2">
                   <button
-                    onClick={() => setFlagModal(null)}
+                    onClick={() => { setFlagModal(null); setFlagError(null) }}
                     className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
                   >
                     Cancel
