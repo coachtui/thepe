@@ -107,6 +107,14 @@ export async function POST(
     )
   }
 
+  const VALID_ROLES = Object.keys(ROLE_WEIGHTS)
+  if (!VALID_ROLES.includes(submitted_by_role)) {
+    return NextResponse.json(
+      { error: `Invalid submitted_by_role. Must be one of: ${VALID_ROLES.join(', ')}` },
+      { status: 400 }
+    )
+  }
+
   const validHowItAppeared = [
     'text', 'symbol', 'detail', 'legend', 'note',
     'profile', 'schedule', 'plan_view', 'unknown',
@@ -190,10 +198,13 @@ export async function POST(
       memoryItemId = memItem.id
 
       // Link correction → memory item
-      await svc
+      const { error: linkErr } = await svc
         .from('project_corrections')
         .update({ memory_item_id: memoryItemId })
         .eq('id', correction.id)
+      if (linkErr) {
+        console.error('[Corrections] Failed to link correction to memory item:', linkErr)
+      }
     }
   }
 
