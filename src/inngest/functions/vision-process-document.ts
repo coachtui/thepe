@@ -240,6 +240,7 @@ export const visionProcessDocument = inngest.createFunction(
     await step.run('finalize', async () => {
       const supabase = await createServiceRoleClient()
       const allFailed = totalSheetsProcessed === 0 && chunkErrors.length > 0
+      const partialFailure = chunkErrors.length > 0 && totalSheetsProcessed > 0
 
       if (allFailed) {
         await supabase
@@ -257,21 +258,22 @@ export const visionProcessDocument = inngest.createFunction(
         logProduction.info('Vision Lifecycle',
           `[STATUS→failed] document=${documentId} trigger=${trigger} errors="${chunkErrors.slice(0, 2).join('; ')}"`
         )
-      } else {
+      } else if (partialFailure) {
         await supabase
           .from('documents')
           .update({
-            vision_status: 'completed',
+            vision_status: 'partial',
             vision_processed_at: new Date().toISOString(),
             vision_sheets_processed: totalSheetsProcessed,
             vision_quantities_extracted: totalQuantities,
             vision_cost_usd: totalCost,
-            vision_error: chunkErrors.length > 0
-              ? `Completed with ${chunkErrors.length} chunk error(s)`
-              : null,
+            vision_error: `Partial: ${chunkErrors.length} chunk(s) failed — ${totalSheetsProcessed} sheets extracted successfully`,
           })
           .eq('id', documentId)
 
+        // completeVisionJob marks the Inngest job as done (not retryable).
+        // The document's vision_status='partial' is the source of truth for
+        // partial completion — the job record does not distinguish partial vs full.
         await completeVisionJob(jobId)
         await logJobEvent(jobId, 'job_completed', {
           totalSheetsProcessed,
@@ -281,7 +283,31 @@ export const visionProcessDocument = inngest.createFunction(
         })
 
         logProduction.info('Vision Lifecycle',
-          `[STATUS→completed] document=${documentId} trigger=${trigger} sheets=${totalSheetsProcessed} quantities=${totalQuantities} cost=$${totalCost.toFixed(4)} chunkErrors=${chunkErrors.length}`
+          `[STATUS→partial] document=${documentId} trigger=${trigger} sheets=${totalSheetsProcessed} chunkErrors=${chunkErrors.length} cost=$${totalCost.toFixed(4)}`
+        )
+      } else {
+        await supabase
+          .from('documents')
+          .update({
+            vision_status: 'completed',
+            vision_processed_at: new Date().toISOString(),
+            vision_sheets_processed: totalSheetsProcessed,
+            vision_quantities_extracted: totalQuantities,
+            vision_cost_usd: totalCost,
+            vision_error: null,
+          })
+          .eq('id', documentId)
+
+        await completeVisionJob(jobId)
+        await logJobEvent(jobId, 'job_completed', {
+          totalSheetsProcessed,
+          totalQuantities,
+          totalCost,
+          partialErrors: 0,
+        })
+
+        logProduction.info('Vision Lifecycle',
+          `[STATUS→completed] document=${documentId} trigger=${trigger} sheets=${totalSheetsProcessed} quantities=${totalQuantities} cost=$${totalCost.toFixed(4)}`
         )
       }
     })
