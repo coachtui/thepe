@@ -12,38 +12,13 @@
 import { streamText, stepCountIs } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import type { PEAgentConfig } from '@/agents/constructionPEAgent'
-import type { EvidenceItem } from './types'
-import { loadProjectMemory } from './project-memory'
+import { loadProjectMemory, sanitizeForPrompt } from './project-memory'
 import { buildTools, type ProjectMemoryContext } from './tools/index'
 import { randomUUID } from 'crypto'
 
 const anthropicAI = createAnthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
-
-// ---------------------------------------------------------------------------
-// In-memory trace store (dev / debug only)
-// Keyed by queryId. TTL: 30 minutes. Not persistent across serverless instances.
-// ---------------------------------------------------------------------------
-
-interface StoredTrace {
-  queryId: string
-  projectId: string
-  items: EvidenceItem[]
-  expiresAt: number
-}
-
-const traceStore = new Map<string, StoredTrace>()
-
-export function getStoredTrace(queryId: string): StoredTrace | undefined {
-  const entry = traceStore.get(queryId)
-  if (!entry) return undefined
-  if (entry.expiresAt < Date.now()) {
-    traceStore.delete(queryId)
-    return undefined
-  }
-  return entry
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,13 +73,19 @@ export async function handleChatRequest(
   const systemPrompt = buildAgentSystemPrompt(projectContext, memoryCtx)
 
   // Agentic stream — Claude calls tools until satisfied, then writes answer
-  const result = streamText({
-    model: anthropicAI('claude-sonnet-4-5-20250929'),
-    system: systemPrompt,
-    messages: messages.map(m => ({ role: m.role, content: m.content })),
-    tools,
-    stopWhen: stepCountIs(12),
-  })
+  let result
+  try {
+    result = streamText({
+      model: anthropicAI('claude-sonnet-4-5-20250929'),
+      system: systemPrompt,
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      tools,
+      stopWhen: stepCountIs(12),
+    })
+  } catch (err) {
+    console.error('[ChatHandler] streamText init error:', err)
+    return new Response('AI stream initialization failed', { status: 500 })
+  }
 
   const response = result.toTextStreamResponse()
   const headers = new Headers(response.headers)
@@ -145,17 +126,18 @@ function buildAgentSystemPrompt(
     '2. Start with searchEntities or searchComponents for general questions.',
     '3. Use getSpecSection when the question involves material standards or requirements.',
     '4. Use readDrawingPage to verify specific details from actual drawing sheets.',
-    '5. If initial results are incomplete, search again with different keywords.',
-    '6. Cite your sources: sheet numbers, spec sections, RFI numbers.',
-    '7. If information genuinely does not exist in the project documents, say so clearly.',
-    '8. Be direct and specific. Construction decisions depend on accurate answers.',
+    '5. Use checkSheetCoverage before readDrawingPage when you do not already know which sheets to read — it is faster and cheaper.',
+    '6. If initial results are incomplete, search again with different keywords.',
+    '7. Cite your sources: sheet numbers, spec sections, RFI numbers.',
+    '8. If information genuinely does not exist in the project documents, say so clearly.',
+    '9. Be direct and specific. Construction decisions depend on accurate answers.',
     '',
   )
 
   if (memoryCtx.aliases.length > 0) {
     lines.push('Known aliases in this project:')
     for (const a of memoryCtx.aliases) {
-      lines.push(`  ${a.original_text ?? a.normalized_value} → ${a.normalized_value}`)
+      lines.push(`  ${sanitizeForPrompt(a.original_text ?? a.normalized_value)} → ${sanitizeForPrompt(a.normalized_value)}`)
     }
     lines.push('')
   }
