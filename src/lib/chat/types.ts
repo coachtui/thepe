@@ -248,122 +248,14 @@ export interface EvidencePacket {
   planReaderMeta?: import('./plan-reader').PlanReaderResult
 }
 
-// ---------------------------------------------------------------------------
-// Sufficiency
-// ---------------------------------------------------------------------------
-
-export type SufficiencyLevel = 'sufficient' | 'partial' | 'insufficient'
-
-// ---------------------------------------------------------------------------
-// Reasoning
-// ---------------------------------------------------------------------------
-
-/**
- * Which reasoning mode the engine selected for this request.
- * 'none' means pass-through — the writer uses evidence directly.
- */
-export type ReasoningMode =
-  | 'scope_reasoning'            // scope_summary, project_summary
-  | 'sequence_reasoning'         // sequence_inference
-  | 'constraint_reasoning'       // general_chat with substantive project evidence
-  | 'quantity_reasoning'         // quantity_lookup with multi-system data
-  | 'demo_scope_reasoning'       // demo_scope: groups entities by status with citations
-  | 'demo_constraint_reasoning'  // demo_constraint: risk notes, requirements, inferred cautions
-  | 'arch_element_reasoning'     // arch_element_lookup / arch_schedule_query: element + schedule linkage
-  | 'arch_room_scope_reasoning'  // arch_room_scope: room contents + finish schedule + notes
-  // Phase 5A — structural + MEP
-  | 'struct_element_reasoning'           // structural element + grid + findings
-  | 'struct_area_reasoning'              // structural system per area/level
-  | 'mep_element_reasoning'              // MEP element + schedule linkage
-  | 'mep_area_reasoning'                 // MEP by trade in area
-  // Phase 5B — coordination
-  | 'trade_overlap_reasoning'            // disciplines per room
-  | 'coordination_constraint_reasoning'  // dependencies + cautions
-  | 'affected_area_reasoning'            // all systems in room/level
-  // Phase 6A — spec
-  | 'requirement_reasoning'              // spec requirements grouped by family
-  // Phase 6B — RFI / changes
-  | 'change_reasoning'                   // RFI/change impact on entities
-  // Phase 6C — governing
-  | 'governing_document_reasoning'       // plan vs spec vs RFI hierarchy
-  | 'requirement_gap_reasoning'          // missing/unresolved requirements
-  | 'none'                       // pass-through
-
 /**
  * How well a finding is supported by evidence.
- * Assigned deterministically by the reasoning engine — NEVER by the model.
  *
  *   explicit  = came from vision_db / direct_lookup / project_summary
  *   inferred  = came from vector_search / live_pdf, or from construction practice rules
  *   unknown   = no evidence; this is a gap
  */
 export type SupportLevel = 'explicit' | 'inferred' | 'unknown'
-
-export type EvidenceStrength = 'strong' | 'moderate' | 'weak'
-
-export type GapType =
-  | 'missing_spec'
-  | 'partial_live_analysis'
-  | 'insufficient_structured_data'
-  | 'missing_sheet_coverage'
-  | 'unknown_scope'
-  | 'incomplete_system_coverage'
-  // Phase 6
-  | 'missing_rfi_resolution'  // RFI open / unanswered
-  | 'conflicting_documents'   // plan vs spec vs RFI conflict
-  | 'unlinked_submittal'      // submittal not yet linked to entity
-  | 'spec_section_not_ingested' // spec section not yet in DB
-
-export interface ReasoningFinding {
-  statement: string
-  supportLevel: SupportLevel
-  citations?: StructuredCitation[]
-  /** Why this is inferred, or what knowledge source it comes from */
-  basis?: string
-}
-
-export interface ReasoningGap {
-  description: string
-  gapType: GapType
-  actionable?: string
-}
-
-export interface ProjectContextAssembly {
-  primarySystems: string[]
-  relatedSystems: string[]
-  relevantSheets: string[]
-  relevantStations: string[]
-  dataCompleteness: 'full' | 'partial' | 'sparse'
-}
-
-/**
- * Normalized output of the reasoning engine.
- * Consumed by response-writer to produce answers that separate:
- *   1. what documents explicitly support (explicit)
- *   2. what is inferred from construction practice or patterns (inferred)
- *   3. what is unknown / missing (gaps)
- *
- * When wasActivated=false, the writer uses the evidence packet directly
- * (same behaviour as before the reasoning layer was added).
- */
-export interface ReasoningPacket {
-  mode: ReasoningMode
-  wasActivated: boolean
-  context: ProjectContextAssembly
-  findings: ReasoningFinding[]
-  gaps: ReasoningGap[]
-  /** Hint to the writer about how to structure the answer */
-  recommendedAnswerFrame: string
-  evidenceStrength: EvidenceStrength
-}
-
-export interface SufficiencyResult {
-  level: SufficiencyLevel
-  score: number          // 0.0 – 1.0
-  reasons: string[]      // Why this level was assigned
-  gaps: string[]         // What's missing / what would improve the answer
-  isUnsupportedDomain: boolean  // True when no pipeline exists for this query type
-}
 
 // ---------------------------------------------------------------------------
 // Debug trace (AI_DEBUG_TRACE=true or debugAi request flag)
