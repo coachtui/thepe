@@ -65,7 +65,6 @@ export async function POST(request: NextRequest) {
     return new Response(
       JSON.stringify({
         error: error instanceof Error ? error.message : 'Chat request failed',
-        details: error instanceof Error ? error.stack : String(error),
       }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
