@@ -2415,6 +2415,82 @@ export type Database = {
           },
         ]
       }
+      utility_length_canonical: {
+        Row: {
+          begin_sheet: string | null
+          begin_station: string | null
+          begin_station_numeric: number | null
+          confidence: number | null
+          created_at: string | null
+          end_sheet: string | null
+          end_station: string | null
+          end_station_numeric: number | null
+          id: string
+          length_lf: number | null
+          method: string | null
+          project_id: string
+          updated_at: string | null
+          utility_name: string
+          utility_type: string | null
+        }
+        Insert: {
+          begin_sheet?: string | null
+          begin_station?: string | null
+          begin_station_numeric?: number | null
+          confidence?: number | null
+          created_at?: string | null
+          end_sheet?: string | null
+          end_station?: string | null
+          end_station_numeric?: number | null
+          id?: string
+          length_lf?: number | null
+          method?: string | null
+          project_id: string
+          updated_at?: string | null
+          utility_name: string
+          utility_type?: string | null
+        }
+        Update: {
+          begin_sheet?: string | null
+          begin_station?: string | null
+          begin_station_numeric?: number | null
+          confidence?: number | null
+          created_at?: string | null
+          end_sheet?: string | null
+          end_station?: string | null
+          end_station_numeric?: number | null
+          id?: string
+          length_lf?: number | null
+          method?: string | null
+          project_id?: string
+          updated_at?: string | null
+          utility_name?: string
+          utility_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "utility_length_canonical_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_quantity_summary"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "utility_length_canonical_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "utility_length_canonical_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "utility_length_summary"
+            referencedColumns: ["project_id"]
+          },
+        ]
+      }
       utility_termination_points: {
         Row: {
           chunk_id: string | null
