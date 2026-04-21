@@ -75,7 +75,19 @@ export function buildTools(
           return `SYSTEM NOTE: This project has multiple named water lines. You must ask the user to specify which water line they mean (e.g., "Water Line A" or "Water Line B") before answering questions about this project's water lines. Do not assume or aggregate across lines without asking.\n\n${baseResponse}`
         }
 
-        return result.formattedContext || 'No results found for that search.'
+        // Inject confidence signal based on directLookup quality
+        const dl = result.directLookup
+        let confidenceNote = ''
+        if (dl && typeof dl.confidence === 'number') {
+          if (dl.confidence < 0.60) {
+            confidenceNote = 'CONFIDENCE: Low — data may be incomplete. Verify against source drawings before acting on this answer.\n\n'
+          } else if (dl.confidence < 0.85) {
+            confidenceNote = 'CONFIDENCE: Moderate — recommend field verification for critical decisions.\n\n'
+          }
+          // dl.confidence >= 0.85: high confidence, no note needed
+        }
+
+        return confidenceNote + (result.formattedContext || 'No results found for that search.')
       } catch (err) {
         return `searchEntities error: ${err instanceof Error ? err.message : String(err)}`
       }
