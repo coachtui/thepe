@@ -69,8 +69,24 @@ export async function storeUtilityCrossings(
       return 0;
     }
 
+    // Filter: elevation is required for a real crossing — skip any without it
+    const validCrossings = visionResult.utilityCrossings.filter(
+      (c) => c.elevation != null
+    );
+    const skippedCount = visionResult.utilityCrossings.length - validCrossings.length;
+    if (skippedCount > 0) {
+      console.warn(
+        `[Crossing Extractor] Skipped ${skippedCount} crossing(s) on sheet ${sheetNumber} ` +
+        `without elevation data — elevation is required for reliable crossing records`
+      );
+    }
+
+    if (validCrossings.length === 0) {
+      return 0;
+    }
+
     // Map to DB records
-    const crossingRecords = visionResult.utilityCrossings.map((crossing) => {
+    const crossingRecords = validCrossings.map((crossing) => {
       const stationNumeric = crossing.station ? stationToNumeric(crossing.station) : null;
 
       return {
