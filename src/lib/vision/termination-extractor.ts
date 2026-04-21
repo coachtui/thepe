@@ -226,11 +226,38 @@ export async function calculateLengthFromTerminations(
   method: string;
 } | null> {
   const supabase = createServiceRoleClient();
+  const normalizedName = normalizeUtilityName(utilityName);
 
+  // 1. Try canonical table first (most accurate — populated by consolidateUtilityLengths)
+  try {
+    const { data: canonical } = await supabase
+      .from('utility_length_canonical')
+      .select('*')
+      .eq('project_id', projectId)
+      .ilike('utility_name', normalizedName)
+      .maybeSingle();
+
+    if (canonical) {
+      return {
+        utilityName: (canonical as any).utility_name,
+        beginStation: (canonical as any).begin_station ?? '0+00',
+        endStation: (canonical as any).end_station,
+        beginSheet: (canonical as any).begin_sheet ?? '',
+        endSheet: (canonical as any).end_sheet ?? '',
+        lengthLf: parseFloat((canonical as any).length_lf),
+        confidence: parseFloat((canonical as any).confidence),
+        method: (canonical as any).method,
+      };
+    }
+  } catch (err) {
+    console.warn('[calculateLengthFromTerminations] Canonical lookup failed, falling back:', err);
+  }
+
+  // 2. Fall back to existing RPC (unscoped — lower accuracy)
   try {
     const { data, error } = await (supabase as any).rpc('calculate_utility_length', {
       p_project_id: projectId,
-      p_utility_name: utilityName
+      p_utility_name: utilityName,
     });
 
     if (error) {
@@ -249,7 +276,7 @@ export async function calculateLengthFromTerminations(
       endSheet: data[0].end_sheet,
       lengthLf: parseFloat(data[0].length_lf),
       confidence: parseFloat(data[0].confidence),
-      method: data[0].method
+      method: data[0].method,
     };
   } catch (error) {
     console.error('Error calculating length from terminations:', error);
