@@ -34,6 +34,17 @@ function stationToNumeric(station: string): number | null {
 }
 
 /**
+ * Normalize utility name by stripping quotes and collapsing whitespace
+ * e.g., "Water Line 'A'" -> "Water Line A"
+ */
+function normalizeUtilityName(name: string): string {
+  return name
+    .replace(/['"]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
  * Infer utility type from utility name
  */
 function inferUtilityType(utilityName: string): string | null {
@@ -116,7 +127,7 @@ export async function storeTerminationPoints(
           project_id: projectId,
           document_id: documentId,
           chunk_id: chunkId,
-          utility_name: point.utilityName,
+          utility_name: normalizeUtilityName(point.utilityName),
           utility_type: utilityType,
           termination_type: point.terminationType,
           station: point.station,
