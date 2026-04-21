@@ -310,9 +310,12 @@ export async function performStationAwareSearch(
     // Base similarity threshold (lower for quantity queries)
     const similarityThreshold = classification.type === 'quantity' ? 0.2 : 0.3;
 
+    // Convert embedding to pgvector format
+    const embeddingString = `[${embedding.join(',')}]`;
+
     // Perform base vector search with higher limit to allow for re-ranking
-    const { data, error } = await supabase.rpc('search_documents', {
-      query_embedding: embedding,
+    const { data, error } = await (supabase as any).rpc('search_documents', {
+      query_embedding: embeddingString,
       match_count: limit * 2, // Get extra results to re-rank
       similarity_threshold: similarityThreshold,
       filter_project_id: projectId
