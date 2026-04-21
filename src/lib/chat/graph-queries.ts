@@ -385,15 +385,15 @@ export async function queryGraphUtilityLength(
       };
     }
 
-    // Extract BEGIN and END termination types from entity metadata
-    const beginJunction = junctions.find(
+    // Extract BEGIN and END termination types — handle branched utilities
+    const beginJunctions = junctions.filter(
       (j) => (j.metadata as any)?.termination_type === 'BEGIN'
     );
-    const endJunction = junctions.find(
+    const endJunctions = junctions.filter(
       (j) => (j.metadata as any)?.termination_type === 'END'
     );
 
-    if (!beginJunction || !endJunction) {
+    if (beginJunctions.length === 0 || endJunctions.length === 0) {
       const types = junctions
         .map((j) => (j.metadata as any)?.termination_type)
         .filter(Boolean)
@@ -402,14 +402,36 @@ export async function queryGraphUtilityLength(
         success: false,
         utilityName,
         lengthLf: 0,
-        beginStation: beginJunction?.entity_locations?.[0]?.station_value ?? '',
-        endStation:   endJunction?.entity_locations?.[0]?.station_value ?? '',
+        beginStation: '',
+        endStation: '',
         confidence: 0,
         source: 'Entity graph — missing BEGIN or END junction',
         formattedAnswer:
           `Partial junction data for "${utilityName}". Found: ${types || 'none'}. Cannot compute length.`,
       };
     }
+
+    if (beginJunctions.length > 1 || endJunctions.length > 1) {
+      console.warn(
+        `[Graph Queries] Multiple BEGIN/END junctions for "${utilityName}" ` +
+        `(${beginJunctions.length} BEGIN, ${endJunctions.length} END) — ` +
+        `utility may be branched. Using min-station BEGIN, max-station END.`
+      );
+    }
+
+    // Pick lowest-station BEGIN (true start of main line)
+    const beginJunction = beginJunctions.sort((a, b) => {
+      const aS = a.entity_locations?.[0]?.station_numeric ?? Infinity;
+      const bS = b.entity_locations?.[0]?.station_numeric ?? Infinity;
+      return aS - bS;
+    })[0];
+
+    // Pick highest-station END (true end of main line)
+    const endJunction = endJunctions.sort((a, b) => {
+      const aS = a.entity_locations?.[0]?.station_numeric ?? -Infinity;
+      const bS = b.entity_locations?.[0]?.station_numeric ?? -Infinity;
+      return bS - aS;
+    })[0];
 
     const beginLoc = beginJunction.entity_locations?.[0];
     const endLoc   = endJunction.entity_locations?.[0];
