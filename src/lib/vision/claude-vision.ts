@@ -103,7 +103,7 @@ export interface VisionAnalysisResult {
     crossingUtility: string; // e.g., "ELEC", "SS", "STM", "GAS", "TEL", "W"
     utilityFullName: string; // e.g., "Electrical", "Sanitary Sewer"
     station?: string; // Station where crossing occurs
-    elevation?: number; // Elevation of crossing (e.g., 35.73)
+    elevation?: number | string; // Elevation of crossing (e.g., 35.73) — may be empty string from vision
     isExisting: boolean; // Is this an existing utility?
     isProposed: boolean; // Is this a proposed utility?
     size?: string; // e.g., "12-IN"

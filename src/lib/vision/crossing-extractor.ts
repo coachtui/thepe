@@ -71,7 +71,7 @@ export async function storeUtilityCrossings(
 
     // Filter: elevation is required for a real crossing — skip any without it
     const validCrossings = visionResult.utilityCrossings.filter(
-      (c) => c.elevation != null
+      (c) => c.elevation != null && c.elevation !== ''
     );
     const skippedCount = visionResult.utilityCrossings.length - validCrossings.length;
     if (skippedCount > 0) {
