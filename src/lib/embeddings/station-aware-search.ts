@@ -314,7 +314,7 @@ export async function performStationAwareSearch(
     const embeddingString = `[${embedding.join(',')}]`;
 
     // Perform base vector search with higher limit to allow for re-ranking
-    const { data, error } = await (supabase as any).rpc('search_documents', {
+    const { data, error } = await supabase.rpc('search_documents', {
       query_embedding: embeddingString,
       match_count: limit * 2, // Get extra results to re-rank
       similarity_threshold: similarityThreshold,
