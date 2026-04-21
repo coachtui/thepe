@@ -7,6 +7,11 @@
 
 import { createServiceRoleClient } from '@/lib/db/supabase/service';
 import type { VisionAnalysisResult } from './claude-vision';
+import {
+  analyzeSheetWithVision,
+  buildFocusedEndStationPrompt,
+  parseFocusedEndStationResult,
+} from './claude-vision';
 
 /**
  * Normalize station string to numeric value for calculations
@@ -440,5 +445,182 @@ export async function validateTerminationPoints(
   } catch (error) {
     console.error('Error validating termination points:', error);
     return { complete: [], missingBegin: [], missingEnd: [] };
+  }
+}
+
+async function runFocusedEndStationExtraction(
+  projectId: string,
+  pageNumber: number,
+  utilityName: string
+): Promise<{ endStation: string | null; confidence: number }> {
+  const supabase = createServiceRoleClient();
+
+  const { data: page } = await supabase
+    .from('document_pages')
+    .select('page_image_url, sheet_number')
+    .eq('project_id', projectId)
+    .eq('page_number', pageNumber)
+    .maybeSingle();
+
+  if (!page?.page_image_url) {
+    console.warn(`[Consolidate] No page_image_url for project ${projectId} page ${pageNumber}`);
+    return { endStation: null, confidence: 0 };
+  }
+
+  try {
+    const response = await fetch(page.page_image_url);
+    if (!response.ok) {
+      console.warn(`[Consolidate] Failed to fetch image: ${response.status}`);
+      return { endStation: null, confidence: 0 };
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const imageBuffer = Buffer.from(arrayBuffer);
+
+    const customPrompt = buildFocusedEndStationPrompt(utilityName);
+    const result = await analyzeSheetWithVision(imageBuffer, {
+      customPrompt,
+      taskType: 'extraction',
+    });
+
+    return parseFocusedEndStationResult(result.rawAnalysis ?? '');
+  } catch (err) {
+    console.error(`[Consolidate] Vision error for page ${pageNumber}:`, err);
+    return { endStation: null, confidence: 0 };
+  }
+}
+
+export async function consolidateUtilityLengths(projectId: string): Promise<void> {
+  const supabase = createServiceRoleClient();
+
+  // 1. Get all distinct normalized utility names for this project
+  const { data: nameRows } = await supabase
+    .from('utility_termination_points')
+    .select('utility_name')
+    .eq('project_id', projectId);
+
+  const uniqueNames = [...new Set((nameRows ?? []).map((r: any) => r.utility_name as string))];
+  console.log(`[Consolidate] Processing ${uniqueNames.length} utilities for project ${projectId}`);
+
+  for (const utilityName of uniqueNames) {
+    // 2. Find dedicated sheets via sheet_title loose ILIKE match
+    const words = utilityName.split(' ').filter((w) => w.length > 1);
+    const likePattern = `%${words.join('%')}%`;
+
+    const { data: pages } = await supabase
+      .from('document_pages')
+      .select('page_number, sheet_number')
+      .eq('project_id', projectId)
+      .ilike('sheet_title', likePattern)
+      .order('page_number', { ascending: false });
+
+    const dedicatedSheets = pages ?? [];
+    const dedicatedSheetNumbers = dedicatedSheets.map((p: any) => p.sheet_number as string);
+
+    // 3. Find begin station: min BEGIN from dedicated sheets
+    let beginStation = '0+00';
+    let beginStationNumeric = 0;
+    let beginSheet: string | null =
+      dedicatedSheets[dedicatedSheets.length - 1]?.sheet_number ?? null;
+
+    if (dedicatedSheetNumbers.length > 0) {
+      const { data: begins } = await supabase
+        .from('utility_termination_points')
+        .select('station, station_numeric, sheet_number')
+        .eq('project_id', projectId)
+        .eq('utility_name', utilityName)
+        .eq('termination_type', 'BEGIN')
+        .in('sheet_number', dedicatedSheetNumbers)
+        .order('station_numeric', { ascending: true })
+        .limit(1);
+
+      if (begins && begins[0]) {
+        beginStation = (begins[0] as any).station;
+        beginStationNumeric = parseFloat((begins[0] as any).station_numeric) || 0;
+        beginSheet = (begins[0] as any).sheet_number;
+      }
+    }
+
+    // 4. Focused re-extraction on the last dedicated sheet (sorted desc, so index 0)
+    let endStation: string | null = null;
+    let endStationNumeric: number | null = null;
+    let endSheet: string | null = null;
+    let confidence = 0.6;
+    let method: 'focused_reextraction' | 'sheet_scoped' | 'unscoped' = 'unscoped';
+
+    const lastPage = dedicatedSheets[0];
+    if (lastPage) {
+      const focusedResult = await runFocusedEndStationExtraction(
+        projectId,
+        (lastPage as any).page_number,
+        utilityName
+      );
+      if (focusedResult.endStation) {
+        endStation = focusedResult.endStation;
+        endStationNumeric = stationToNumeric(focusedResult.endStation);
+        endSheet = (lastPage as any).sheet_number;
+        confidence = focusedResult.confidence;
+        method = 'focused_reextraction';
+      }
+    }
+
+    // 5. Fallback: max END station from dedicated sheets
+    if (!endStation && dedicatedSheetNumbers.length > 0) {
+      const { data: ends } = await supabase
+        .from('utility_termination_points')
+        .select('station, station_numeric, sheet_number')
+        .eq('project_id', projectId)
+        .eq('utility_name', utilityName)
+        .eq('termination_type', 'END')
+        .in('sheet_number', dedicatedSheetNumbers)
+        .order('station_numeric', { ascending: false })
+        .limit(1);
+
+      if (ends && ends[0]) {
+        endStation = (ends[0] as any).station;
+        endStationNumeric = parseFloat((ends[0] as any).station_numeric) || null;
+        endSheet = (ends[0] as any).sheet_number;
+        confidence = 0.65;
+        method = 'sheet_scoped';
+      }
+    }
+
+    // 6. Skip if no end station found
+    if (!endStation || endStationNumeric === null) {
+      console.warn(`[Consolidate] No end station found for "${utilityName}" — skipping`);
+      continue;
+    }
+
+    const lengthLf = endStationNumeric - beginStationNumeric;
+    const utilityType = inferUtilityType(utilityName);
+
+    // 7. Upsert one authoritative row
+    const { error: upsertError } = await supabase
+      .from('utility_length_canonical')
+      .upsert(
+        {
+          project_id: projectId,
+          utility_name: utilityName,
+          utility_type: utilityType,
+          begin_station: beginStation,
+          begin_station_numeric: beginStationNumeric,
+          begin_sheet: beginSheet,
+          end_station: endStation,
+          end_station_numeric: endStationNumeric,
+          end_sheet: endSheet,
+          length_lf: lengthLf,
+          confidence,
+          method,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'project_id,utility_name' }
+      );
+
+    if (upsertError) {
+      console.error(`[Consolidate] Upsert error for "${utilityName}":`, upsertError);
+    } else {
+      console.log(
+        `[Consolidate] ${utilityName}: ${lengthLf.toFixed(2)} LF (${method}, confidence ${confidence})`
+      );
+    }
   }
 }
