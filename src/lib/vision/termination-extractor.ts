@@ -541,7 +541,10 @@ export async function consolidateUtilityLengths(projectId: string): Promise<void
       .order('page_number', { ascending: false });
 
     const dedicatedSheets = pages ?? [];
-    const dedicatedSheetNumbers = dedicatedSheets.map((p: any) => p.sheet_number as string);
+    // utility_termination_points.sheet_number stores "Page N" (page_number as text)
+    // document_pages.sheet_number stores "CU109" (the drawing sheet label)
+    // Join via page_number, not sheet_number
+    const dedicatedPageRefs = dedicatedSheets.map((p: any) => `Page ${p.page_number}`);
 
     // 3. Find begin station: min BEGIN from dedicated sheets
     let beginStation = '0+00';
@@ -549,14 +552,14 @@ export async function consolidateUtilityLengths(projectId: string): Promise<void
     let beginSheet: string | null =
       dedicatedSheets[dedicatedSheets.length - 1]?.sheet_number ?? null;
 
-    if (dedicatedSheetNumbers.length > 0) {
+    if (dedicatedPageRefs.length > 0) {
       const { data: begins } = await supabase
         .from('utility_termination_points')
         .select('station, station_numeric, sheet_number')
         .eq('project_id', projectId)
         .eq('utility_name', utilityName)
         .eq('termination_type', 'BEGIN')
-        .in('sheet_number', dedicatedSheetNumbers)
+        .in('sheet_number', dedicatedPageRefs)
         .order('station_numeric', { ascending: true })
         .limit(1);
 
@@ -591,14 +594,14 @@ export async function consolidateUtilityLengths(projectId: string): Promise<void
     }
 
     // 5. Fallback: max END station from dedicated sheets
-    if (!endStation && dedicatedSheetNumbers.length > 0) {
+    if (!endStation && dedicatedPageRefs.length > 0) {
       const { data: ends } = await supabase
         .from('utility_termination_points')
         .select('station, station_numeric, sheet_number')
         .eq('project_id', projectId)
         .eq('utility_name', utilityName)
         .eq('termination_type', 'END')
-        .in('sheet_number', dedicatedSheetNumbers)
+        .in('sheet_number', dedicatedPageRefs)
         .order('station_numeric', { ascending: false })
         .limit(1);
 
