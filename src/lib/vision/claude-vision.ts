@@ -1091,3 +1091,49 @@ export function estimateAnalysisCost(
     }
   };
 }
+
+/**
+ * Focused prompt for reading the END station on the last sheet of a utility.
+ * Used by consolidateUtilityLengths() — NOT the main extraction prompt.
+ */
+export function buildFocusedEndStationPrompt(utilityName: string): string {
+  const upper = utilityName.toUpperCase()
+  return `This is the LAST sheet of ${utilityName} in this project.
+Your ONLY task: find the explicit END station label for ${utilityName}.
+
+Look for text like "END ${upper} STA 32+62.01" — it is often:
+- Rotated 90° vertically along the pipe in the profile view
+- Near the right edge of the profile section
+- Small font, stacked with other annotation text
+
+Return ONLY valid JSON (no markdown, no explanation):
+{ "endStation": "32+62.01", "confidence": 0.95 }
+
+If you cannot find an explicit END label, return:
+{ "endStation": null, "confidence": 0 }
+
+Do NOT guess. Do NOT use match line stations (e.g. "SEE SHEET CUxxx").
+Do NOT use profile grid labels. The END label explicitly says "END ${upper}".`
+}
+
+/**
+ * Parse the JSON response from a focused end-station extraction call.
+ */
+export function parseFocusedEndStationResult(
+  raw: string
+): { endStation: string | null; confidence: number } {
+  try {
+    // Strip markdown code fences if present
+    const cleaned = raw.replace(/```[a-z]*\n?/g, '').trim()
+    const parsed = JSON.parse(cleaned)
+    if (typeof parsed.endStation === 'string' && parsed.endStation.trim()) {
+      return {
+        endStation: parsed.endStation.trim(),
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.9,
+      }
+    }
+    return { endStation: null, confidence: 0 }
+  } catch {
+    return { endStation: null, confidence: 0 }
+  }
+}
