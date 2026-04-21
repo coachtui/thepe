@@ -74,6 +74,16 @@ export async function POST(
     if (docsToProcess.length === 0) {
       console.log('[Batch Analysis] All documents already processed');
 
+      // Still run consolidation so existing projects can be upgraded to canonical table
+      // without requiring forceReprocess (which would re-run expensive vision calls)
+      console.log('[Batch Analysis] Running utility length consolidation...');
+      try {
+        await consolidateUtilityLengths(projectId);
+        console.log('[Batch Analysis] Utility length consolidation complete');
+      } catch (consolidationErr) {
+        console.error('[Batch Analysis] Consolidation error (non-fatal):', consolidationErr);
+      }
+
       // Return existing summary
       const { data: summary } = await supabase
         .from('project_quantity_summary')

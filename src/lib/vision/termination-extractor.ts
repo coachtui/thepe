@@ -614,8 +614,8 @@ export async function consolidateUtilityLengths(projectId: string): Promise<void
       }
     }
 
-    // 6. Skip if no end station found
-    if (!endStation || endStationNumeric === null) {
+    // 6. Skip if no end station found (stationToNumeric returns NaN, not null, on parse failure)
+    if (!endStation || endStationNumeric === null || isNaN(endStationNumeric)) {
       console.warn(`[Consolidate] No end station found for "${utilityName}" — skipping`);
       continue;
     }
