@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/db/supabase/server';
 import { processDocumentWithVision } from '@/lib/processing/vision-processor';
+import { consolidateUtilityLengths } from '@/lib/vision/termination-extractor';
 
 /**
  * POST: Trigger complete project analysis
@@ -158,6 +159,13 @@ export async function POST(
     );
 
     console.log(`[Batch Analysis] Complete! Processed ${totalSheetsProcessed} sheets, extracted ${totalQuantitiesExtracted} quantities`);
+    console.log('[Batch Analysis] Running utility length consolidation...');
+    try {
+      await consolidateUtilityLengths(projectId);
+      console.log('[Batch Analysis] Utility length consolidation complete');
+    } catch (consolidationErr) {
+      console.error('[Batch Analysis] Consolidation error (non-fatal):', consolidationErr);
+    }
     console.log(`[Batch Analysis] Total cost: $${totalCost.toFixed(2)}, processing time: ${(totalProcessingTime / 1000).toFixed(1)}s`);
 
     // Query aggregated summary
