@@ -17,7 +17,7 @@ import { querySpecSection, querySpecRequirements } from '../spec-queries'
 import { queryRFIByNumber, queryRFIsByEntity } from '../rfi-queries'
 import { runPlanReader } from '../plan-reader'
 import { verifyBeforeAnswering } from '../sheet-verifier'
-import { queryComponentCount, queryAllComponentsByUtility } from '../vision-queries'
+import { queryComponentCount, queryAllComponentsByUtility, queryUtilityLength } from '../vision-queries'
 import type { ProjectMemoryContext } from '../project-memory'
 import type { QueryAnalysis } from '../types'
 import type { SheetVerificationResult } from '../sheet-verifier'
@@ -376,6 +376,32 @@ export function buildTools(
     },
   })
 
+  // ── Tool 7: queryUtilityLength ────────────────────────────────────────────
+  const queryUtilityLengthTool = tool({
+    description:
+      'Get the total length of a utility line (pipe, drain, sewer, etc.) in linear feet. Use for questions like "how long is Water Line A" or "what is the total footage of Storm Drain B". Do NOT use for fitting or component counts — use searchComponents for those.',
+    inputSchema: zodSchema(
+      z.object({
+        utilityName: z
+          .string()
+          .describe('Full utility name as it appears on the drawings, e.g. "Water Line A", "Storm Drain B", "Sewer Line A"'),
+      })
+    ),
+    execute: async ({ utilityName }: { utilityName: string }): Promise<string> => {
+      try {
+        const result = await queryUtilityLength(projectId, utilityName)
+
+        if (!result.success) {
+          return result.formattedAnswer
+        }
+
+        return result.formattedAnswer
+      } catch (err) {
+        return `queryUtilityLength error: ${err instanceof Error ? err.message : String(err)}`
+      }
+    },
+  })
+
   return {
     searchEntities,
     getSpecSection,
@@ -383,6 +409,7 @@ export function buildTools(
     readDrawingPage,
     checkSheetCoverage,
     searchComponents,
+    queryUtilityLength: queryUtilityLengthTool,
   }
 }
 

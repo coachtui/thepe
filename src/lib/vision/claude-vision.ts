@@ -1101,19 +1101,27 @@ export function buildFocusedEndStationPrompt(utilityName: string): string {
   return `This is the LAST sheet of ${utilityName} in this project.
 Your ONLY task: find the explicit END station label for ${utilityName}.
 
-Look for text like "END ${upper} STA 32+62.01" — it is often:
-- Rotated 90° vertically along the pipe in the profile view
+The label format is: "END ${upper} STA XX+XX.XX"
+It is often:
+- Rotated 90° vertically along the utility pipe in the profile view
 - Near the right edge of the profile section
 - Small font, stacked with other annotation text
+
+CRITICAL — this sheet also shows a road alignment (e.g. ROAD "A") that extends further than the utility.
+The road has its OWN stations that are HIGHER than the utility end station. IGNORE all road stations.
+Only the label that explicitly says "END ${upper}" is valid.
+
+Wrong (road station): "44+00", "ROAD 'A' STA 44+00"
+Right (utility label): "END ${upper} STA 32+62.01"
 
 Return ONLY valid JSON (no markdown, no explanation):
 { "endStation": "32+62.01", "confidence": 0.95 }
 
-If you cannot find an explicit END label, return:
+If you cannot find an explicit END ${upper} label, return:
 { "endStation": null, "confidence": 0 }
 
-Do NOT guess. Do NOT use match line stations (e.g. "SEE SHEET CUxxx").
-Do NOT use profile grid labels. The END label explicitly says "END ${upper}".`
+Do NOT guess. Do NOT use match line stations. Do NOT use road or profile grid stations.
+The END label explicitly says "END ${upper}" — nothing else qualifies.`
 }
 
 /**
