@@ -222,6 +222,26 @@ export function formatSubmittalRegisterReviewAsJson(review: SubmittalRegisterRev
   return JSON.stringify(review, null, 2)
 }
 
+export function formatSubmittalRegisterToolPayload(result: SubmittalRegisterResult): string {
+  const review = groupSubmittalRegisterForReview(result)
+  return JSON.stringify({
+    success: result.success,
+    source: result.source,
+    confidence: result.confidence,
+    notes: result.notes,
+    items: result.items,
+    summary: {
+      totalItemCount: review.totalItemCount,
+      groupCount: review.groupCount,
+      averageConfidence: review.averageConfidence,
+      ungroupedCount: review.ungrouped.length,
+      reviewFlags: review.reviewFlags,
+    },
+    groupedSections: review.groups,
+    ungrouped: review.ungrouped,
+  }, null, 2)
+}
+
 function buildSubmittalRegisterGroup(items: SubmittalRegisterItem[]): SubmittalRegisterGroup {
   const first = items[0]
   const confidenceBreakdown = { high: 0, medium: 0, low: 0 }

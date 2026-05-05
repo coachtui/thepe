@@ -216,6 +216,7 @@ function appendSubmittalRegisterPrompt(lines: string[]): void {
     '3. Return register rows as JSON-compatible structured items with specSection, sectionTitle, submittalItem, submittalType, requiredAction, approvalRequired, sourceReference, excerpt, confidence, and notes.',
     '4. Cite sourceReference fields when available. Do not invent section, page, document, or approval metadata.',
     '5. If project specs are missing or do not contain submittal requirements, state that the register cannot be completed from available evidence.',
+    '6. The buildSubmittalRegister tool also returns groupedSections (per spec section with reviewFlags and per-group counts) and a summary block; use these when the user asks for a section-by-section register, scan, or review, and surface review flags so the user can act on uncited or low-confidence items.',
     '',
     'TODO: submittal_register preferredDocumentTypes are not enforced by the current generic retrieval layer yet; the dedicated register tool uses available spec entity findings and preserves fallback behavior.',
     '',

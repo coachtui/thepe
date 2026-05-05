@@ -11,6 +11,7 @@ import {
 import {
   extractSubmittalRegisterItemsFromText,
   groupSubmittalRegisterForReview,
+  formatSubmittalRegisterToolPayload,
 } from '../src/lib/chat/submittal-register.ts'
 
 const examples = [
@@ -222,4 +223,37 @@ console.log(JSON.stringify({
     approvalRequiredCount: group.approvalRequiredCount,
     reviewFlags: group.reviewFlags,
   })),
+}, null, 2))
+
+const toolPayload = JSON.parse(formatSubmittalRegisterToolPayload(reviewSource))
+
+console.log('')
+console.log('Tool-facing submittal register payload (structure check):')
+console.log(JSON.stringify({
+  topLevelKeys: Object.keys(toolPayload),
+  flatItemCount: toolPayload.items.length,
+  groupedSectionCount: toolPayload.groupedSections.length,
+  ungroupedCount: toolPayload.ungrouped.length,
+  summary: toolPayload.summary,
+  firstGroupKeys: Object.keys(toolPayload.groupedSections[0] ?? {}),
+}, null, 2))
+
+const fallbackPayload = JSON.parse(formatSubmittalRegisterToolPayload({
+  success: false,
+  projectId: 'sample-project',
+  source: 'spec_entity_graph',
+  items: [],
+  confidence: 0,
+  notes: ['No spec entity graph rows found for submittal register extraction.'],
+}))
+
+console.log('')
+console.log('Tool-facing submittal register fallback payload:')
+console.log(JSON.stringify({
+  success: fallbackPayload.success,
+  flatItemCount: fallbackPayload.items.length,
+  groupedSectionCount: fallbackPayload.groupedSections.length,
+  ungroupedCount: fallbackPayload.ungrouped.length,
+  summary: fallbackPayload.summary,
+  notes: fallbackPayload.notes,
 }, null, 2))

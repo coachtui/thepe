@@ -15,7 +15,10 @@ import { z } from 'zod'
 import { routeQuery, WARNING_MULTIPLE_WATER_LINES } from '../smart-router'
 import { querySpecSection, querySpecRequirements } from '../spec-queries'
 import { queryRFIByNumber, queryRFIsByEntity } from '../rfi-queries'
-import { buildSubmittalRegisterFromSpecs, formatSubmittalRegisterAsJson } from '../submittal-register'
+import {
+  buildSubmittalRegisterFromSpecs,
+  formatSubmittalRegisterToolPayload,
+} from '../submittal-register'
 import { runPlanReader } from '../plan-reader'
 import { verifyBeforeAnswering } from '../sheet-verifier'
 import { queryComponentCount, queryAllComponentsByUtility, queryUtilityLength } from '../vision-queries'
@@ -416,7 +419,7 @@ export function buildTools(
   // ── Tool 8: buildSubmittalRegister ───────────────────────────────────────
   const buildSubmittalRegister = tool({
     description:
-      'Build a structured submittal register from specification submittal requirements. Use for submittal logs, registers, schedules, and matrices.',
+      'Build a structured submittal register from specification submittal requirements. Use for submittal logs, registers, schedules, and matrices. Returns flat items plus groupedSections (per spec section, with reviewFlags) and a summary block.',
     inputSchema: zodSchema(
       z.object({
         sectionNumber: z
@@ -447,7 +450,7 @@ export function buildTools(
             : 50,
         })
 
-        return formatSubmittalRegisterAsJson(result)
+        return formatSubmittalRegisterToolPayload(result)
       } catch (err) {
         return `buildSubmittalRegister error: ${err instanceof Error ? err.message : String(err)}`
       }
