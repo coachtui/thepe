@@ -97,6 +97,24 @@ Implemented so far:
    - Currently passes.
    - Includes examples for router classification, normalized source references, and submittal register quality cases.
 
+9. Grouped review output shape for `submittal_register`
+   - File: `src/lib/chat/submittal-register.ts`
+   - Types:
+     - `SubmittalRegisterGroup`
+     - `SubmittalRegisterReview`
+   - Functions:
+     - `groupSubmittalRegisterForReview()`
+     - `formatSubmittalRegisterReviewAsJson()`
+   - Per-group aggregates: itemCount, averageConfidence, confidenceBreakdown (high/medium/low), citationBreakdown (fullyCited/partiallyCited/uncited), submittalTypeCounts, approvalRequiredCount, reviewFlags.
+   - Top-level shape: sorted groups, ungrouped items (no specSection), global review flags.
+   - Harness coverage added in `scripts/task-router-harness.mjs`.
+   - `npm run router:harness` passes.
+   - `npm run build` passes.
+
+## Next Recommended Step
+
+Wire the grouped review output into the `submittal_register` chat/tool path conservatively.
+
 ## Validation
 
 Run:
