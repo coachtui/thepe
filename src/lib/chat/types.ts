@@ -580,6 +580,7 @@ export interface SpecFinding {
   supportLevel: SupportLevel
   textValue: string | null
   partReference: string | null  // "PART 2 - PRODUCTS, 2.1.A"
+  sourceReference?: import('./source-references').SourceReference
   confidence: number
 }
 
@@ -596,6 +597,7 @@ export interface SpecEntity {
   sectionNumber: string | null  // normalized section: "03 30 00"
   divisionNumber: string | null // "03"
   sheetNumber: string | null    // used as section citation
+  sourceReference?: import('./source-references').SourceReference
   findings: SpecFinding[]
 }
 

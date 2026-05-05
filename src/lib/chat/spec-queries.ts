@@ -27,6 +27,11 @@ import type {
   SpecQueryResult,
   SupportLevel,
 } from './types'
+import {
+  formatSourceReference,
+  formatSourceReferences,
+  normalizeSourceReference,
+} from './source-references'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = any
@@ -85,7 +90,10 @@ export async function querySpecSection(
       .select(`
         id, entity_type, subtype, canonical_name, display_name, label,
         status, confidence, metadata,
-        entity_citations ( sheet_number, document_id ),
+        entity_citations (
+          sheet_number, document_id, chunk_id, page_number,
+          detail_ref, extraction_source
+        ),
         entity_findings (
           id, finding_type, statement, support_level,
           text_value, metadata
@@ -166,7 +174,10 @@ export async function querySpecRequirements(
       .select(`
         id, entity_type, subtype, canonical_name, display_name, label,
         status, confidence, metadata,
-        entity_citations ( sheet_number, document_id ),
+        entity_citations (
+          sheet_number, document_id, chunk_id, page_number,
+          detail_ref, extraction_source
+        ),
         entity_findings (
           id, finding_type, statement, support_level,
           text_value, metadata
@@ -250,7 +261,10 @@ export function formatSpecAnswer(result: SpecQueryResult): string {
     parts.push(`**Specification Requirements**`)
   }
 
-  if (result.sectionsCited.length > 0) {
+  const sectionSources = formatSourceReferences(result.sections.map(section => section.sourceReference))
+  if (sectionSources) {
+    parts.push(`Source: ${sectionSources} (explicit)`)
+  } else if (result.sectionsCited.length > 0) {
     parts.push(`Source: Spec ${result.sectionsCited.join(', ')} (explicit)`)
   }
   parts.push('')
@@ -261,7 +275,12 @@ export function formatSpecAnswer(result: SpecQueryResult): string {
     const label = REQUIREMENT_FAMILY_LABELS[group.family as SpecRequirementType] ?? group.family
     parts.push(`**${label}:**`)
     for (const req of group.requirements) {
-      const citation = req.partReference ? ` [${req.partReference}]` : ''
+      const sourceLabel = formatSourceReference(req.sourceReference)
+      const citation = sourceLabel !== 'Source unavailable'
+        ? ` [${sourceLabel}]`
+        : req.partReference
+          ? ` [${req.partReference}]`
+          : ''
       parts.push(`- ${req.statement}${citation}`)
     }
     parts.push('')
@@ -276,6 +295,22 @@ export function formatSpecAnswer(result: SpecQueryResult): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function hydrateSpecEntity(row: any): SpecEntity {
+  const citation = row.entity_citations?.[0]
+  const sectionNumber = row.label ?? extractSectionFromCanonical(row.canonical_name)
+  const baseSourceReference = normalizeSourceReference({
+    source_type: 'specification',
+    document_id: citation?.document_id,
+    chunk_id: citation?.chunk_id,
+    page_number: citation?.page_number,
+    sheet_number: citation?.sheet_number,
+    detail_ref: citation?.detail_ref,
+    extraction_source: citation?.extraction_source,
+    spec_section: sectionNumber,
+    section_title: row.display_name ?? row.canonical_name,
+    document_type: 'specification',
+    // TODO: Join documents when needed to populate filename/document title in graph citations.
+  })
+
   const findings: SpecFinding[] = (row.entity_findings ?? []).map(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (f: any): SpecFinding => ({
@@ -284,12 +319,14 @@ function hydrateSpecEntity(row: any): SpecEntity {
       supportLevel: (f.support_level ?? 'explicit') as SupportLevel,
       textValue: f.text_value ?? null,
       partReference: f.metadata?.part_reference ?? null,
+      sourceReference: normalizeSourceReference({
+        ...baseSourceReference,
+        part_reference: f.metadata?.part_reference,
+        paragraph_reference: f.metadata?.paragraph_reference,
+      }),
       confidence: f.confidence ?? 0.9,
     })
   )
-
-  const citation = row.entity_citations?.[0]
-  const sectionNumber = row.label ?? extractSectionFromCanonical(row.canonical_name)
 
   return {
     id: row.id,
@@ -303,6 +340,7 @@ function hydrateSpecEntity(row: any): SpecEntity {
     sectionNumber,
     divisionNumber: sectionNumber ? sectionNumber.split(' ')[0] : null,
     sheetNumber: citation?.sheet_number ?? null,
+    sourceReference: baseSourceReference,
     findings,
   }
 }

@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "router:harness": "node --no-warnings scripts/task-router-harness.mjs",
     "lint": "next lint"
   },
   "dependencies": {

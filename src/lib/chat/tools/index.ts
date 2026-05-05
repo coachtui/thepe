@@ -15,12 +15,14 @@ import { z } from 'zod'
 import { routeQuery, WARNING_MULTIPLE_WATER_LINES } from '../smart-router'
 import { querySpecSection, querySpecRequirements } from '../spec-queries'
 import { queryRFIByNumber, queryRFIsByEntity } from '../rfi-queries'
+import { buildSubmittalRegisterFromSpecs, formatSubmittalRegisterAsJson } from '../submittal-register'
 import { runPlanReader } from '../plan-reader'
 import { verifyBeforeAnswering } from '../sheet-verifier'
 import { queryComponentCount, queryAllComponentsByUtility, queryUtilityLength } from '../vision-queries'
 import type { ProjectMemoryContext } from '../project-memory'
 import type { QueryAnalysis } from '../types'
 import type { SheetVerificationResult } from '../sheet-verifier'
+import type { RetrievalStrategy } from '../task-router'
 
 // Re-export for consumers
 export type { ProjectMemoryContext }
@@ -40,7 +42,8 @@ export function buildTools(
   projectId: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
-  memoryCtx: ProjectMemoryContext
+  memoryCtx: ProjectMemoryContext,
+  retrievalStrategy?: RetrievalStrategy
 ) {
   // ── Tool 1: searchEntities ────────────────────────────────────────────────
   const searchEntities = tool({
@@ -62,7 +65,15 @@ export function buildTools(
         const result = await routeQuery(
           system ? `${query} ${system}` : query,
           projectId,
-          { skipVisionDBLookup: false }
+          {
+            skipVisionDBLookup: false,
+            // Strategy wiring is intentionally conservative: routeQuery already
+            // supports maxResults, but it does not yet support document-type or
+            // metadata filters from RetrievalStrategy. Keep those as config/TODOs.
+            ...(retrievalStrategy && retrievalStrategy.taskType !== 'general'
+              ? { maxResults: retrievalStrategy.defaultTopK }
+              : {}),
+          }
         )
 
         const warnings = result.routingWarnings ?? []
@@ -402,6 +413,47 @@ export function buildTools(
     },
   })
 
+  // ── Tool 8: buildSubmittalRegister ───────────────────────────────────────
+  const buildSubmittalRegister = tool({
+    description:
+      'Build a structured submittal register from specification submittal requirements. Use for submittal logs, registers, schedules, and matrices.',
+    inputSchema: zodSchema(
+      z.object({
+        sectionNumber: z
+          .string()
+          .optional()
+          .describe('Optional CSI section number, e.g. "03 30 00"'),
+        keyword: z
+          .string()
+          .optional()
+          .describe('Optional scope keyword, e.g. "earthwork", "concrete", "pipe bedding"'),
+      })
+    ),
+    execute: async ({
+      sectionNumber,
+      keyword,
+    }: {
+      sectionNumber?: string
+      keyword?: string
+    }): Promise<string> => {
+      try {
+        const result = await buildSubmittalRegisterFromSpecs({
+          projectId,
+          supabase,
+          sectionFilter: sectionNumber ?? null,
+          keyword: keyword ?? null,
+          limit: retrievalStrategy?.taskType === 'submittal_register'
+            ? retrievalStrategy.defaultTopK
+            : 50,
+        })
+
+        return formatSubmittalRegisterAsJson(result)
+      } catch (err) {
+        return `buildSubmittalRegister error: ${err instanceof Error ? err.message : String(err)}`
+      }
+    },
+  })
+
   return {
     searchEntities,
     getSpecSection,
@@ -410,6 +462,7 @@ export function buildTools(
     checkSheetCoverage,
     searchComponents,
     queryUtilityLength: queryUtilityLengthTool,
+    buildSubmittalRegister,
   }
 }
 

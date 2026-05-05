@@ -14,6 +14,12 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import type { PEAgentConfig } from '@/agents/constructionPEAgent'
 import { loadProjectMemory, sanitizeForPrompt } from './project-memory'
 import { buildTools, type ProjectMemoryContext } from './tools/index'
+import {
+  classifyConstructionTask,
+  getRetrievalStrategyForTask,
+  type RetrievalStrategy,
+  type TaskRouteResult,
+} from './task-router'
 import { randomUUID } from 'crypto'
 
 const anthropicAI = createAnthropic({
@@ -31,6 +37,8 @@ export interface ChatHandlerOptions {
   projectContext?: PEAgentConfig['projectContext']
   /** Return trace as X-AI-Trace response header and log to console */
   debugAi?: boolean
+  /** Initial task classification scaffold. Retrieval still falls back to existing behavior. */
+  taskRoute?: TaskRouteResult
 }
 
 export interface ChatMessage {
@@ -49,7 +57,7 @@ export interface ChatMessage {
 export async function handleChatRequest(
   opts: ChatHandlerOptions
 ): Promise<Response> {
-  const { messages, projectId, supabase, projectContext, debugAi } = opts
+  const { messages, projectId, supabase, projectContext, debugAi, taskRoute } = opts
 
   const latestMessage = messages[messages.length - 1]
   if (!latestMessage || latestMessage.role !== 'user') {
@@ -63,14 +71,22 @@ export async function handleChatRequest(
   const queryId = randomUUID()
   console.log('[ChatHandler] Query:', rawQuery.slice(0, 120), '| queryId:', queryId)
 
+  const resolvedTaskRoute = taskRoute ?? classifyConstructionTask(rawQuery)
+  const retrievalStrategy = getRetrievalStrategyForTask(resolvedTaskRoute.route)
+  const taskStrategyDebug = buildTaskStrategyDebug(resolvedTaskRoute, retrievalStrategy)
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[ChatHandler] Task strategy:', taskStrategyDebug)
+  }
+
   // Load project memory for context (aliases, callout patterns)
   const memoryCtx = await loadProjectMemory(projectId)
 
   // Build tools with projectId + supabase in closure
-  const tools = buildTools(projectId, supabase, memoryCtx)
+  const tools = buildTools(projectId, supabase, memoryCtx, retrievalStrategy)
 
   // Build system prompt
-  const systemPrompt = buildAgentSystemPrompt(projectContext, memoryCtx)
+  const systemPrompt = buildAgentSystemPrompt(projectContext, memoryCtx, retrievalStrategy)
 
   // Agentic stream — Claude calls tools until satisfied, then writes answer
   let result
@@ -90,7 +106,29 @@ export async function handleChatRequest(
   const response = result.toTextStreamResponse()
   const headers = new Headers(response.headers)
   headers.set('X-Query-Id', queryId)
+  headers.set('X-Task-Route', resolvedTaskRoute.route)
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    (debugAi || process.env.AI_DEBUG_TRACE === 'true')
+  ) {
+    headers.set('X-Task-Route-Debug', JSON.stringify(resolvedTaskRoute))
+    headers.set('X-Task-Strategy-Debug', JSON.stringify(taskStrategyDebug))
+  }
   return new Response(response.body, { status: response.status, headers })
+}
+
+function buildTaskStrategyDebug(
+  taskRoute: TaskRouteResult,
+  strategy: RetrievalStrategy
+) {
+  return {
+    taskType: taskRoute.route,
+    confidence: taskRoute.confidence,
+    retrievalMode: strategy.retrievalMode,
+    defaultTopK: strategy.defaultTopK,
+    citationRequired: strategy.citationRequired,
+    structuredOutputRequired: strategy.structuredOutputRequired,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +137,8 @@ export async function handleChatRequest(
 
 function buildAgentSystemPrompt(
   projectContext: PEAgentConfig['projectContext'] | undefined,
-  memoryCtx: ProjectMemoryContext
+  memoryCtx: ProjectMemoryContext,
+  retrievalStrategy?: RetrievalStrategy
 ): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ctx = projectContext as any
@@ -142,7 +181,45 @@ function buildAgentSystemPrompt(
     lines.push('')
   }
 
+  if (retrievalStrategy?.taskType === 'spec_lookup') {
+    appendSpecLookupPrompt(lines)
+  }
+
+  if (retrievalStrategy?.taskType === 'submittal_register') {
+    appendSubmittalRegisterPrompt(lines)
+  }
+
   return lines.join('\n')
+}
+
+function appendSpecLookupPrompt(lines: string[]): void {
+  lines.push(
+    'Spec lookup workflow:',
+    '1. Treat specifications as the primary source of truth for this question.',
+    '2. Start with getSpecSection when a CSI section is provided or implied; otherwise use spec-focused searches before relying on general project search.',
+    '3. Cite the strongest available source metadata: spec section, part/paragraph reference, page, document, chunk, or filename.',
+    '4. Format the answer with clear labels: Requirement, Interpretation, Recommended action.',
+    '5. If the relevant spec section or requirement is not found, say that directly and explain what was searched.',
+    '6. Do not present an uncited interpretation as a confirmed contract requirement.',
+    '7. If only general document context is available, answer cautiously and mark the limitation.',
+    '',
+    'TODO: preferredDocumentTypes for spec_lookup are not enforced by the current retrieval layer yet; use available spec tools and preserve fallback behavior.',
+    '',
+  )
+}
+
+function appendSubmittalRegisterPrompt(lines: string[]): void {
+  lines.push(
+    'Submittal register workflow:',
+    '1. Start with buildSubmittalRegister to extract structured submittal requirements from project specifications.',
+    '2. If that tool returns no items, continue with getSpecSection and searchEntities before answering.',
+    '3. Return register rows as JSON-compatible structured items with specSection, sectionTitle, submittalItem, submittalType, requiredAction, approvalRequired, sourceReference, excerpt, confidence, and notes.',
+    '4. Cite sourceReference fields when available. Do not invent section, page, document, or approval metadata.',
+    '5. If project specs are missing or do not contain submittal requirements, state that the register cannot be completed from available evidence.',
+    '',
+    'TODO: submittal_register preferredDocumentTypes are not enforced by the current generic retrieval layer yet; the dedicated register tool uses available spec entity findings and preserves fallback behavior.',
+    '',
+  )
 }
 
 // ---------------------------------------------------------------------------
