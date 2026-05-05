@@ -10,6 +10,7 @@ import {
 } from '../src/lib/chat/source-references.ts'
 import {
   extractSubmittalRegisterItemsFromText,
+  groupSubmittalRegisterForReview,
 } from '../src/lib/chat/submittal-register.ts'
 
 const examples = [
@@ -175,3 +176,50 @@ for (const item of uncitedRegisterItems) {
     confidenceReason: item.confidenceReason,
   }, null, 2))
 }
+
+const earthworkSampleItems = extractSubmittalRegisterItemsFromText(
+  `
+  Submit product data for geotextile separator fabric for approval.
+  Submit SD-06 test reports for compaction testing.
+  Provide SD-07 certificates for imported borrow material.
+  `,
+  normalizeSourceReference({
+    source_type: 'specification',
+    spec_section: '31 23 00',
+    section_title: 'Earthwork',
+    page_number: 8,
+    document_id: 'doc_sample_earthwork',
+  })
+)
+
+const reviewSource = {
+  success: true,
+  projectId: 'sample-project',
+  source: 'sample_text',
+  items: [...sampleRegisterItems, ...earthworkSampleItems, ...uncitedRegisterItems],
+  confidence: 0.65,
+  notes: ['Combined sample register for grouped review demonstration.'],
+}
+
+const groupedReview = groupSubmittalRegisterForReview(reviewSource)
+
+console.log('')
+console.log('Grouped submittal register review:')
+console.log(JSON.stringify({
+  totalItemCount: groupedReview.totalItemCount,
+  groupCount: groupedReview.groupCount,
+  averageConfidence: groupedReview.averageConfidence,
+  reviewFlags: groupedReview.reviewFlags,
+  ungroupedCount: groupedReview.ungrouped.length,
+  groups: groupedReview.groups.map(group => ({
+    specSection: group.specSection,
+    sectionTitle: group.sectionTitle,
+    itemCount: group.itemCount,
+    averageConfidence: group.averageConfidence,
+    confidenceBreakdown: group.confidenceBreakdown,
+    citationBreakdown: group.citationBreakdown,
+    submittalTypeCounts: group.submittalTypeCounts,
+    approvalRequiredCount: group.approvalRequiredCount,
+    reviewFlags: group.reviewFlags,
+  })),
+}, null, 2))

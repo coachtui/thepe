@@ -141,6 +141,146 @@ export function formatSubmittalRegisterAsJson(result: SubmittalRegisterResult): 
   }, null, 2)
 }
 
+export interface SubmittalRegisterGroup {
+  specSection: string | null
+  sectionTitle: string | null
+  itemCount: number
+  averageConfidence: number
+  confidenceBreakdown: {
+    high: number
+    medium: number
+    low: number
+  }
+  citationBreakdown: {
+    fullyCited: number
+    partiallyCited: number
+    uncited: number
+  }
+  submittalTypeCounts: Record<string, number>
+  approvalRequiredCount: number
+  reviewFlags: string[]
+  items: SubmittalRegisterItem[]
+}
+
+export interface SubmittalRegisterReview {
+  success: boolean
+  projectId?: string
+  source: SubmittalRegisterResult['source']
+  totalItemCount: number
+  groupCount: number
+  averageConfidence: number
+  groups: SubmittalRegisterGroup[]
+  ungrouped: SubmittalRegisterItem[]
+  globalNotes: string[]
+  reviewFlags: string[]
+}
+
+export function groupSubmittalRegisterForReview(
+  result: SubmittalRegisterResult
+): SubmittalRegisterReview {
+  const groupMap = new Map<string, SubmittalRegisterItem[]>()
+  const ungrouped: SubmittalRegisterItem[] = []
+
+  for (const item of result.items) {
+    if (!item.specSection) {
+      ungrouped.push(item)
+      continue
+    }
+    const key = normalizeKeyPart(item.specSection)
+    const list = groupMap.get(key) ?? []
+    list.push(item)
+    groupMap.set(key, list)
+  }
+
+  const groups = Array.from(groupMap.values())
+    .map(buildSubmittalRegisterGroup)
+    .sort(compareGroupsBySection)
+
+  const reviewFlags: string[] = []
+  if (ungrouped.length > 0) {
+    reviewFlags.push(`${ungrouped.length} item(s) lack a spec section and could not be grouped.`)
+  }
+  if (groups.length === 0 && ungrouped.length === 0) {
+    reviewFlags.push('No submittal register items available for review.')
+  }
+
+  return {
+    success: result.success,
+    projectId: result.projectId,
+    source: result.source,
+    totalItemCount: result.items.length,
+    groupCount: groups.length,
+    averageConfidence: result.confidence,
+    groups,
+    ungrouped,
+    globalNotes: result.notes,
+    reviewFlags,
+  }
+}
+
+export function formatSubmittalRegisterReviewAsJson(review: SubmittalRegisterReview): string {
+  return JSON.stringify(review, null, 2)
+}
+
+function buildSubmittalRegisterGroup(items: SubmittalRegisterItem[]): SubmittalRegisterGroup {
+  const first = items[0]
+  const confidenceBreakdown = { high: 0, medium: 0, low: 0 }
+  const citationBreakdown = { fullyCited: 0, partiallyCited: 0, uncited: 0 }
+  const submittalTypeCounts: Record<string, number> = {}
+  let approvalRequiredCount = 0
+
+  for (const item of items) {
+    const quality = item.sourceQuality ?? 'low'
+    confidenceBreakdown[quality] += 1
+
+    const completeness = item.citationCompleteness ?? 0
+    if (completeness >= 4) citationBreakdown.fullyCited += 1
+    else if (completeness >= 1) citationBreakdown.partiallyCited += 1
+    else citationBreakdown.uncited += 1
+
+    if (item.submittalType) {
+      submittalTypeCounts[item.submittalType] = (submittalTypeCounts[item.submittalType] ?? 0) + 1
+    }
+    if (item.approvalRequired) approvalRequiredCount += 1
+  }
+
+  const reviewFlags: string[] = []
+  if (citationBreakdown.uncited > 0) {
+    reviewFlags.push(`${citationBreakdown.uncited} item(s) lack citation metadata.`)
+  }
+  if (confidenceBreakdown.low > 0 && confidenceBreakdown.high === 0 && confidenceBreakdown.medium === 0) {
+    reviewFlags.push('All items in this group are low confidence; manual review required.')
+  } else if (confidenceBreakdown.low > 0) {
+    reviewFlags.push(`${confidenceBreakdown.low} low-confidence item(s) — verify against spec source.`)
+  }
+  if (approvalRequiredCount > 0) {
+    reviewFlags.push(`${approvalRequiredCount} item(s) require approval — confirm submittal routing.`)
+  }
+
+  const averageConfidence = roundConfidence(
+    items.reduce((sum, item) => sum + item.confidence, 0) / items.length
+  )
+
+  return {
+    specSection: first.specSection,
+    sectionTitle: first.sectionTitle,
+    itemCount: items.length,
+    averageConfidence,
+    confidenceBreakdown,
+    citationBreakdown,
+    submittalTypeCounts,
+    approvalRequiredCount,
+    reviewFlags,
+    items,
+  }
+}
+
+function compareGroupsBySection(a: SubmittalRegisterGroup, b: SubmittalRegisterGroup): number {
+  const aKey = a.specSection ?? ''
+  const bKey = b.specSection ?? ''
+  return aKey.localeCompare(bKey)
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractItemsFromSpecEntity(row: any, keyword: string | null): SubmittalRegisterItem[] {
   const citation = row.entity_citations?.[0]
