@@ -49,7 +49,7 @@ const VISION_ELIGIBLE_TYPES = new Set<DocumentType>(['drawing'])
  * is introduced.
  */
 export function isVisionEligible(documentType: string | null | undefined): boolean {
-  if (documentType == null || documentType === '') return true
+  if (documentType == null || documentType === '') return false
   return VISION_ELIGIBLE_TYPES.has(documentType as DocumentType)
 }
 
