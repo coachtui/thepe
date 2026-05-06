@@ -216,6 +216,38 @@ export interface SpecExtractionPipelineResult {
   warnings: string[]
 }
 
+/**
+ * Lightweight per-section record produced by `discoverSpecSections`.
+ * Serialisable (no class instances) — safe to store as an Inngest step result
+ * and pass between steps.
+ */
+export interface SectionManifestEntry {
+  sectionNumber: string
+  sectionTitle: string
+  /** Full body text of the section (up to maxSectionChars). Oversized sections
+   *  are included here and skipped later inside extractSectionBatch. */
+  bodyText: string
+  sourceChunkIds: string[]
+  sourcePageNumbers: number[]
+}
+
+export interface DiscoverSpecSectionsResult {
+  documentClassification: SpecDocumentType
+  /** Deduplicated, capped section manifest (ready for batching). */
+  manifest: SectionManifestEntry[]
+  /** Count before dedup + cap — for logging. */
+  totalRawSections: number
+  chunkCount: number
+  warnings: string[]
+}
+
+export interface ExtractSectionBatchResult {
+  sections: SpecSectionExtractionResult[]
+  sectionsAttempted: number
+  sectionsSucceeded: number
+  totalCostUsd: number
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -371,6 +403,144 @@ export async function runSpecExtractionPipeline(
     sectionsSucceeded,
     totalCostUsd: roundCurrency(totalCostUsd),
     warnings,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Batched-extraction helpers (used by the batched Inngest function path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Phase 1: discover sections without running the LLM.
+ *
+ * Loads all chunks, concatenates, runs the CSI regex, dedupes, caps, and
+ * returns a lightweight `SectionManifestEntry[]` that can be safely stored as
+ * an Inngest step result and passed to `extractSectionBatch` in later steps.
+ */
+export function discoverSpecSections(input: {
+  documentMeta: SpecDocumentMeta
+  chunks: SpecChunkInput[]
+  options?: Partial<SpecExtractionPipelineOptions>
+}): DiscoverSpecSectionsResult {
+  const opts = {
+    maxSectionsPerDocument:
+      input.options?.maxSectionsPerDocument ?? DEFAULT_MAX_SECTIONS_PER_DOCUMENT,
+  }
+  const warnings: string[] = []
+
+  const sorted = [...input.chunks].sort((a, b) => a.chunk_index - b.chunk_index)
+  const { fullText, indexMap } = concatChunks(sorted)
+  const documentClassification = classifySpecDocument(
+    input.documentMeta.title ?? '',
+    input.documentMeta.filename
+  )
+
+  if (documentClassification === null) {
+    warnings.push(
+      'Document was not classified as a spec by title/filename heuristic — attempting section detection anyway.'
+    )
+  }
+
+  const rawSections = extractSpecSections(fullText)
+  if (rawSections.length === 0) {
+    warnings.push(
+      'No CSI section headers detected in the concatenated document text — nothing to extract.'
+    )
+    return {
+      documentClassification,
+      manifest: [],
+      totalRawSections: 0,
+      chunkCount: sorted.length,
+      warnings,
+    }
+  }
+
+  const sectionSlices = sliceSections(fullText, rawSections, indexMap)
+  const dedupedSlices = dedupeSlicesBySectionNumber(sectionSlices)
+  const dedupedDropCount = sectionSlices.length - dedupedSlices.length
+  if (dedupedDropCount > 0) {
+    warnings.push(
+      `Detected ${sectionSlices.length} section header occurrences; deduped to ${dedupedSlices.length} unique sectionNumber(s) (kept the longest body for each).`
+    )
+  }
+
+  const limitedSlices = dedupedSlices.slice(0, opts.maxSectionsPerDocument)
+  if (dedupedSlices.length > opts.maxSectionsPerDocument) {
+    warnings.push(
+      `Document has ${dedupedSlices.length} unique sections; capped at ${opts.maxSectionsPerDocument} (configurable via maxSectionsPerDocument).`
+    )
+  }
+
+  const manifest: SectionManifestEntry[] = limitedSlices.map(slice => ({
+    sectionNumber: slice.sectionNumber,
+    sectionTitle: slice.sectionTitle,
+    bodyText: slice.bodyText,
+    sourceChunkIds: slice.sourceChunks.map(c => c.id),
+    sourcePageNumbers: slice.sourcePageNumbers,
+  }))
+
+  return {
+    documentClassification,
+    manifest,
+    totalRawSections: rawSections.length,
+    chunkCount: sorted.length,
+    warnings,
+  }
+}
+
+/**
+ * Phase 2: run LLM extraction for a batch of manifest entries.
+ *
+ * Constructs synthetic `SectionSlice` objects from each `SectionManifestEntry`
+ * (only `id` is needed from sourceChunks — `extractSection` only calls
+ * `.map(c => c.id)` on them). Returns raw `SpecSectionExtractionResult[]`
+ * so the caller can build persistence rows and log batch-level metrics.
+ */
+export async function extractSectionBatch(input: {
+  batchEntries: SectionManifestEntry[]
+  llmCaller: SpecLlmCaller
+  options?: Partial<SpecExtractionPipelineOptions>
+}): Promise<ExtractSectionBatchResult> {
+  const opts = {
+    maxSectionChars: input.options?.maxSectionChars ?? DEFAULT_MAX_SECTION_CHARS,
+  }
+  const sections: SpecSectionExtractionResult[] = []
+  let totalCostUsd = 0
+  let sectionsAttempted = 0
+  let sectionsSucceeded = 0
+
+  for (const entry of input.batchEntries) {
+    sectionsAttempted += 1
+    const syntheticSlice: SectionSlice = {
+      sectionNumber: entry.sectionNumber,
+      sectionTitle: entry.sectionTitle,
+      bodyText: entry.bodyText,
+      startIndex: 0,
+      endIndex: entry.bodyText.length,
+      // extractSection only calls .map(c => c.id) — other fields are unused.
+      sourceChunks: entry.sourceChunkIds.map(id => ({
+        id,
+        chunk_index: 0,
+        content: '',
+        page_number: null,
+        metadata: null,
+      })),
+      sourcePageNumbers: entry.sourcePageNumbers,
+      charCount: entry.bodyText.length,
+    }
+    const result = await extractSection(syntheticSlice, input.llmCaller, opts)
+    if (result.modelUsed && !result.validationFailed && result.requirements.length > 0) {
+      sectionsSucceeded += 1
+    }
+    totalCostUsd += result.costUsd
+    sections.push(result)
+  }
+
+  return {
+    sections,
+    sectionsAttempted,
+    sectionsSucceeded,
+    totalCostUsd: roundCurrency(totalCostUsd),
   }
 }
 

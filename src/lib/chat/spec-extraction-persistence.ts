@@ -65,6 +65,13 @@ export interface PersistSpecExtractionOptions {
    * Inngest function) and for tests that inject a mock.
    */
   supabase?: ServiceRoleClient
+  /**
+   * When true, skip the full document-level delete before inserting.
+   * Use in batched flows where the caller manages deletion (either a
+   * one-time full delete at the start, or per-batch scoped deletes for
+   * retry idempotency).
+   */
+  skipDelete?: boolean
 }
 
 export type PersistSpecExtractionStep =
@@ -131,17 +138,20 @@ export async function persistSpecExtractionResult(
 
   // 4. Idempotent delete. Cascades to findings + citations + relationships
   //    via the schema's ON DELETE CASCADE foreign keys.
-  const del = await (supabase.from('project_entities') as AnyTable)
-    .delete()
-    .eq('project_id', opts.projectId)
-    .eq('discipline', 'spec')
-    .eq('source_document_id', opts.documentId)
-  if (del.error) {
-    return zeroOutcome('failed', {
-      sectionsSkippedByBuilder: rowSet.skippedSectionCount,
-      failedAt: 'delete_existing',
-      warning: `delete existing spec entities failed: ${del.error.message}`,
-    })
+  //    Skipped when opts.skipDelete === true (caller manages deletion separately).
+  if (!opts.skipDelete) {
+    const del = await (supabase.from('project_entities') as AnyTable)
+      .delete()
+      .eq('project_id', opts.projectId)
+      .eq('discipline', 'spec')
+      .eq('source_document_id', opts.documentId)
+    if (del.error) {
+      return zeroOutcome('failed', {
+        sectionsSkippedByBuilder: rowSet.skippedSectionCount,
+        failedAt: 'delete_existing',
+        warning: `delete existing spec entities failed: ${del.error.message}`,
+      })
+    }
   }
 
   // 5. Insert section entities. Returning id + canonical_name so we can
