@@ -14,6 +14,7 @@ import {
   formatSubmittalRegisterToolPayload,
   buildOutputSummary,
   buildSubmittalRegisterItemRows,
+  reconstructLatestSubmittalRegisterRun,
 } from '../src/lib/chat/submittal-register.ts'
 
 const examples = [
@@ -308,4 +309,70 @@ console.log('Persistence fallback transform check:')
 console.log(JSON.stringify({
   outputSummary: fallbackPersistenceSummary,
   itemRowCount: fallbackPersistenceRows.length,
+}, null, 2))
+
+const persistedRunRow = {
+  id: '00000000-0000-0000-0000-0000000000aa',
+  project_id: 'sample-project',
+  workflow_type: 'submittal_register',
+  status: 'completed',
+  source_type: 'chat_tool',
+  started_at: '2026-05-05T20:00:00.000Z',
+  completed_at: '2026-05-05T20:00:01.500Z',
+  duration_ms: 1500,
+  triggered_by_user_id: '00000000-0000-0000-0000-0000000000bb',
+  triggered_by_role: null,
+  inputs: { sectionFilter: null, keyword: null, limit: 200, taskType: 'submittal_register' },
+  error: null,
+}
+const persistedItemRows = reviewSource.items.map(item => ({ item_payload: item }))
+const reconstructedRun = reconstructLatestSubmittalRegisterRun(persistedRunRow, persistedItemRows)
+
+console.log('')
+console.log('Latest submittal register reconstruction (pure transform):')
+console.log(JSON.stringify({
+  workflowRunKeys: Object.keys(reconstructedRun.workflowRun),
+  workflowRunId: reconstructedRun.workflowRun.id,
+  itemCount: reconstructedRun.items.length,
+  groupedSectionCount: reconstructedRun.groupedSections.length,
+  ungroupedCount: reconstructedRun.ungrouped.length,
+  summary: reconstructedRun.summary,
+  firstGroupSection: reconstructedRun.groupedSections[0]?.specSection ?? null,
+  firstGroupItemCount: reconstructedRun.groupedSections[0]?.itemCount ?? 0,
+  liveGroupedSectionCount: groupedReview.groups.length,
+  groupCountMatchesLive:
+    reconstructedRun.groupedSections.length === groupedReview.groups.length,
+}, null, 2))
+
+const emptyReconstruction = reconstructLatestSubmittalRegisterRun(
+  { ...persistedRunRow, id: '00000000-0000-0000-0000-0000000000cc' },
+  []
+)
+
+console.log('')
+console.log('Latest submittal register reconstruction (empty items):')
+console.log(JSON.stringify({
+  itemCount: emptyReconstruction.items.length,
+  groupedSectionCount: emptyReconstruction.groupedSections.length,
+  ungroupedCount: emptyReconstruction.ungrouped.length,
+  summary: emptyReconstruction.summary,
+}, null, 2))
+
+const malformedItemRows = [
+  { item_payload: null },
+  { item_payload: { foo: 'bar' } },
+  { item_payload: reviewSource.items[0] },
+]
+const filteredReconstruction = reconstructLatestSubmittalRegisterRun(
+  { ...persistedRunRow, id: '00000000-0000-0000-0000-0000000000dd' },
+  malformedItemRows
+)
+
+console.log('')
+console.log('Latest submittal register reconstruction (skips malformed payloads):')
+console.log(JSON.stringify({
+  inputRowCount: malformedItemRows.length,
+  itemCount: filteredReconstruction.items.length,
+  expectedItemCount: 1,
+  matches: filteredReconstruction.items.length === 1,
 }, null, 2))

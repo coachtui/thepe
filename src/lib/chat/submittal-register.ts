@@ -320,6 +320,114 @@ export function buildSubmittalRegisterPersistedPayload(
   }
 }
 
+export interface LatestSubmittalRegisterWorkflowRun {
+  id: string
+  projectId: string
+  workflowType: string
+  status: string
+  sourceType: string
+  startedAt: string
+  completedAt: string | null
+  durationMs: number | null
+  triggeredByUserId: string | null
+  triggeredByRole: string | null
+  inputs: unknown
+  error: string | null
+}
+
+export interface LatestSubmittalRegisterRun {
+  workflowRun: LatestSubmittalRegisterWorkflowRun
+  summary: SubmittalRegisterOutputSummary
+  items: SubmittalRegisterItem[]
+  groupedSections: SubmittalRegisterGroup[]
+  ungrouped: SubmittalRegisterItem[]
+}
+
+export interface ReconstructWorkflowRunInput {
+  id: string
+  project_id: string
+  workflow_type: string
+  status: string
+  source_type: string
+  started_at: string
+  completed_at: string | null
+  duration_ms: number | null
+  triggered_by_user_id: string | null
+  triggered_by_role: string | null
+  inputs: unknown
+  error: string | null
+}
+
+export interface ReconstructItemRowInput {
+  item_payload: unknown
+}
+
+/**
+ * Pure transform: rebuilds a backend-safe view of a persisted
+ * `submittal_register` workflow run from its DB rows.
+ *
+ * Each row's `item_payload` is the original `SubmittalRegisterItem`
+ * snapshot, so the reconstructed grouped output is byte-for-byte
+ * equivalent to the live tool path's output (same `groupSubmittalRegisterForReview`).
+ * Malformed payloads are skipped rather than throwing.
+ */
+export function reconstructLatestSubmittalRegisterRun(
+  runRow: ReconstructWorkflowRunInput,
+  itemRows: ReconstructItemRowInput[]
+): LatestSubmittalRegisterRun {
+  const items = itemRows
+    .map(row => row.item_payload)
+    .filter(isLikelySubmittalRegisterItem)
+
+  const reconstructedResult: SubmittalRegisterResult = {
+    success: true,
+    projectId: runRow.project_id,
+    source: 'spec_entity_graph',
+    items,
+    confidence: averageItemConfidence(items),
+    notes: [],
+  }
+
+  const review = groupSubmittalRegisterForReview(reconstructedResult)
+  const summary = buildOutputSummary(reconstructedResult)
+
+  return {
+    workflowRun: {
+      id: runRow.id,
+      projectId: runRow.project_id,
+      workflowType: runRow.workflow_type,
+      status: runRow.status,
+      sourceType: runRow.source_type,
+      startedAt: runRow.started_at,
+      completedAt: runRow.completed_at,
+      durationMs: runRow.duration_ms,
+      triggeredByUserId: runRow.triggered_by_user_id,
+      triggeredByRole: runRow.triggered_by_role,
+      inputs: runRow.inputs,
+      error: runRow.error,
+    },
+    summary,
+    items,
+    groupedSections: review.groups,
+    ungrouped: review.ungrouped,
+  }
+}
+
+function isLikelySubmittalRegisterItem(value: unknown): value is SubmittalRegisterItem {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.submittalItem === 'string' &&
+    typeof candidate.confidence === 'number'
+  )
+}
+
+function averageItemConfidence(items: SubmittalRegisterItem[]): number {
+  if (items.length === 0) return 0
+  const total = items.reduce((sum, item) => sum + (item.confidence ?? 0), 0)
+  return Math.round((total / items.length) * 100) / 100
+}
+
 function buildSubmittalRegisterGroup(items: SubmittalRegisterItem[]): SubmittalRegisterGroup {
   const first = items[0]
   const confidenceBreakdown = { high: 0, medium: 0, low: 0 }
