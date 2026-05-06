@@ -389,6 +389,51 @@ Implemented so far:
       - `npm run router:harness` exit 0. Three new pure-transform blocks for the row builder.
       - `npm run build` passes. No new routes; one new module added (`spec-extraction-persistence.ts`). `/projects/[id]` First Load JS unchanged at 12.9 kB.
 
+20. Spec extraction Inngest function + manual trigger endpoint (Option A, phase A3c)
+    - Architectural context: A3c is the durable orchestration layer. Pure pipeline (A3a) + persistence (A3b) are the building blocks; this phase wires them into an Inngest function and exposes a manual endpoint to fire it. Auto-trigger on upload is **explicitly NOT wired** — only the manual endpoint sends the event.
+    - Files:
+      - `src/lib/chat/spec-extraction-llm.ts` *(new)* — adapter `createAnthropicSpecLlmCaller(options?)` that returns a `SpecLlmCaller` backed by Anthropic. Defaults: `claude-haiku-4-5-20251001`, `temperature=0`, `max_tokens=4096`. Cost estimation uses Haiku 4.5 pricing ($0.40/M input, $2.00/M output) — same numbers as `claude-vision.ts:getModelPricing()` (kept in sync by hand). API key read lazily from `process.env.ANTHROPIC_API_KEY` per call so a missing key doesn't block module load. Errors (missing key, API failure) are returned as `SpecLlmCallOutput.error` strings — caller never throws.
+      - `src/inngest/client.ts` — extends `Events` typemap with `'spec/document.extract': { data: { documentId, projectId, trigger } }`. Same shape as `'vision/document.process'` minus the `maxPages` field.
+      - `src/inngest/functions/spec-extract-document.ts` *(new)* — `specExtractDocument` Inngest function. `retries: 3`, `concurrency: { limit: 5 }` (matches existing vision function). Three steps: `load-document` (verify exists, project_id matches event, `document_type='spec'`, `processing_status='completed'`) → `extract` (fetch chunks + run pipeline + LLM calls) → `persist` (call `persistSpecExtractionResult`). Returns a compact summary; `onFailure` logs final-failure on retry exhaustion.
+      - `src/app/api/inngest/route.ts` — registers `specExtractDocument` in the `serve()` `functions: [...]` array.
+      - `src/app/api/projects/[id]/documents/[documentId]/extract-specs/route.ts` *(new)* — `POST` handler. Auth + `project_members` check + document validation (exists, belongs to project, `document_type='spec'`, `processing_status='completed'`) → `inngest.send()` with dedup id `spec-extract-${documentId}` (mirrors `triggerVisionWithInngest()`).
+    - Inngest event + function:
+      - **Event:** `spec/document.extract` with payload `{ documentId, projectId, trigger }`. Dedup id is `spec-extract-${documentId}` so duplicate triggers within Inngest's dedup window queue only one job.
+      - **Function:** `spec-extract-document` — three sequential `step.run()` blocks. Step results are memoized by Inngest, so a step failure retries only that step (not the whole function), and the expensive LLM-calling extract step doesn't pay twice.
+      - **Concurrency:** 5 parallel extractions max (same as vision). Conservative because Haiku has higher rate limits; can be raised later.
+    - Manual trigger endpoint:
+      - `POST /api/projects/[id]/documents/[documentId]/extract-specs`
+      - Auth: cookie-bound supabase + `project_members` row (any role). Same pattern as the corrections / memory-confirm / submittal-register routes.
+      - Validation: 401 (no user) → 403 (not a member) → 404 (no doc) → 403 (doc not in project) → 400 (`document_type !== 'spec'`) → 409 (`processing_status !== 'completed'`).
+      - Success: returns `{ success: true, accepted: true, eventId, documentId, projectId, filename }`.
+    - LLM caller / provider approach:
+      - Reuses the existing repo pattern: `import Anthropic from '@anthropic-ai/sdk'`, `new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })`, `messages.create({ model, max_tokens, temperature, messages })`. Mirrors `claude-vision.ts` and `plan-reader.ts`.
+      - **Defaults to Haiku 4.5** per the routed-specialists architecture mandate (memory: `project_routed_specialists_architecture.md`). Sonnet is reserved for hard cross-discipline reasoning — spec extraction is a structured-extraction specialist task and Haiku-first is the right default.
+      - The `modelHint` field on `SpecLlmCallInput` exists but is not used today. A future wrapper can read it to swap to Sonnet on validation-failure / low-confidence sections (escalation policy from the original D5 decision).
+      - No new dependencies. No hardcoded keys. The Anthropic SDK was already in `package.json`.
+    - Retry / idempotency behavior (per the operator's note before A3c):
+      - The persist step is a delete-then-reinsert keyed on `(project_id, discipline='spec', source_document_id)`. Schema cascade drops dependents.
+      - Therefore retries — at the step level OR the function level — are ALWAYS safe: a retry deletes any partial state from the previous attempt and re-inserts.
+      - Step-level retries: Inngest re-runs only the failed step (memoized prior step results stay valid). The expensive LLM calls in the `extract` step are NOT re-paid when only the `persist` step retries.
+      - Function-level retries: Inngest reruns the function from the top with retained memoization, so completed steps still short-circuit; only the failed step re-executes.
+      - Mid-flow partial state inside the persist step (e.g., citations inserted but findings failed) is self-healed by the next persist call — its first action is to delete everything for the document and start fresh.
+      - `failedAt: PersistSpecExtractionStep` and `pipeline.warnings` are returned in the function output for ops visibility.
+    - Auth / project / document checks (manual endpoint):
+      - **Auth:** `auth.getUser()` from cookie-bound supabase. 401 if missing.
+      - **Project:** `project_members` row (any role). 403 if missing.
+      - **Document exists:** `documents.maybeSingle()`. 404 if not found.
+      - **Document scoping:** `doc.project_id === projectId`. 403 if mismatch.
+      - **Document type:** `doc.document_type === 'spec'`. 400 with explanatory error if not.
+      - **Text processing complete:** `doc.processing_status === 'completed'`. 409 with hint to wait if not.
+      - **Defense-in-depth:** the Inngest function re-validates type + status before doing LLM work. So if the manual endpoint is bypassed (e.g., another path sends the event directly), the function still skips with a logged reason instead of corrupting data.
+    - What this does NOT do (deferred to A4 + a follow-up):
+      - **No auto-trigger** on document upload. Specs uploaded via the existing flow get text-processed and chunked but no extraction happens until `POST /extract-specs` is called.
+      - **No UI button** for the endpoint. End-to-end UX (upload spec → click "Extract specs" → panel populates) needs a tiny UI change in `DocumentList` or similar; deferred.
+      - **No durable status tracking.** Spec-extraction completion is observable via `project_entities WHERE discipline='spec' AND source_document_id=?` plus Inngest's run history UI. A `workflow_runs` row would require extending the `workflow_type` CHECK constraint — deferred per D3.
+    - Build / harness:
+      - `npm run router:harness` exit 0. No new harness blocks — A3c is glue (Inngest function + endpoint), not pure helpers. The pure helpers in A3a + A3b already cover the core logic.
+      - `npm run build` passes. New route appears as `/api/projects/[id]/documents/[documentId]/extract-specs` in the build output.
+
 ## Next Recommended Step
 
 Optional follow-ups, no clear single next step:

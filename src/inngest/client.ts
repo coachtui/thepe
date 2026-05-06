@@ -24,4 +24,18 @@ export type Events = {
       maxPages?: number
     }
   }
+  /**
+   * Triggered to extract CSI spec sections + requirements from a document
+   * with `document_type='spec'`. Idempotent — safe to retry. Each run
+   * deletes existing `discipline='spec'` entities for the document and
+   * re-inserts from scratch via `persistSpecExtractionResult`.
+   */
+  'spec/document.extract': {
+    data: {
+      documentId: string
+      projectId: string
+      /** Label identifying which code path triggered this event */
+      trigger: string
+    }
+  }
 }
