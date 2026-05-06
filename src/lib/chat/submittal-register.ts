@@ -53,8 +53,20 @@ export async function buildSubmittalRegisterFromSpecs(
 ): Promise<SubmittalRegisterResult> {
   const { projectId, supabase, sectionFilter, keyword, limit = 200 } = opts
 
+  // Prefer service-role client for reliable access to spec entity graph
+  // regardless of session state. Falls back to the injected client when
+  // the service-role key is unavailable (tests, CI).
+  let activeSupabase: SupabaseClient = supabase
   try {
-    let query = (supabase as SupabaseClient)
+    // Dynamic import keeps the harness (raw Node ESM) from failing at load time.
+    const { createServiceRoleClient } = await import('../db/supabase/service')
+    activeSupabase = createServiceRoleClient()
+  } catch {
+    // intentional no-op — use injected client
+  }
+
+  try {
+    let query = (activeSupabase as SupabaseClient)
       .from('project_entities')
       .select(`
         id, entity_type, subtype, canonical_name, display_name, label,
@@ -80,7 +92,12 @@ export async function buildSubmittalRegisterFromSpecs(
 
     const { data: rows, error } = await query
 
-    if (error || !rows || rows.length === 0) {
+    if (error) {
+      console.error('[SubmittalRegister] spec entity query failed:', error.message ?? error)
+      return emptyResult(projectId, [`Spec entity query error: ${error.message ?? 'unknown'}`])
+    }
+
+    if (!rows || rows.length === 0) {
       return emptyResult(projectId, ['No spec entity graph rows found for submittal register extraction.'])
     }
 
@@ -620,6 +637,7 @@ function extractItemsFromSpecEntity(row: any, keyword: string | null): Submittal
       const statement = String(finding.statement ?? finding.text_value ?? '')
       const isSubmittalFinding =
         finding.finding_type === 'submittal_requirement' ||
+        finding.metadata?.requirementFamily === 'submittal_requirement' ||
         isLikelySubmittalRequirement(statement)
 
       if (!isSubmittalFinding) return false
@@ -648,7 +666,8 @@ function extractItemsFromSpecEntity(row: any, keyword: string | null): Submittal
         excerpt: citation?.excerpt ?? statement,
         baseConfidence: finding.confidence ?? row.confidence ?? 0.82,
         extractionMethod: 'spec_entity_graph',
-        isExplicitFinding: finding.finding_type === 'submittal_requirement',
+        isExplicitFinding: finding.finding_type === 'submittal_requirement' ||
+          finding.metadata?.requirementFamily === 'submittal_requirement',
         notes: finding.metadata?.notes ?? null,
       })
     })
