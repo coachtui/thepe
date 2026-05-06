@@ -103,11 +103,27 @@ export function classifySpecDocument(
 // ---------------------------------------------------------------------------
 
 /**
- * CSI section header patterns.
- * Handles "03 30 00", "033000", "Section 03 30 00", "SECTION 03 30 00 -"
+ * CSI section header pattern.
+ *
+ * Anchored on the literal `SECTION` keyword + a CSI 6-digit number + an
+ * uppercase title, with a forward-lookahead at one of three things that
+ * always follow a real section header in CSI / federal / AIA specs:
+ *   - date stamp `MM/YY`           — federal (NAVFAC, USACE, MILCON)
+ *   - `PART 1` / `PART 2` / `PART 3` — universal across formats
+ *   - article number `1.1`, `1.2`, etc. — fallback for specs that skip PART headers
+ *
+ * Why the lookahead instead of `\n|$`: real PDFs (LlamaParse output, vision
+ * OCR) frequently arrive as one giant single line with `---PAGE-BREAK---`
+ * markers as the only structural break. A newline-anchored regex misses
+ * every real section header and only catches incidental matches at chunk
+ * boundaries (where pipeline concatenation inserts `\n\n`).
+ *
+ * The `SECTION` keyword prefix is the precision anchor — it eliminates
+ * false positives on incidental six-digit patterns like "Geneva-Switzerland
+ * 38 12 15" or "(date) 02/24, NFHI 02/28/2024 PART 1".
  */
 export const CSI_SECTION_PATTERN =
-  /(?:SECTION\s+)?(\d{2}\s*\d{2}\s*\d{2})\s*[-–]?\s*([A-Z][A-Z\s\-/&,]+?)(?:\n|$)/gi
+  /SECTION\s+(\d{2}\s+\d{2}\s+\d{2})\s*[-–]?\s*([A-Z][A-Z\s,/&\-]+?)\s+(?=\d{1,2}\/\d{2}|PART\s+[123I]|\d+\.\d+)/g
 
 /**
  * CSI PART heading patterns.

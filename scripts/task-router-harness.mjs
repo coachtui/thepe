@@ -709,7 +709,7 @@ console.log(JSON.stringify({
 }, null, 2))
 
 const oversizeBody =
-  'SECTION 99 99 99 - GIANT SECTION\n' +
+  'SECTION 99 99 99 GIANT SECTION PART 1 GENERAL\n' +
   Array.from({ length: 800 }, (_, i) => `${i + 1}. The contractor shall comply with the requirements of this section.`).join('\n')
 
 const oversizeResult = await runSpecExtractionPipeline({

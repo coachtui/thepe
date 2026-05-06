@@ -95,9 +95,12 @@ export async function POST(
   // ── Send Inngest event ───────────────────────────────────────────────────
   try {
     const eventResult = await inngest.send({
-      // Dedupe key: same document within Inngest's dedup window queues only
-      // one job. Mirrors `triggerVisionWithInngest()`.
-      id: `spec-extract-${documentId}`,
+      // No `id` field: spec extraction is intentionally re-runnable (backfill
+      // after prompt changes, ops-driven retries) and the persistence layer
+      // is idempotent (delete-then-reinsert). Static dedup keys would suppress
+      // legitimate re-runs within Inngest's 24h dedup window — opposite of
+      // what we want. Vision uses a static id because vision shouldn't re-run
+      // on the same doc; spec extraction should.
       name: 'spec/document.extract',
       data: {
         projectId,

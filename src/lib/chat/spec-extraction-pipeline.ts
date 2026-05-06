@@ -323,15 +323,29 @@ export async function runSpecExtractionPipeline(
   // 5. Slice each section, attaching contributing chunks + pages.
   const sectionSlices = sliceSections(fullText, rawSections, indexMap)
 
-  // 6. Cap section count for cost / runtime safety.
-  const limitedSlices = sectionSlices.slice(0, opts.maxSectionsPerDocument)
-  if (sectionSlices.length > opts.maxSectionsPerDocument) {
+  // 6. Dedupe sections by sectionNumber. CSI section numbers commonly appear
+  // in multiple places in a project manual — TOC entries, section title
+  // pages, cross-references in other sections — and `extractSpecSections`
+  // matches every occurrence. Keep the slice with the longest body per
+  // sectionNumber: that's almost always the actual section content rather
+  // than a TOC entry or in-line reference.
+  const dedupedSlices = dedupeSlicesBySectionNumber(sectionSlices)
+  const dedupedDropCount = sectionSlices.length - dedupedSlices.length
+  if (dedupedDropCount > 0) {
     warnings.push(
-      `Document has ${sectionSlices.length} sections; capped at ${opts.maxSectionsPerDocument} (configurable via maxSectionsPerDocument).`
+      `Detected ${sectionSlices.length} section header occurrences; deduped to ${dedupedSlices.length} unique sectionNumber(s) (kept the longest body for each).`
     )
   }
 
-  // 7. Per-section extraction (deterministic regex-first + LLM call).
+  // 7. Cap section count for cost / runtime safety.
+  const limitedSlices = dedupedSlices.slice(0, opts.maxSectionsPerDocument)
+  if (dedupedSlices.length > opts.maxSectionsPerDocument) {
+    warnings.push(
+      `Document has ${dedupedSlices.length} unique sections; capped at ${opts.maxSectionsPerDocument} (configurable via maxSectionsPerDocument).`
+    )
+  }
+
+  // 8. Per-section extraction (deterministic regex-first + LLM call).
   const sections: SpecSectionExtractionResult[] = []
   let totalCostUsd = 0
   let sectionsAttempted = 0
@@ -451,6 +465,30 @@ function chunksOverlapping(
     }
   }
   return result
+}
+
+/**
+ * Dedupe section slices by `sectionNumber`, keeping the slice with the
+ * longest `bodyText` for each unique number. Preserves the document order
+ * of the surviving slices (sorted by `startIndex`).
+ *
+ * Why "longest body": when a section number appears multiple times in the
+ * document text (TOC, section title page, cross-references), the regex
+ * match that anchors at the actual section content always slices the
+ * largest body — TOC entries get a sliver, real sections get thousands of
+ * characters of PART 1/2/3 content.
+ */
+function dedupeSlicesBySectionNumber(slices: SectionSlice[]): SectionSlice[] {
+  const longestByNumber = new Map<string, SectionSlice>()
+  for (const slice of slices) {
+    const existing = longestByNumber.get(slice.sectionNumber)
+    if (!existing || slice.bodyText.length > existing.bodyText.length) {
+      longestByNumber.set(slice.sectionNumber, slice)
+    }
+  }
+  return Array.from(longestByNumber.values()).sort(
+    (a, b) => a.startIndex - b.startIndex
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -808,7 +846,7 @@ export interface SpecSectionEntityRow {
   canonical_name: string
   display_name: string | null
   subtype: string | null
-  status: string
+  status: string | null
   confidence: number | null
   extraction_source: 'text'
   source_document_id: string
@@ -823,7 +861,7 @@ export interface SpecRequirementEntityRow {
   canonical_name: string
   display_name: string | null
   subtype: string
-  status: string
+  status: string | null
   confidence: number | null
   extraction_source: 'text'
   source_document_id: string
@@ -877,13 +915,21 @@ export interface SpecPersistenceRowSet {
 }
 
 export interface BuildSpecPersistenceRowsOptions {
-  /** Default `status` value on entity rows. Defaults to `'active'`. */
-  defaultStatus?: string
   /**
-   * Default `support_level` for finding rows. Defaults to `'verified'` —
-   * spec text is the definitive authority for the requirement.
+   * `status` value on entity rows. Defaults to `null` — spec entities aren't
+   * physical things with a construction status, and the project_entities
+   * `status` CHECK only allows construction-domain values
+   * (`existing`, `new`, `to_remove`, …). Set to a value from that allow set
+   * if downstream filters require non-null status.
    */
-  defaultSupportLevel?: string
+  defaultStatus?: string | null
+  /**
+   * `support_level` for finding rows. Defaults to `'explicit'` — verbatim
+   * spec text is, by definition, explicit support for the requirement.
+   * The entity_findings `support_level` CHECK allows
+   * `explicit | inferred | unknown`.
+   */
+  defaultSupportLevel?: 'explicit' | 'inferred' | 'unknown'
   /** Maximum length of `display_name` for requirement entities (truncation target). */
   maxRequirementDisplayName?: number
 }
@@ -895,8 +941,8 @@ export function buildSpecPersistenceRows(
   options?: BuildSpecPersistenceRowsOptions
 ): SpecPersistenceRowSet {
   const opts = {
-    defaultStatus: options?.defaultStatus ?? 'active',
-    defaultSupportLevel: options?.defaultSupportLevel ?? 'verified',
+    defaultStatus: options?.defaultStatus === undefined ? null : options.defaultStatus,
+    defaultSupportLevel: options?.defaultSupportLevel ?? ('explicit' as const),
     maxRequirementDisplayName: options?.maxRequirementDisplayName ?? 120,
   }
 
@@ -985,7 +1031,14 @@ export function buildSpecPersistenceRows(
 
       const finding: SpecFindingRowTemplate = {
         project_id: projectId,
-        finding_type: req.requirementType,
+        // The entity_findings `finding_type` CHECK only allows the existing
+        // generic values (quantity, material, requirement, demo_scope, …).
+        // CSI requirement families (submittal_requirement, material_requirement,
+        // etc.) are not in that taxonomy. We persist `'requirement'` as the
+        // generic finding_type and stash the specific family in metadata so
+        // downstream consumers (buildSubmittalRegisterFromSpecs etc.) can
+        // filter on `metadata->>'requirementFamily'`.
+        finding_type: 'requirement',
         statement: req.statement,
         text_value: null,
         numeric_value: null,
@@ -993,6 +1046,7 @@ export function buildSpecPersistenceRows(
         support_level: opts.defaultSupportLevel,
         confidence: req.confidence,
         metadata: {
+          requirementFamily: req.requirementType,
           partReference: req.partReference,
           regexFamily: req.regexFamily,
           approvalRequired: req.approvalRequired,

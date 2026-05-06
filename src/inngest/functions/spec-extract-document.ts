@@ -46,9 +46,6 @@ interface DocumentRow {
   document_type: string | null
   processing_status: string | null
   filename: string
-  // `documents` may or may not have a `title` column depending on schema
-  // history; treat as optional.
-  title?: string | null
 }
 
 interface ChunkRow {
@@ -108,7 +105,7 @@ export const specExtractDocument = inngest.createFunction(
       const supabase = createServiceRoleClient()
       const { data, error } = await supabase
         .from('documents')
-        .select('id, project_id, document_type, processing_status, filename, title')
+        .select('id, project_id, document_type, processing_status, filename')
         .eq('id', documentId)
         .maybeSingle()
 
@@ -178,14 +175,23 @@ export const specExtractDocument = inngest.createFunction(
       'extract',
       async (): Promise<ExtractedResult | SkipResult> => {
         const supabase = createServiceRoleClient()
-        const { data: chunks, error } = await supabase
-          .from('document_chunks')
-          .select('id, chunk_index, content, page_number, metadata')
-          .eq('document_id', documentId)
-          .order('chunk_index', { ascending: true })
-
-        if (error) throw new Error(`load-chunks query failed: ${error.message}`)
-        const chunkRows = (chunks ?? []) as unknown as ChunkRow[]
+        // Page through document_chunks. supabase-js caps each select at 1000
+        // rows by default; spec PDFs commonly have 4–8K chunks, so a single
+        // unranged select silently truncates and we lose ~80% of the doc.
+        const PAGE_SIZE = 1000
+        const chunkRows: ChunkRow[] = []
+        for (let from = 0; ; from += PAGE_SIZE) {
+          const { data, error } = await supabase
+            .from('document_chunks')
+            .select('id, chunk_index, content, page_number, metadata')
+            .eq('document_id', documentId)
+            .order('chunk_index', { ascending: true })
+            .range(from, from + PAGE_SIZE - 1)
+          if (error) throw new Error(`load-chunks query failed: ${error.message}`)
+          if (!data || data.length === 0) break
+          for (const row of data as unknown as ChunkRow[]) chunkRows.push(row)
+          if (data.length < PAGE_SIZE) break
+        }
 
         if (chunkRows.length === 0) {
           return {
@@ -202,7 +208,9 @@ export const specExtractDocument = inngest.createFunction(
           projectId,
           documentId,
           documentMeta: {
-            title: doc.title ?? null,
+            // `documents` has no `title` column today — pass filename for both so
+            // the classifier still sees a stable signal.
+            title: doc.filename,
             filename: doc.filename,
           },
           chunks: chunkRows,
@@ -243,7 +251,7 @@ export const specExtractDocument = inngest.createFunction(
 
     logProduction.info(
       'Spec Extraction',
-      `[DONE] document=${documentId} status=${persistOutcome.status} sections=${persistOutcome.sectionsWritten} requirements=${persistOutcome.requirementsWritten} costUsd=${pipelineResult.totalCostUsd}`
+      `[DONE] document=${documentId} status=${persistOutcome.status} sections=${persistOutcome.sectionsWritten} requirements=${persistOutcome.requirementsWritten} costUsd=${pipelineResult.totalCostUsd} pipelineSectionsAttempted=${pipelineResult.sectionsAttempted} pipelineSectionsSucceeded=${pipelineResult.sectionsSucceeded} pipelineTotalSections=${pipelineResult.totalSections}${persistOutcome.failedAt ? ` failedAt=${persistOutcome.failedAt}` : ''}${persistOutcome.warning ? ` warning="${persistOutcome.warning.replace(/"/g, "'").slice(0, 300)}"` : ''}`
     )
 
     return {
