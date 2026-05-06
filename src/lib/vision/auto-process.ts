@@ -11,6 +11,7 @@ import { debug, logProduction } from '@/lib/utils/debug';
 import { getDocumentSignedUrl } from '@/lib/db/queries/documents';
 import { getPdfMetadata } from '@/lib/vision/pdf-to-image';
 import { inngest } from '@/inngest/client';
+import { isVisionEligible } from '@/lib/documents/document-types';
 
 interface AutoProcessResult {
   success: boolean;
@@ -305,11 +306,21 @@ export async function shouldAutoProcessVision(documentId: string): Promise<boole
   try {
     const { data: doc } = await supabase
       .from('documents')
-      .select('file_type, processing_status, vision_status, updated_at')
+      .select('file_type, processing_status, vision_status, updated_at, document_type')
       .eq('id', documentId)
       .single();
 
     if (!doc) return false;
+
+    // Document-type gate: vision runs only on drawings (and on legacy NULL rows
+    // for backward compatibility). Specs / schedules / submittals / other use
+    // text-only extraction — vision adds cost without value for those.
+    if (!isVisionEligible(doc.document_type)) {
+      logProduction.info('Vision Auto-Process',
+        `[SKIP-NON-DRAWING] document=${documentId} document_type=${doc.document_type} — vision skipped`
+      );
+      return false;
+    }
 
     const isPdf = doc.file_type === 'application/pdf';
     const textComplete = doc.processing_status === 'completed';

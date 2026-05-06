@@ -2,6 +2,12 @@
 
 import { useState, useCallback } from 'react'
 import { uploadDocumentFile, createDocument } from '@/lib/db/queries/documents'
+import {
+  DOCUMENT_TYPES,
+  DOCUMENT_TYPE_LABELS,
+  DOCUMENT_TYPE_HELP,
+  type DocumentType,
+} from '@/lib/documents/document-types'
 
 interface DocumentUploadProps {
   projectId: string
@@ -13,6 +19,7 @@ export function DocumentUpload({ projectId, onUploadComplete }: DocumentUploadPr
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<string>('')
+  const [documentType, setDocumentType] = useState<DocumentType>('drawing')
 
   const handleUpload = async (file: File) => {
     if (!file) return
@@ -71,6 +78,7 @@ export function DocumentUpload({ projectId, onUploadComplete }: DocumentUploadPr
         file_size_bytes: file.size,
         processing_status: 'pending',
         uploaded_by: user.id,
+        document_type: documentType,
       })
 
       setUploadProgress('Upload complete! Starting processing...')
@@ -142,7 +150,27 @@ export function DocumentUpload({ projectId, onUploadComplete }: DocumentUploadPr
   )
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-3">
+      <div>
+        <label htmlFor="document-type" className="block text-sm font-medium text-gray-700">
+          Document type
+        </label>
+        <select
+          id="document-type"
+          value={documentType}
+          onChange={(e) => setDocumentType(e.target.value as DocumentType)}
+          disabled={uploading}
+          className="mt-1 block w-full sm:w-64 rounded-md border border-gray-300 px-3 py-2 text-sm bg-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          {DOCUMENT_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {DOCUMENT_TYPE_LABELS[t]}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-gray-500">{DOCUMENT_TYPE_HELP[documentType]}</p>
+      </div>
+
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}

@@ -279,6 +279,26 @@ Implemented so far:
     - `npm run router:harness` passes — extends the existing reconstruction harness with merge-state assertions; no new top-level blocks needed.
     - `npm run build` passes — `/projects/[id]` grew from 9.59 kB → 12.5 kB First Load JS for the new panel; no new routes appeared.
 
+17. Document-type-aware upload + vision-pipeline gating (Option A, phases A1+A2)
+    - Architectural context: per `project_routed_specialists_architecture.md` and `project_pipeline_doc_type_split.md`, the system is a routed network of small specialists. Vision is the right tool for drawings only; specs / schedules / submittals are text-heavy and don't need vision. This phase makes the pipeline honor that distinction.
+    - Files:
+      - `src/lib/documents/document-types.ts` *(new)* — single source of truth for the type taxonomy. Exports `DOCUMENT_TYPES = ['drawing','spec','schedule','submittal','other']`, `DOCUMENT_TYPE_LABELS`, `DOCUMENT_TYPE_HELP`, `DocumentType` literal union, `isValidDocumentType()` type guard, `isVisionEligible(documentType)` helper. **NULL is treated as vision-eligible** so legacy uploads (pre-A1) keep their existing behavior with zero regression.
+      - `src/components/documents/DocumentUpload.tsx` — adds a required `<select>` above the dropzone (`drawing | spec | schedule | submittal | other`, default `drawing`). Help text under the picker explains what each type means and whether it goes through vision. Selected value flows through `createDocument()` as `document_type`. Disabled while uploading.
+      - `src/lib/vision/auto-process.ts` — `shouldAutoProcessVision()` now also fetches `document_type` and short-circuits with a `[SKIP-NON-DRAWING]` log line when `isVisionEligible(document_type)` is false. Added before the existing PDF / text-complete / vision-pending checks so non-drawing types never reach those.
+    - DB schema: NO migration. `documents.document_type` column already exists (`text`, nullable, no CHECK constraint — verified via `information_schema.columns`). App-layer validation only for v1; a DB-level CHECK can be added later if desired.
+    - Backfill (live): updated the Ammunition project (`c455e726-b3b4-4f87-97e9-70a89ec17228`) via Supabase MCP — `AmmunitionStorageWL_Amendment0002_Specifications.pdf` → `document_type='spec'`, `Ammunition_Storage_Drawings_redline.pdf` → `document_type='drawing'`. Done by filename heuristic (`ILIKE '%spec%'` / `ILIKE '%drawing%'`); both files matched cleanly.
+    - Behavior change summary:
+      - **Drawings:** unchanged. Same vision pipeline, same cost, same output.
+      - **Specs / schedules / submittals / other:** vision pipeline now skipped. Saves the full vision call cost (~$1–2/project on average per `project_inngest_vision.md`). Text extraction (LlamaParse → chunks → embeddings) still runs as before.
+      - **Legacy uploads (NULL `document_type`):** unchanged. `isVisionEligible(null) === true`, so existing rows keep running through vision exactly as before.
+    - What this does NOT do (deferred to A3):
+      - Spec-extractor still has zero callers. Specs upload, get text-extracted and chunked, but `project_entities` rows with `discipline='spec'` are still NOT created. `buildSubmittalRegister` will continue to return zero items until A3 wires `src/lib/vision/spec-extractor.ts` into a real Inngest function with Haiku 4.5 at temperature 0.
+      - No DB-level CHECK constraint on `document_type` — app-layer validation only.
+      - No UI for showing the type pill on the existing `DocumentList` (deferred — additive, not blocking).
+    - Build / harness:
+      - `npm run router:harness` passes (no new harness blocks; the changes are in the upload UI + Inngest gating, neither of which the harness exercises).
+      - `npm run build` passes. `/projects/[id]` First Load JS: 12.5 kB → 12.9 kB (+0.4 kB for the type picker).
+
 ## Next Recommended Step
 
 Optional follow-ups, no clear single next step:
