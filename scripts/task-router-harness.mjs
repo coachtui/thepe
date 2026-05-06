@@ -15,6 +15,8 @@ import {
   buildOutputSummary,
   buildSubmittalRegisterItemRows,
   reconstructLatestSubmittalRegisterRun,
+  validateSubmittalRegisterReviewUpdate,
+  ALLOWED_REVIEW_STATUSES,
 } from '../src/lib/chat/submittal-register.ts'
 
 const examples = [
@@ -375,4 +377,89 @@ console.log(JSON.stringify({
   itemCount: filteredReconstruction.items.length,
   expectedItemCount: 1,
   matches: filteredReconstruction.items.length === 1,
+}, null, 2))
+
+const reviewFixedAt = new Date('2026-05-05T20:30:00.000Z')
+const reviewValidatorCases = [
+  {
+    label: 'valid: approved + notes',
+    input: {
+      reviewStatus: 'approved',
+      reviewNotes: '  Looks good, approved as submitted.  ',
+      reviewedByUserId: '00000000-0000-0000-0000-0000000000bb',
+      reviewedByRole: 'editor',
+      reviewedAt: reviewFixedAt,
+    },
+  },
+  {
+    label: 'valid: rejected + null notes',
+    input: {
+      reviewStatus: 'rejected',
+      reviewNotes: null,
+      reviewedByUserId: '00000000-0000-0000-0000-0000000000bb',
+      reviewedByRole: 'owner',
+      reviewedAt: reviewFixedAt,
+    },
+  },
+  {
+    label: 'valid: empty-string notes normalized to null',
+    input: {
+      reviewStatus: 'needs_clarification',
+      reviewNotes: '   ',
+      reviewedByUserId: null,
+      reviewedByRole: null,
+      reviewedAt: reviewFixedAt,
+    },
+  },
+  {
+    label: 'valid: missing reviewedAt defaults to now',
+    input: {
+      reviewStatus: 'pending',
+      reviewedByUserId: null,
+      reviewedByRole: null,
+    },
+  },
+  {
+    label: 'invalid: unknown status',
+    input: { reviewStatus: 'maybe', reviewedAt: reviewFixedAt },
+  },
+  {
+    label: 'invalid: empty status string',
+    input: { reviewStatus: '', reviewedAt: reviewFixedAt },
+  },
+  {
+    label: 'invalid: numeric status',
+    input: { reviewStatus: 1, reviewedAt: reviewFixedAt },
+  },
+  {
+    label: 'invalid: notes is a number',
+    input: { reviewStatus: 'approved', reviewNotes: 42, reviewedAt: reviewFixedAt },
+  },
+]
+
+const reviewValidatorOutputs = reviewValidatorCases.map(c => {
+  const result = validateSubmittalRegisterReviewUpdate(c.input)
+  return {
+    label: c.label,
+    ok: result.ok,
+    update: result.ok
+      ? {
+          reviewStatus: result.update.reviewStatus,
+          reviewNotes: result.update.reviewNotes,
+          reviewedByUserId: result.update.reviewedByUserId,
+          reviewedByRole: result.update.reviewedByRole,
+          reviewedAtIsIsoString:
+            typeof result.update.reviewedAt === 'string' &&
+            !Number.isNaN(Date.parse(result.update.reviewedAt)),
+        }
+      : null,
+    error: result.ok ? null : result.error,
+  }
+})
+
+console.log('')
+console.log('Review-status validator cases:')
+console.log(JSON.stringify({
+  allowedReviewStatuses: ALLOWED_REVIEW_STATUSES,
+  cases: reviewValidatorOutputs,
 }, null, 2))

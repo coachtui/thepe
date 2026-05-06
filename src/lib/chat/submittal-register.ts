@@ -413,6 +413,85 @@ export function reconstructLatestSubmittalRegisterRun(
   }
 }
 
+export const ALLOWED_REVIEW_STATUSES = [
+  'pending',
+  'approved',
+  'approved_as_noted',
+  'rejected',
+  'needs_clarification',
+  'superseded',
+] as const
+
+export type SubmittalRegisterReviewStatus = (typeof ALLOWED_REVIEW_STATUSES)[number]
+
+export function isValidReviewStatus(value: unknown): value is SubmittalRegisterReviewStatus {
+  return (
+    typeof value === 'string' &&
+    (ALLOWED_REVIEW_STATUSES as readonly string[]).includes(value)
+  )
+}
+
+export interface SubmittalRegisterReviewUpdate {
+  reviewStatus: SubmittalRegisterReviewStatus
+  reviewNotes: string | null
+  reviewedByUserId: string | null
+  reviewedByRole: string | null
+  reviewedAt: string
+}
+
+export interface ValidateReviewUpdateInput {
+  reviewStatus: unknown
+  reviewNotes?: unknown
+  reviewedByUserId?: string | null
+  reviewedByRole?: string | null
+  reviewedAt?: Date
+}
+
+export type ValidateReviewUpdateResult =
+  | { ok: true; update: SubmittalRegisterReviewUpdate }
+  | { ok: false; error: string }
+
+/**
+ * Pure validator for an incoming review-status update.
+ *
+ * - `reviewStatus` must be one of `ALLOWED_REVIEW_STATUSES`.
+ * - `reviewNotes` may be string | null | undefined; non-string → error;
+ *   empty string is normalized to `null`.
+ * - `reviewedByUserId` / `reviewedByRole` are passed through (caller is
+ *   responsible for resolving the authenticated user's id/role before calling).
+ * - `reviewedAt` defaults to "now" if not provided.
+ */
+export function validateSubmittalRegisterReviewUpdate(
+  input: ValidateReviewUpdateInput
+): ValidateReviewUpdateResult {
+  if (!isValidReviewStatus(input.reviewStatus)) {
+    return {
+      ok: false,
+      error: `Invalid review_status. Must be one of: ${ALLOWED_REVIEW_STATUSES.join(', ')}`,
+    }
+  }
+
+  let reviewNotes: string | null = null
+  if (input.reviewNotes !== undefined && input.reviewNotes !== null) {
+    if (typeof input.reviewNotes !== 'string') {
+      return { ok: false, error: 'review_notes must be a string when provided' }
+    }
+    const trimmed = input.reviewNotes.trim()
+    reviewNotes = trimmed.length > 0 ? trimmed : null
+  }
+
+  return {
+    ok: true,
+    update: {
+      reviewStatus: input.reviewStatus,
+      reviewNotes,
+      reviewedByUserId: input.reviewedByUserId ?? null,
+      reviewedByRole: input.reviewedByRole ?? null,
+      reviewedAt: (input.reviewedAt ?? new Date()).toISOString(),
+    },
+  }
+}
+
 function isLikelySubmittalRegisterItem(value: unknown): value is SubmittalRegisterItem {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Record<string, unknown>

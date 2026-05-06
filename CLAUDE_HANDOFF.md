@@ -211,6 +211,45 @@ Implemented so far:
     - `npm run router:harness` passes — adds three new check blocks for reconstruction.
     - `npm run build` passes — new route appears as `/api/projects/[id]/submittal-register/latest` in the build output.
 
+15. Backend review-status update path for persisted `submittal_register_items`
+    - Files:
+      - `src/lib/chat/submittal-register.ts` — adds:
+        - `ALLOWED_REVIEW_STATUSES = ['pending','approved','approved_as_noted','rejected','needs_clarification','superseded'] as const`
+        - `SubmittalRegisterReviewStatus` (literal union) + `isValidReviewStatus(value)` type guard
+        - `SubmittalRegisterReviewUpdate` (normalized update payload), `ValidateReviewUpdateInput`, `ValidateReviewUpdateResult`
+        - `validateSubmittalRegisterReviewUpdate(input)` — pure validator. Trims `reviewNotes` strings, normalizes empty/whitespace-only to `null`, rejects non-string notes, rejects unknown statuses, defaults `reviewedAt` to `new Date()` when omitted. No I/O imports — harness-loadable.
+      - `src/lib/chat/submittal-register-review.ts` *(new)* — `updateSubmittalRegisterItemReview(supabase, opts)`. Service-role client only. Two-step:
+        1. `submittal_register_items.select('id').eq('id', itemId).eq('project_id', projectId).maybeSingle()` — defense-in-depth existence check; returns `not_found` for wrong-project / unknown item rather than a silent zero-row update.
+        2. `submittal_register_items.update({ review_status, review_notes, reviewed_by_user_id, reviewed_by_role, reviewed_at })` filtered by both `id` and `project_id`, with `.select(...).single()` to return the post-update row.
+        Returns a discriminated outcome `{ status: 'updated' | 'not_found' | 'error', ... }`. Uses generated `Database['public']['Tables']['submittal_register_items']['Update']` for the update payload — no `any` casts.
+      - `src/app/api/projects/[id]/submittal-register/review/route.ts` *(new)* — `POST` handler. Body: `{ item_id, review_status, review_notes? }`. Auth via cookie-bound supabase, then `project_members` membership check (any role). The user's `id` and `project_members.role` are used as `reviewed_by_user_id` and `reviewed_by_role` — clients cannot supply or override those fields. On success returns `{ success: true, item, allowedReviewStatuses }`; 400 for bad body / invalid status / missing item_id; 403 for non-members; 404 when the item is not in this project; 500 for service-role unavailability or update failure.
+      - `scripts/task-router-harness.mjs` — adds eight validator cases (4 valid, 4 invalid) including: status `approved` with notes that are trimmed; status `rejected` with explicit `null` notes; whitespace-only notes normalized to `null`; missing `reviewedAt` defaults to ISO-now; unknown status string; empty status string; numeric status; numeric `review_notes`. Each case asserts `ok` flag, normalized fields, and ISO-string shape of `reviewedAt`.
+    - Auth / RLS approach: same as `corrections`, `memory/confirm`, and `submittal-register/latest` — anon cookie client for `auth.getUser()` + `project_members` row check, then service-role for the update. No new SQL or RLS policy changes; existing `00050` policies cover the path. **`reviewed_by_user_id` and `reviewed_by_role` are server-derived from the authenticated session — clients cannot supply or override them.**
+    - Review status validation: 6 allowed values (`pending`, `approved`, `approved_as_noted`, `rejected`, `needs_clarification`, `superseded`). The list is exported (`ALLOWED_REVIEW_STATUSES`) and surfaced in the success response so a caller can echo it for UI dropdowns without a separate metadata call. Matches the DB CHECK constraint in `00050` line 133 verbatim — application validator and DB CHECK stay in lock-step; if the schema set is ever widened, this constant must be updated alongside.
+    - Update query shape:
+      ```sql
+      -- existence check
+      SELECT id FROM submittal_register_items
+      WHERE id = $1 AND project_id = $2 LIMIT 1;
+      -- update + return
+      UPDATE submittal_register_items SET
+        review_status = $3,
+        review_notes = $4,
+        reviewed_by_user_id = $5,
+        reviewed_by_role = $6,
+        reviewed_at = $7
+      WHERE id = $1 AND project_id = $2
+      RETURNING id, project_id, workflow_run_id, review_status,
+                review_notes, reviewed_by_user_id, reviewed_by_role,
+                reviewed_at, updated_at;
+      ```
+      `updated_at` is auto-set by the existing `update_updated_at_column()` trigger on the table (added in `00050`).
+    - Why this route placement: matches the established `<feature>/<action>` pattern (`memory/confirm`) — POST + body-carried `item_id`. Did not nest the item id in the path because all sibling routes use action-verb leaves (`memory/confirm`, `analyze-complete`, `submittal-register/latest`).
+    - No grouped output rebuild here (per task spec) — the response carries only the updated row's review fields. A caller wanting the refreshed grouped view should re-hit `GET /api/projects/[id]/submittal-register/latest`.
+    - Harness coverage does NOT require a live Supabase — only the pure validator is exercised.
+    - `npm run router:harness` passes — adds eight validator-case assertions.
+    - `npm run build` passes — new route appears as `/api/projects/[id]/submittal-register/review` in the build output.
+
 ## Next Recommended Step
 
 Optional follow-ups, no clear single next step:
