@@ -18,6 +18,11 @@ import {
   validateSubmittalRegisterReviewUpdate,
   ALLOWED_REVIEW_STATUSES,
 } from '../src/lib/chat/submittal-register.ts'
+import {
+  runSpecExtractionPipeline,
+  detectApprovalRequired,
+  detectRecordOnly,
+} from '../src/lib/chat/spec-extraction-pipeline.ts'
 
 const examples = [
   {
@@ -477,4 +482,271 @@ console.log('Review-status validator cases:')
 console.log(JSON.stringify({
   allowedReviewStatuses: ALLOWED_REVIEW_STATUSES,
   cases: reviewValidatorOutputs,
+}, null, 2))
+
+// ---------------------------------------------------------------------------
+// Spec extraction pipeline (A3a) — pure orchestration with mocked llmCallers
+// ---------------------------------------------------------------------------
+
+const specChunks = [
+  {
+    id: 'chunk-0',
+    chunk_index: 0,
+    page_number: 1,
+    content: 'AmmunitionStorageWL Project Manual\nVolume I — Specifications\n\nTable of Contents follows.',
+    metadata: null,
+  },
+  {
+    id: 'chunk-1',
+    chunk_index: 1,
+    page_number: 12,
+    content: [
+      'SECTION 03 30 00 - CAST-IN-PLACE CONCRETE',
+      '',
+      'PART 1 - GENERAL',
+      '',
+      '1.1 SUBMITTALS',
+      'A. Submit product data for cast-in-place concrete mix designs prior to placement of any concrete. Approval required.',
+      'B. Submit certified test reports for compressive strength at 7 and 28 days.',
+      '',
+      'PART 2 - PRODUCTS',
+      '',
+      '2.1 MATERIALS',
+      "A. Concrete shall conform to ASTM C150 with f'c = 4000 psi minimum at 28 days.",
+      '',
+      'PART 3 - EXECUTION',
+      '',
+      '3.1 PLACEMENT',
+      'A. Concrete shall be placed in accordance with ACI 301.',
+    ].join('\n'),
+    metadata: null,
+  },
+  {
+    id: 'chunk-2',
+    chunk_index: 2,
+    page_number: 47,
+    content: [
+      'SECTION 33 05 00 - COMMON WORK RESULTS FOR UTILITIES',
+      '',
+      'PART 1 - GENERAL',
+      '',
+      '1.4 SUBMITTALS',
+      'A. Submit shop drawings for utility crossings showing horizontal and vertical separation prior to trenching operations. Approval required.',
+    ].join('\n'),
+    metadata: null,
+  },
+  {
+    id: 'chunk-3',
+    chunk_index: 3,
+    page_number: 89,
+    content: [
+      'SECTION 09 91 23 - INTERIOR PAINTING',
+      '',
+      '1.3 INFORMATIONAL SUBMITTALS',
+      'A. Submit field test reports for record only.',
+    ].join('\n'),
+    metadata: null,
+  },
+]
+
+const cannedSectionResponses = {
+  '03 30 00': {
+    sectionNumber: '03 30 00',
+    sectionTitle: 'Cast-In-Place Concrete',
+    divisionNumber: '03',
+    parts: { general: true, products: true, execution: true },
+    requirements: [
+      {
+        requirementType: 'submittal_requirement',
+        statement: 'Submit product data for cast-in-place concrete mix designs prior to placement of any concrete.',
+        partReference: 'PART 1, 1.1.A',
+        confidence: 0.92,
+      },
+      {
+        requirementType: 'submittal_requirement',
+        statement: 'Submit certified test reports for compressive strength at 7 and 28 days.',
+        partReference: 'PART 1, 1.1.B',
+        confidence: 0.88,
+      },
+      {
+        requirementType: 'material_requirement',
+        statement: "Concrete shall conform to ASTM C150 with f'c = 4000 psi minimum at 28 days.",
+        partReference: 'PART 2, 2.1.A',
+        confidence: 0.95,
+      },
+      {
+        requirementType: 'execution_requirement',
+        statement: 'Concrete shall be placed in accordance with ACI 301.',
+        partReference: 'PART 3, 3.1.A',
+        confidence: 0.9,
+      },
+    ],
+    referencedStandards: ['ASTM C150', 'ACI 301'],
+    confidence: 0.91,
+  },
+  '33 05 00': {
+    sectionNumber: '33 05 00',
+    sectionTitle: 'Common Work Results for Utilities',
+    parts: { general: true, products: false, execution: false },
+    requirements: [
+      {
+        requirementType: 'submittal_requirement',
+        statement: 'Submit shop drawings for utility crossings showing horizontal and vertical separation prior to trenching operations.',
+        partReference: 'PART 1, 1.4.A',
+        confidence: 0.85,
+      },
+    ],
+    referencedStandards: [],
+    confidence: 0.85,
+  },
+  '09 91 23': {
+    sectionNumber: '09 91 23',
+    sectionTitle: 'Interior Painting',
+    parts: { general: true, products: false, execution: false },
+    requirements: [
+      {
+        requirementType: 'submittal_requirement',
+        statement: 'Submit field test reports for record only.',
+        partReference: '1.3.A',
+        confidence: 0.7,
+      },
+    ],
+    referencedStandards: [],
+    confidence: 0.75,
+  },
+}
+
+const happyLlmCaller = async ({ sectionContext }) => {
+  const canned = cannedSectionResponses[sectionContext.sectionNumber]
+  if (!canned) {
+    return { rawText: '', modelUsed: 'mock-haiku', error: 'no canned response' }
+  }
+  return {
+    rawText: JSON.stringify(canned),
+    modelUsed: 'mock-haiku-4-5',
+    costUsd: 0.0008,
+  }
+}
+
+const happyResult = await runSpecExtractionPipeline({
+  projectId: 'sample-project',
+  documentId: 'sample-doc',
+  documentMeta: {
+    title: 'AmmunitionStorageWL Project Manual',
+    filename: 'AmmunitionStorageWL_Amendment0002_Specifications.pdf',
+  },
+  chunks: specChunks,
+  llmCaller: happyLlmCaller,
+})
+
+console.log('')
+console.log('Spec extraction — happy path (CSI sections + parts + submittal requirements + approval/record-only):')
+console.log(JSON.stringify({
+  documentClassification: happyResult.documentClassification,
+  totalSections: happyResult.totalSections,
+  sectionsAttempted: happyResult.sectionsAttempted,
+  sectionsSucceeded: happyResult.sectionsSucceeded,
+  totalCostUsd: happyResult.totalCostUsd,
+  topLevelWarnings: happyResult.warnings,
+  sections: happyResult.sections.map(s => ({
+    section: s.sectionNumber,
+    title: s.sectionTitle,
+    canonicalName: s.canonicalName,
+    divisionNumber: s.divisionNumber,
+    parts: s.parts,
+    requirementCount: s.requirements.length,
+    submittalCount: s.requirements.filter(r => r.requirementType === 'submittal_requirement').length,
+    approvalRequiredCount: s.requirements.filter(r => r.approvalRequired).length,
+    recordOnlyCount: s.requirements.filter(r => r.recordOnly).length,
+    requirements: s.requirements.map(r => ({
+      type: r.requirementType,
+      regexFamily: r.regexFamily,
+      regexAgreesWithModel: r.regexFamily === r.requirementType,
+      approvalRequired: r.approvalRequired,
+      recordOnly: r.recordOnly,
+      canonicalName: r.canonicalName,
+    })),
+    referencedStandards: s.referencedStandards,
+    sourceChunkIds: s.sourceChunkIds,
+    sourcePageNumbers: s.sourcePageNumbers,
+    confidence: s.confidence,
+    validationFailed: s.validationFailed,
+    sectionCharCount: s.sectionCharCount,
+    regexFirstPassTotal: s.regexFirstPassTotal,
+    regexSubmittalCount: s.regexFirstPassByFamily.submittal_requirement?.length ?? 0,
+    warnings: s.warnings,
+  })),
+}, null, 2))
+
+const malformedLlmCaller = async () => ({
+  rawText: 'Sure, here you go: { not_valid_json: see notes }',
+  modelUsed: 'mock-haiku-4-5',
+})
+
+const malformedResult = await runSpecExtractionPipeline({
+  projectId: 'sample-project',
+  documentId: 'sample-doc',
+  documentMeta: { filename: 'specs.pdf' },
+  chunks: [
+    {
+      id: 'chunk-bad',
+      chunk_index: 0,
+      page_number: 1,
+      content: 'SECTION 03 30 00 - CAST-IN-PLACE CONCRETE\nPART 1 - GENERAL\nA. Concrete shall be placed in accordance with ACI 301.',
+    },
+  ],
+  llmCaller: malformedLlmCaller,
+})
+
+console.log('')
+console.log('Spec extraction — malformed JSON case:')
+console.log(JSON.stringify({
+  validationFailed: malformedResult.sections[0]?.validationFailed,
+  requirementCount: malformedResult.sections[0]?.requirements.length ?? 0,
+  warnings: malformedResult.sections[0]?.warnings,
+  regexFirstPassTotal: malformedResult.sections[0]?.regexFirstPassTotal,
+}, null, 2))
+
+const oversizeBody =
+  'SECTION 99 99 99 - GIANT SECTION\n' +
+  Array.from({ length: 800 }, (_, i) => `${i + 1}. The contractor shall comply with the requirements of this section.`).join('\n')
+
+const oversizeResult = await runSpecExtractionPipeline({
+  projectId: 'sample-project',
+  documentId: 'sample-doc',
+  documentMeta: { filename: 'specs.pdf' },
+  chunks: [{ id: 'chunk-big', chunk_index: 0, page_number: 1, content: oversizeBody }],
+  llmCaller: async () => {
+    throw new Error('LLM caller should not have been invoked for oversize section')
+  },
+  options: { maxSectionChars: 1000 },
+})
+
+console.log('')
+console.log('Spec extraction — oversize section guardrail:')
+console.log(JSON.stringify({
+  sectionCharCount: oversizeResult.sections[0]?.sectionCharCount,
+  validationFailed: oversizeResult.sections[0]?.validationFailed,
+  costUsd: oversizeResult.sections[0]?.costUsd,
+  warnings: oversizeResult.sections[0]?.warnings,
+  regexFirstPassTotal: oversizeResult.sections[0]?.regexFirstPassTotal,
+}, null, 2))
+
+console.log('')
+console.log('Approval / record-only phrase detection:')
+console.log(JSON.stringify({
+  approvalSamples: [
+    'Submit product data for approval prior to installation.',
+    'Obtain engineer’s written approval before fabrication.',
+    'Submit shop drawings for review.',
+  ].map(s => ({ s, approvalRequired: detectApprovalRequired(s), recordOnly: detectRecordOnly(s) })),
+  recordOnlySamples: [
+    'Submit field test reports for record only.',
+    'Informational submittal: provide manufacturer cut sheets.',
+    'Submit for information.',
+  ].map(s => ({ s, approvalRequired: detectApprovalRequired(s), recordOnly: detectRecordOnly(s) })),
+  ambiguousSamples: [
+    'Concrete shall be placed in accordance with ACI 301.',
+    'The contractor shall maintain the work area.',
+  ].map(s => ({ s, approvalRequired: detectApprovalRequired(s), recordOnly: detectRecordOnly(s) })),
 }, null, 2))

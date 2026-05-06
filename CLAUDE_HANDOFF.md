@@ -299,6 +299,48 @@ Implemented so far:
       - `npm run router:harness` passes (no new harness blocks; the changes are in the upload UI + Inngest gating, neither of which the harness exercises).
       - `npm run build` passes. `/projects/[id]` First Load JS: 12.5 kB → 12.9 kB (+0.4 kB for the type picker).
 
+18. Spec extraction pipeline — pure orchestrator (Option A, phase A3a)
+    - Architectural context: per `project_routed_specialists_architecture.md`, structured extraction is a routed-specialist task. Spec extraction is the next specialist after the document classifier. This phase ships only the *pure transform* — no I/O, no Inngest, no DB writes, no auto-trigger, no API routes. Persistence (A3b), Inngest wiring (A3c), and the manual re-run endpoint (A3d) follow in their own commits.
+    - Files:
+      - `src/lib/chat/spec-extraction-pipeline.ts` *(new)* — single export `runSpecExtractionPipeline(input)`, plus exported phrase-detection helpers `detectApprovalRequired(text)` / `detectRecordOnly(text)`. Imports the deterministic helpers from `src/lib/vision/spec-extractor.ts` (`classifySpecDocument`, `extractSpecSections`, `splitIntoParts`, `classifyRequirement`, `extractRequirementStatements`, `buildSpecSectionCanonical`, `buildSpecRequirementCanonical`, `SPEC_SECTION_EXTRACTION_PROMPT`) — all already-existing pure functions that until now had zero callers.
+      - `scripts/task-router-harness.mjs` — adds five harness blocks: happy-path (3 sections, regex agrees with model on 3/4 requirements, approval/record-only counts asserted, source chunks + page numbers attached); malformed-JSON (validationFailed=true, warning surfaced, regex first-pass still populated); oversize-section (skipped against `maxSectionChars=1000`, no LLM cost, `regexFirstPassTotal` still computed); approval/record-only phrase detection table over 8 sample strings.
+      - `tsconfig.json` — adds `allowImportingTsExtensions: true` so the pipeline can use a literal `.ts` import path for `'../vision/spec-extractor.ts'`. Required because the harness loads the pipeline via Node 24's native TS support (which strict-resolves paths) AND the tsc build under `moduleResolution: "bundler"`. `noEmit: true` was already set (the prerequisite for the flag). No bundler behavior change.
+    - Pipeline API (input):
+      - `projectId, documentId, documentMeta { title?, filename }, chunks, llmCaller, options?`
+      - `chunks: Array<{ id, chunk_index, content, page_number?, metadata? }>` — caller-supplied; pipeline sorts by `chunk_index` defensively, never trusts caller ordering.
+      - `llmCaller: ({ prompt, sectionText, sectionContext, modelHint? }) => Promise<{ rawText, modelUsed?, costUsd?, error? }>` — fully decoupled from the Anthropic SDK. The pipeline sets `modelHint` only as a hint; a future wrapper passes `'haiku'` by default and `'sonnet'` on retry. Pipeline does not interpret the hint.
+      - `options.maxSectionsPerDocument` (default 250) and `options.maxSectionChars` (default 60000) are the two guardrails.
+    - Output shape (high-level):
+      - `documentClassification: SpecDocumentType | null` — output of `classifySpecDocument(title, filename)`.
+      - `sections[]` — one entry per CSI section detected, each with: `sectionNumber`, `sectionTitle`, `canonicalName` (`SPEC_03_30_00`), `divisionNumber` (`'03'`), `parts { general, products, execution }`, `partsText { general, products, execution }`, `requirements[]`, `referencedStandards[]`, `confidence` (clamped to [0,1]), `validationFailed`, `warnings[]`, `sectionCharCount`, `sourceChunkIds[]`, `sourcePageNumbers[]`, `modelUsed?`, `costUsd`, `regexFirstPassByFamily { material_requirement[], execution_requirement[], …, unclassified[] }`, `regexFirstPassTotal`.
+      - Each `requirements[]` entry carries: `requirementType` (validated against the seven-family allow-set), `statement` (verbatim), `partReference`, `confidence`, `canonicalName` (`SPEC_03_30_00_REQ_SUBMITTAL_REQUIREMENT_001`), `regexFamily` (cross-check vs the model — surfaced separately rather than overriding the model), `approvalRequired`, `recordOnly`, `requirementTypeRemapped` (true when the model emitted an unknown family that was conservatively defaulted to `execution_requirement`).
+      - Top-level: `totalSections`, `sectionsAttempted`, `sectionsSucceeded`, `totalCostUsd`, `warnings[]`.
+    - Regex first-pass behavior:
+      - Per section, `extractRequirementStatements()` runs against `partsText.general`, `partsText.products`, `partsText.execution`, AND the full body (deduped by lowercased trimmed key). Each statement is classified by `classifyRequirement()` and bucketed into one of the seven families or `unclassified`.
+      - The first-pass output is exposed verbatim on the section result. It is NOT used to override the LLM output — only as a cross-check signal (`requirements[].regexFamily`) and as a fallback corpus when the LLM call fails entirely (downstream consumer can ingest `regexFirstPassByFamily` if `validationFailed === true`).
+      - Approval-gating phrases (`APPROVAL_PHRASES`) and record-only phrases (`RECORD_ONLY_PHRASES`) are applied at the *requirement* level via `detectApprovalRequired()` / `detectRecordOnly()`. Both helpers are exported for harness + future caller usage.
+    - LLM caller contract:
+      - Pipeline is the boundary owner; the caller owns the actual API call. Caller is given `prompt = SPEC_SECTION_EXTRACTION_PROMPT`, `sectionText` (the full section body, capped by `maxSectionChars`), and `sectionContext { sectionNumber, sectionTitle, sectionCharCount }`.
+      - Caller returns `{ rawText, modelUsed?, costUsd?, error? }`. Caller errors are caught (try/catch around the call) and converted to section warnings + `validationFailed=true`; thrown errors are also caught — pipeline never throws on a single-section LLM failure.
+      - Schema validation in `validateSectionJson()` is permissive on optional fields and strict on required ones (top-level must be object; `requirements[].statement` must be a non-empty string). Unknown `requirementType` values map to `execution_requirement` (per the prompt's conservative default) and are flagged via `requirementTypeRemapped: true`.
+      - Markdown code fences (` ```json ... ``` `) are stripped before `JSON.parse`. If parse still fails, the section is marked `validationFailed=true` with a clear warning. No best-effort prose extraction.
+    - Guardrails:
+      - `maxSectionsPerDocument` (default 250) caps the LLM call count. Excess sections are dropped with a top-level warning.
+      - `maxSectionChars` (default 60000) skips the LLM call entirely for oversize sections; the section is still returned with `parts`, `partsText`, `regexFirstPassByFamily`, source chunks/pages, and a clear warning. `validationFailed` stays false (this is an explicit guardrail skip, not a validation failure).
+      - No DB writes — file does not import the Supabase client.
+      - No network calls — file does not import any HTTP / Anthropic SDK. Only the injected `llmCaller` can perform I/O.
+      - No infinite loops — every loop is bounded by either input length, `maxSectionsPerDocument`, or `maxSectionChars`.
+    - Harness coverage (no live Supabase, no real LLM):
+      - **CSI extraction**: 4 chunks → 3 sections detected (`03 30 00`, `33 05 00`, `09 91 23`) with correct titles + canonical names + division numbers.
+      - **PART 1/2/3 splitting**: `03 30 00` correctly shows `parts: { general: true, products: true, execution: true }`.
+      - **Submittal requirement extraction**: 2 submittal requirements in `03 30 00`; `regexAgreesWithModel: true` on 3 of 4 requirements; the disagreement (`material_requirement` regex vs `execution_requirement` model) is surfaced cleanly and not silently overridden.
+      - **Approval vs record-only**: `approvalRequiredCount: 1` on `03 30 00`; record-only sample correctly flagged; ambiguous statements get neither flag.
+      - **Malformed JSON**: `validationFailed: true`, zero requirements, warning text clear, regex first-pass still ran (`regexFirstPassTotal: 1`).
+      - **Oversize section**: section body 57524 chars vs 1000 limit → LLM call skipped, `costUsd: 0`, warning clear, regex first-pass still ran.
+    - Build / harness:
+      - `npm run router:harness` exit 0. Output is print-based per the existing harness convention; spot-check by scanning for the `Spec extraction —` blocks.
+      - `npm run build` passes. No new routes; one shared module added (`spec-extraction-pipeline.ts`). `/projects/[id]` First Load JS unchanged at 12.9 kB (the pipeline is server-only — never bundled into client routes).
+
 ## Next Recommended Step
 
 Optional follow-ups, no clear single next step:
