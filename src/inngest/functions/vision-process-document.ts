@@ -78,12 +78,22 @@ export const visionProcessDocument = inngest.createFunction(
     const initResult = await step.run('initialize', async (): Promise<{ skip: boolean }> => {
       const supabase = await createServiceRoleClient()
 
-      // Check current vision_status — skip if already completed.
+      // Check document type and vision_status before doing any work.
       const { data: doc } = await supabase
         .from('documents')
-        .select('vision_status')
+        .select('vision_status, document_type')
         .eq('id', documentId)
         .single()
+
+      // Only drawings get vision processing. Skip everything else (specs,
+      // submittals, schedules, null types) at the Inngest boundary so queued
+      // events don't run even if they were sent before the trigger-side gate.
+      if (doc?.document_type !== 'drawing') {
+        logProduction.info('Vision Lifecycle',
+          `[SKIP] document=${documentId} trigger=${trigger} document_type=${doc?.document_type ?? 'null'} — vision only runs on drawings`
+        )
+        return { skip: true }
+      }
 
       if (doc?.vision_status === 'completed') {
         logProduction.info('Vision Lifecycle',
