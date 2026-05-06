@@ -69,7 +69,7 @@ export async function queryGraphComponentCount(
       .from('project_entities')
       .select(`
         id, canonical_name, display_name, label, subtype, confidence,
-        entity_findings(finding_type, numeric_value, unit, confidence, metadata),
+        entity_findings!entity_findings_entity_id_fkey(finding_type, numeric_value, unit, confidence, metadata),
         entity_locations(station_value, sheet_number)
       `)
       .eq('project_id', projectId)
@@ -191,7 +191,7 @@ export async function queryGraphCrossings(
         id, canonical_name, display_name, label, subtype, status, confidence,
         metadata,
         entity_locations(station_value, station_numeric, sheet_number, is_primary),
-        entity_findings(finding_type, numeric_value, text_value, unit, statement)
+        entity_findings!entity_findings_entity_id_fkey(finding_type, numeric_value, text_value, unit, statement)
       `)
       .eq('project_id', projectId)
       .eq('discipline', 'utility')

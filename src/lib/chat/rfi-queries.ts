@@ -53,7 +53,7 @@ export async function queryRFIByNumber(
         id, entity_type, subtype, canonical_name, display_name, label,
         status, confidence, metadata,
         entity_citations ( sheet_number, document_id ),
-        entity_findings (
+        entity_findings!entity_findings_entity_id_fkey (
           id, finding_type, statement, support_level, text_value, metadata
         ),
         entity_relationships_from: entity_relationships!entity_relationships_from_entity_id_fkey (
@@ -134,7 +134,7 @@ export async function queryRFIsByEntity(
         id, entity_type, subtype, canonical_name, display_name, label,
         status, confidence, metadata,
         entity_citations ( sheet_number, document_id ),
-        entity_findings (
+        entity_findings!entity_findings_entity_id_fkey (
           id, finding_type, statement, support_level, text_value, metadata
         ),
         entity_relationships_from: entity_relationships!entity_relationships_from_entity_id_fkey (
@@ -174,7 +174,7 @@ export async function queryRecentChanges(
         id, entity_type, subtype, canonical_name, display_name, label,
         status, confidence, metadata,
         entity_citations ( sheet_number, document_id ),
-        entity_findings (
+        entity_findings!entity_findings_entity_id_fkey (
           id, finding_type, statement, support_level, text_value, metadata
         ),
         entity_relationships_from: entity_relationships!entity_relationships_from_entity_id_fkey (

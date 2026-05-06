@@ -170,7 +170,7 @@ async function fetchScheduleEntryForMEPEntity(
         display_name,
         label,
         entity_locations ( sheet_number, is_primary ),
-        entity_findings ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
+        entity_findings!entity_findings_entity_id_fkey ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
       `)
       .eq('id', scheduleEntityId)
       .eq('project_id', projectId)
@@ -251,7 +251,7 @@ export async function queryMEPElement(
         status,
         confidence,
         entity_locations ( room_number, level, area, grid_ref, sheet_number, is_primary ),
-        entity_findings ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
+        entity_findings!entity_findings_entity_id_fkey ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
       `)
       .eq('project_id', projectId)
       .eq('discipline', 'mep')
@@ -350,7 +350,7 @@ export async function queryMEPByArea(
         status,
         confidence,
         entity_locations ( room_number, level, area, grid_ref, sheet_number, is_primary ),
-        entity_findings ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
+        entity_findings!entity_findings_entity_id_fkey ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
       `)
       .eq('project_id', projectId)
       .eq('discipline', 'mep')

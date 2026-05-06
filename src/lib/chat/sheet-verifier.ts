@@ -412,7 +412,7 @@ interface EntityGraphRow {
   display_name: string | null
   label: string | null
   confidence: number | null
-  // from entity_findings (may be null if no findings)
+  // from entity_findings!entity_findings_entity_id_fkey (may be null if no findings)
   finding_statement: string | null
   finding_type: string | null
   // from entity_locations (may be null if no location)

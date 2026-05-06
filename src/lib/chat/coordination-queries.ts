@@ -74,7 +74,7 @@ async function fetchEntitiesInLocation(
       status,
       confidence,
       entity_locations ( room_number, level, sheet_number, is_primary ),
-      entity_findings ( finding_type, statement, support_level, confidence )
+      entity_findings!entity_findings_entity_id_fkey ( finding_type, statement, support_level, confidence )
     `)
     .eq('project_id', projectId)
 

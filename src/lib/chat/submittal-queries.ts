@@ -93,7 +93,7 @@ export async function querySubmittalByEntity(
         id, entity_type, subtype, canonical_name, display_name, label,
         status, confidence, metadata,
         entity_citations ( sheet_number, document_id ),
-        entity_findings (
+        entity_findings!entity_findings_entity_id_fkey (
           id, finding_type, statement, support_level, text_value, metadata
         )
       `)
@@ -130,7 +130,7 @@ export async function querySubmittalBySection(
         id, entity_type, subtype, canonical_name, display_name, label,
         status, confidence, metadata,
         entity_citations ( sheet_number, document_id ),
-        entity_findings (
+        entity_findings!entity_findings_entity_id_fkey (
           id, finding_type, statement, support_level, text_value, metadata
         )
       `)
@@ -198,7 +198,7 @@ export async function resolveGoverningDocument(
             from_entity_id, relationship_type,
             from_entity: project_entities!entity_relationships_from_entity_id_fkey (
               id, discipline, entity_type, label, display_name, status,
-              entity_findings ( finding_type, statement, support_level )
+              entity_findings!entity_findings_entity_id_fkey ( finding_type, statement, support_level )
             )
           `)
           .eq('project_id', projectId)
@@ -243,7 +243,7 @@ export async function resolveGoverningDocument(
       .from('project_entities')
       .select(`
         id, discipline, entity_type, label, display_name, status,
-        entity_findings ( finding_type, statement, support_level )
+        entity_findings!entity_findings_entity_id_fkey ( finding_type, statement, support_level )
       `)
       .eq('project_id', projectId)
       .eq('discipline', 'spec')

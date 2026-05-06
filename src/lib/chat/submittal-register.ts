@@ -75,7 +75,7 @@ export async function buildSubmittalRegisterFromSpecs(
           sheet_number, document_id, chunk_id, page_number,
           detail_ref, extraction_source, excerpt, context
         ),
-        entity_findings (
+        entity_findings!entity_findings_entity_id_fkey (
           id, finding_type, statement, support_level,
           text_value, metadata
         )

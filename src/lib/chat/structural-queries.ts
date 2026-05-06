@@ -134,7 +134,7 @@ export async function queryStructuralElement(
         status,
         confidence,
         entity_locations ( room_number, level, area, grid_ref, sheet_number, is_primary ),
-        entity_findings ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
+        entity_findings!entity_findings_entity_id_fkey ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
       `)
       .eq('project_id', projectId)
       .eq('discipline', 'structural')
@@ -224,7 +224,7 @@ export async function queryStructuralByArea(
         status,
         confidence,
         entity_locations ( room_number, level, area, grid_ref, sheet_number, is_primary ),
-        entity_findings ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
+        entity_findings!entity_findings_entity_id_fkey ( finding_type, statement, support_level, text_value, numeric_value, unit, confidence )
       `)
       .eq('project_id', projectId)
       .eq('discipline', 'structural')

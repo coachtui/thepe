@@ -71,7 +71,7 @@ export async function runDemoValidation(
       status,
       confidence,
       source_document_id,
-      entity_findings ( id ),
+      entity_findings!entity_findings_entity_id_fkey ( id ),
       entity_locations ( id )
     `)
     .eq('project_id', projectId)

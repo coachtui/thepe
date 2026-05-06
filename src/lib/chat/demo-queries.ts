@@ -165,7 +165,7 @@ export async function queryDemoScope(
         status,
         confidence,
         entity_locations ( room_number, level, area, sheet_number, is_primary ),
-        entity_findings ( finding_type, statement, support_level, text_value, confidence )
+        entity_findings!entity_findings_entity_id_fkey ( finding_type, statement, support_level, text_value, confidence )
       `)
       .eq('project_id', projectId)
       .eq('discipline', 'demo')

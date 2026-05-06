@@ -94,7 +94,7 @@ export async function querySpecSection(
           sheet_number, document_id, chunk_id, page_number,
           detail_ref, extraction_source
         ),
-        entity_findings (
+        entity_findings!entity_findings_entity_id_fkey (
           id, finding_type, statement, support_level,
           text_value, metadata
         )
@@ -178,7 +178,7 @@ export async function querySpecRequirements(
           sheet_number, document_id, chunk_id, page_number,
           detail_ref, extraction_source
         ),
-        entity_findings (
+        entity_findings!entity_findings_entity_id_fkey (
           id, finding_type, statement, support_level,
           text_value, metadata
         )
