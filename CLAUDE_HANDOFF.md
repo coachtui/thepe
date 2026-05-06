@@ -250,6 +250,35 @@ Implemented so far:
     - `npm run router:harness` passes — adds eight validator-case assertions.
     - `npm run build` passes — new route appears as `/api/projects/[id]/submittal-register/review` in the build output.
 
+16. Project-scoped submittal register review UI (panel embedded in the existing project page)
+    - Files:
+      - `src/components/submittal/SubmittalRegisterReview.tsx` *(new)* — `'use client'` panel component, single named export `SubmittalRegisterReview({ projectId })`. Mirrors the existing project-page design language: `bg-white rounded-lg shadow p-6` cards, stock Tailwind palette (`bg-blue-600/text-white` actions, `bg-blue-100/text-blue-800` pills, `bg-red-50 border border-red-200` errors, `border-gray-200` separators) — no shadcn/Radix/lucide pulled in. Plain `<select>` for status + `<textarea>` for notes; Save/Reset buttons. Per-item save state is local — no global store.
+      - `src/app/(dashboard)/projects/[id]/page.tsx` — adds a single import and a single new `<div className="pt-6 border-t border-gray-200"><SubmittalRegisterReview projectId={params.id} /></div>` section after the existing AI Assistant block. No restructuring of the rest of the page.
+      - `src/lib/chat/submittal-register.ts` — extends `SubmittalRegisterItem` with five **optional** persistence-only fields: `persistedItemId?`, `reviewStatus?`, `reviewNotes?`, `reviewedAt?`, `reviewedByRole?`. Set ONLY by the read-path reconstructor; the live `buildSubmittalRegisterFromSpecs` path never sets them, so `JSON.stringify` omits them and the buildSubmittalRegister tool return contract is byte-for-byte unchanged. Adds `mergeRowOntoItemPayload(row)` private helper. Widens `ReconstructItemRowInput` to optionally accept `id`, `review_status`, `review_notes`, `reviewed_at`, `reviewed_by_role` — when present these merge onto the frozen `item_payload` snapshot.
+      - `src/lib/chat/submittal-register-read.ts` — widens the `submittal_register_items` SELECT from `'item_payload'` only to `'id, item_payload, review_status, review_notes, reviewed_at, reviewed_by_role'` so the reconstructor has the live review state. No new tables, no schema changes.
+      - `scripts/task-router-harness.mjs` — extends the existing reconstruction block with synthetic per-item review state (item 0 → approved + notes, item 1 → rejected + notes, item 2 → pending + null notes), then asserts: `firstItemPersistedId`, `firstItemReviewStatus = 'approved'`, `firstItemReviewNotes = 'Looks good.'`, `secondItemReviewStatus = 'rejected'`, `thirdItemReviewedAt = null`, and crucially `liveItemHasNoPersistedFields = true` — confirming the merge does NOT mutate the upstream `reviewSource.items` (so the live tool path is untouched).
+    - Page/route: no new route was added — the UI is a panel inside the existing `(dashboard)/projects/[id]/page.tsx`. This matches the project's pattern of mounting feature components (`ChatInterface`, `DocumentUpload`, `DocumentSearch`, `DocumentList`) inside the single project page rather than fanning out to subpages.
+    - Data loading approach:
+      - On mount: `fetch('/api/projects/[id]/submittal-register/latest', { credentials: 'include' })` → response `{ success, found, run | null }`. On success populates `data` + `found` state. On any failure (`!res.ok` or thrown) sets `error` and renders a calm red banner above the content.
+      - Manual "Refresh" button at the panel header re-fetches without unmounting (`refreshing` flag toggles button label only). Auto-refetch is *not* triggered on save — local state is patched optimistically in-place via `patchItemInRun(run, itemId, updated)`, which walks `items[]`, `groupedSections[].items[]`, and `ungrouped[]` and replaces matching items by `persistedItemId`. This avoids a full reload after every keystroke-saved row and keeps scroll position stable.
+    - Review update behavior:
+      - Per-row local `drafts[itemId]: { status, notes }` only exists once the user changes status or notes; until then the row reads `currentStatus` / `currentNotes` directly from the persisted item. `Save` button is disabled when `!isDirty || saving`.
+      - On Save: `POST /api/projects/[id]/submittal-register/review` with `{ item_id, review_status, review_notes }`. `review_notes` is whitespace-trimmed → empty becomes `null` (matches the server validator's normalization).
+      - On 200 `{ success: true, item }`: patch the run via `patchItemInRun`, drop the draft, clear row error.
+      - On error: keep the draft, set `rowSave[itemId].error` to the server message, render inline (`text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2`). The user can edit and retry, or hit Reset.
+      - `Reset` discards the draft and clears row error.
+    - Empty / error states:
+      - Loading: simple "Loading latest submittal register…" inside an empty card. No skeleton — the UI is field-targeted, not a marketing dashboard.
+      - `found === false` (no run): gray neutral card with "No submittal register run exists for this project yet" + a one-line hint to ask the assistant to build one. Not styled as an error.
+      - `found === true && items.length === 0`: gray neutral card with "The latest run completed but contained no items" plus the run's `reviewFlags` if any.
+      - API error (any 4xx/5xx or thrown): red banner at the top of the panel, rest of the panel still renders so previously-loaded state isn't lost.
+      - Per-item save error: inline red message under the row's Save button — does not interrupt other rows.
+    - Status options surfaced in the `<select>`: all 6 `ALLOWED_REVIEW_STATUSES` (`pending`, `approved`, `approved_as_noted`, `rejected`, `needs_clarification`, `superseded`). Local copy of the literal array on the client to avoid pulling server-only modules into a `'use client'` component (the constant must stay in lock-step with `submittal-register.ts` `ALLOWED_REVIEW_STATUSES`).
+    - Display fields per item: `submittalItem` (primary line) · current `reviewStatus` pill · `submittalType` pill · `approvalRequired` pill · `sourceQuality` pill (with `confidence` %) · `citationCompleteness` indicator · source-reference line (spec section, document name, page number, part reference) · excerpt blockquote · review controls (status select + notes textarea + Save/Reset).
+    - No export/PDF added (per task spec).
+    - `npm run router:harness` passes — extends the existing reconstruction harness with merge-state assertions; no new top-level blocks needed.
+    - `npm run build` passes — `/projects/[id]` grew from 9.59 kB → 12.5 kB First Load JS for the new panel; no new routes appeared.
+
 ## Next Recommended Step
 
 Optional follow-ups, no clear single next step:

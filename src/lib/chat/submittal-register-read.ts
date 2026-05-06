@@ -34,7 +34,9 @@ export async function loadLatestSubmittalRegisterRun(
 
   const itemsResult = await supabase
     .from('submittal_register_items')
-    .select('item_payload')
+    .select(
+      'id, item_payload, review_status, review_notes, reviewed_at, reviewed_by_role'
+    )
     .eq('project_id', projectId)
     .eq('workflow_run_id', runResult.data.id)
     .order('created_at', { ascending: true })

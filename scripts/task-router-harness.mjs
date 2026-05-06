@@ -327,7 +327,14 @@ const persistedRunRow = {
   inputs: { sectionFilter: null, keyword: null, limit: 200, taskType: 'submittal_register' },
   error: null,
 }
-const persistedItemRows = reviewSource.items.map(item => ({ item_payload: item }))
+const persistedItemRows = reviewSource.items.map((item, idx) => ({
+  id: `00000000-0000-0000-0000-${String(idx + 1).padStart(12, '0')}`,
+  item_payload: item,
+  review_status: idx === 0 ? 'approved' : idx === 1 ? 'rejected' : 'pending',
+  review_notes: idx === 0 ? 'Looks good.' : idx === 1 ? 'Wrong section.' : null,
+  reviewed_at: idx < 2 ? '2026-05-05T20:30:00.000Z' : null,
+  reviewed_by_role: idx < 2 ? 'editor' : null,
+}))
 const reconstructedRun = reconstructLatestSubmittalRegisterRun(persistedRunRow, persistedItemRows)
 
 console.log('')
@@ -344,6 +351,14 @@ console.log(JSON.stringify({
   liveGroupedSectionCount: groupedReview.groups.length,
   groupCountMatchesLive:
     reconstructedRun.groupedSections.length === groupedReview.groups.length,
+  firstItemPersistedId: reconstructedRun.items[0]?.persistedItemId,
+  firstItemReviewStatus: reconstructedRun.items[0]?.reviewStatus,
+  firstItemReviewNotes: reconstructedRun.items[0]?.reviewNotes,
+  secondItemReviewStatus: reconstructedRun.items[1]?.reviewStatus,
+  thirdItemReviewedAt: reconstructedRun.items[2]?.reviewedAt,
+  liveItemHasNoPersistedFields:
+    reviewSource.items[0].persistedItemId === undefined &&
+    reviewSource.items[0].reviewStatus === undefined,
 }, null, 2))
 
 const emptyReconstruction = reconstructLatestSubmittalRegisterRun(

@@ -20,6 +20,15 @@ export interface SubmittalRegisterItem {
   citationCompleteness?: number
   sourceQuality?: 'high' | 'medium' | 'low'
   confidenceReason?: string
+  // Persistence-only fields. Set ONLY by the read path (`reconstructLatestSubmittalRegisterRun`)
+  // when merging DB row state onto a frozen `item_payload` snapshot. The live build path
+  // never sets these — they remain undefined and are omitted from the live tool's JSON
+  // payload, so the buildSubmittalRegister tool return contract is unchanged.
+  persistedItemId?: string
+  reviewStatus?: string
+  reviewNotes?: string | null
+  reviewedAt?: string | null
+  reviewedByRole?: string | null
 }
 
 export interface SubmittalRegisterResult {
@@ -360,6 +369,11 @@ export interface ReconstructWorkflowRunInput {
 
 export interface ReconstructItemRowInput {
   item_payload: unknown
+  id?: string | null
+  review_status?: string | null
+  review_notes?: string | null
+  reviewed_at?: string | null
+  reviewed_by_role?: string | null
 }
 
 /**
@@ -376,8 +390,8 @@ export function reconstructLatestSubmittalRegisterRun(
   itemRows: ReconstructItemRowInput[]
 ): LatestSubmittalRegisterRun {
   const items = itemRows
-    .map(row => row.item_payload)
-    .filter(isLikelySubmittalRegisterItem)
+    .map(mergeRowOntoItemPayload)
+    .filter((item): item is SubmittalRegisterItem => item !== null)
 
   const reconstructedResult: SubmittalRegisterResult = {
     success: true,
@@ -499,6 +513,19 @@ function isLikelySubmittalRegisterItem(value: unknown): value is SubmittalRegist
     typeof candidate.submittalItem === 'string' &&
     typeof candidate.confidence === 'number'
   )
+}
+
+function mergeRowOntoItemPayload(row: ReconstructItemRowInput): SubmittalRegisterItem | null {
+  const base = row.item_payload
+  if (!isLikelySubmittalRegisterItem(base)) return null
+  return {
+    ...base,
+    persistedItemId: row.id ?? undefined,
+    reviewStatus: row.review_status ?? undefined,
+    reviewNotes: row.review_notes ?? null,
+    reviewedAt: row.reviewed_at ?? null,
+    reviewedByRole: row.reviewed_by_role ?? null,
+  }
 }
 
 function averageItemConfidence(items: SubmittalRegisterItem[]): number {
