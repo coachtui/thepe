@@ -2,9 +2,10 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  // Skip middleware for API routes that don't need session refresh
+  // API routes handle their own auth — skip middleware entirely to avoid
+  // edge network round-trips to Supabase that can cause MIDDLEWARE_INVOCATION_TIMEOUT.
   const path = request.nextUrl.pathname
-  if (path.startsWith('/api/inngest') || path.startsWith('/api/test-rls')) {
+  if (path.startsWith('/api/')) {
     return NextResponse.next()
   }
 
