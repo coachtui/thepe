@@ -1,4 +1,5 @@
 import { createServiceRoleClient } from '../db/supabase/service'
+import type { Database } from '../db/supabase/types'
 import {
   buildOutputSummary,
   buildSubmittalRegisterItemRows,
@@ -6,8 +7,10 @@ import {
   type SubmittalRegisterResult,
 } from './submittal-register'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ServiceRoleClient = any
+type WorkflowRunInsert = Database['public']['Tables']['workflow_runs']['Insert']
+type WorkflowRunUpdate = Database['public']['Tables']['workflow_runs']['Update']
+type SubmittalRegisterItemInsert =
+  Database['public']['Tables']['submittal_register_items']['Insert']
 
 export interface SubmittalRegisterRunInputs {
   sectionFilter: string | null
@@ -38,9 +41,9 @@ export async function persistSubmittalRegisterRun(
   const startedAt = opts.startedAt ?? new Date()
   const startedAtMs = startedAt.getTime()
 
-  let supabase: ServiceRoleClient
+  let supabase: ReturnType<typeof createServiceRoleClient>
   try {
-    supabase = createServiceRoleClient() as ServiceRoleClient
+    supabase = createServiceRoleClient()
   } catch (err) {
     const warning = `[SubmittalRegisterPersistence] Skipping persistence — service-role client unavailable: ${
       err instanceof Error ? err.message : String(err)
@@ -50,7 +53,7 @@ export async function persistSubmittalRegisterRun(
   }
 
   const summary = buildOutputSummary(opts.result)
-  const baseRow = {
+  const baseRow: WorkflowRunInsert = {
     project_id: opts.projectId,
     workflow_type: 'submittal_register',
     inputs: {
@@ -88,7 +91,9 @@ export async function persistSubmittalRegisterRun(
     let itemsWritten = 0
 
     if (itemRows.length > 0) {
-      const insertItems = await supabase.from('submittal_register_items').insert(itemRows)
+      const insertItems = await supabase
+        .from('submittal_register_items')
+        .insert(itemRows as unknown as SubmittalRegisterItemInsert[])
       if (insertItems.error) {
         throw new Error(`submittal_register_items insert failed: ${insertItems.error.message}`)
       }
@@ -96,15 +101,16 @@ export async function persistSubmittalRegisterRun(
     }
 
     const completedAt = new Date()
+    const completionUpdate: WorkflowRunUpdate = {
+      status: 'completed',
+      output_payload: buildSubmittalRegisterPersistedPayload(opts.result, summary) as unknown as WorkflowRunUpdate['output_payload'],
+      output_summary: summary as unknown as WorkflowRunUpdate['output_summary'],
+      completed_at: completedAt.toISOString(),
+      duration_ms: completedAt.getTime() - startedAtMs,
+    }
     const updateRun = await supabase
       .from('workflow_runs')
-      .update({
-        status: 'completed',
-        output_payload: buildSubmittalRegisterPersistedPayload(opts.result, summary),
-        output_summary: summary,
-        completed_at: completedAt.toISOString(),
-        duration_ms: completedAt.getTime() - startedAtMs,
-      })
+      .update(completionUpdate)
       .eq('id', workflowRunId)
 
     if (updateRun.error) {
@@ -120,14 +126,15 @@ export async function persistSubmittalRegisterRun(
     if (workflowRunId) {
       try {
         const failedAt = new Date()
+        const failureUpdate: WorkflowRunUpdate = {
+          status: 'failed',
+          error: message,
+          completed_at: failedAt.toISOString(),
+          duration_ms: failedAt.getTime() - startedAtMs,
+        }
         await supabase
           .from('workflow_runs')
-          .update({
-            status: 'failed',
-            error: message,
-            completed_at: failedAt.toISOString(),
-            duration_ms: failedAt.getTime() - startedAtMs,
-          })
+          .update(failureUpdate)
           .eq('id', workflowRunId)
       } catch (markErr) {
         console.warn(

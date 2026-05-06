@@ -177,9 +177,30 @@ Implemented so far:
     - `npm run router:harness` passes — all 12 router classification cases plus new persistence transform checks.
     - `npm run build` passes.
 
+13. Regenerated Supabase Database types — `workflow_runs` + `submittal_register_items` are now typed
+    - Files:
+      - `src/lib/db/supabase/types.ts` — regenerated against the live linked project (`frhzemhbgcjjprfxgmgq` / `the-pe`) via the Supabase MCP `generate_typescript_types` tool. 3219 → 3439 lines (+220). Now includes both `workflow_runs` and `submittal_register_items` Row/Insert/Update/Relationships definitions, including the composite FK `fk_sri_run_project`.
+      - `src/lib/chat/submittal-register-persistence.ts` — removed the `ServiceRoleClient = any` escape hatch. Now uses `ReturnType<typeof createServiceRoleClient>` for the client, plus generated `Database['public']['Tables'][...]` types for inserts and updates.
+    - Type generation approach: MCP `generate_typescript_types` against the linked remote — same auth path as `apply_migration`. No Docker required. Saved-to-disk MCP output extracted via `jq -r '.[0].text | fromjson | .types'` and copied into `types.ts`.
+    - `any` cast on the service-role client: **removed.** The client is now `ReturnType<typeof createServiceRoleClient>` so column-level type safety on every `.from(...).insert/update/select` chain.
+    - Two narrow `as unknown as` casts remain at the JSONB boundary — supabase-js types JSONB columns as `Json` (recursive `{ [k: string]: Json | undefined } | …`), and our `SubmittalRegisterItem` interface (and its nested `SubmittalRegisterGroup` array) lacks an index signature so it isn't structurally assignable to `Json`. The casts are localized to:
+      - `submittal_register_items.insert` — casts the row array to `SubmittalRegisterItemInsert[]`.
+      - `workflow_runs.update` — casts `output_payload` and `output_summary` fields to the generated `WorkflowRunUpdate` field types.
+      These are pragmatic boundary assertions where we know the values are JSON-serializable but TS can't structurally prove it. Same pattern recommended in supabase-js docs for typed JSONB columns.
+    - Remaining type debt:
+      - The two `as unknown as` casts above (small, clearly named, only at I/O boundary).
+      - `source_finding_id` / `source_citation_id` are still always-null on persisted rows — would require expanding `SubmittalRegisterItem` to carry source IDs (defer; would change the tool return contract).
+      - `triggered_by_role` is still always-null — would require a `users.role` lookup at the API-route layer (defer).
+    - `npm run router:harness` passes — all 12 router classifications, plus pure-transform persistence checks.
+    - `npm run build` passes — full type checking against the new generated `Database` type.
+
 ## Next Recommended Step
 
-Regenerate `src/lib/db/supabase/types.ts` against the live linked DB so `workflow_runs` and `submittal_register_items` are typed; remove the `ServiceRoleClient = any` cast from `submittal-register-persistence.ts`. Optional follow-up: thread `users.role` lookup so `triggered_by_role` is populated, and carry `entity_findings.id` / `entity_citations.id` through `SubmittalRegisterItem` so `source_finding_id` / `source_citation_id` get populated on persisted rows.
+Optional follow-ups, no clear single next step:
+- Carry `entity_findings.id` and `entity_citations.id` through `SubmittalRegisterItem` so `source_finding_id` / `source_citation_id` get populated on persisted rows (would expand the tool's items shape — small payload contract change, decide first).
+- Thread `users.role` lookup at the API layer so `triggered_by_role` is populated.
+- Backfill `schema_migrations` history rows for `00049` (already-applied trigger) and `00050` (registered under timestamp `20260506000254` rather than `00050`) so future `supabase db push` reconciles cleanly.
+- Begin extending the same persistence pattern to other routed task types (`spec_lookup`, `rfi_draft`, etc.) — the schema is generic; only the `workflow_type` CHECK and per-type item table need to evolve.
 
 ## Validation
 

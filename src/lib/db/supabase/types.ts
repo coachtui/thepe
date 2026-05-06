@@ -2268,6 +2268,143 @@ export type Database = {
           },
         ]
       }
+      submittal_register_items: {
+        Row: {
+          approval_required: boolean | null
+          citation_completeness: number | null
+          confidence: number | null
+          confirmed_by_count: number
+          created_at: string
+          dedupe_key: string
+          id: string
+          item_payload: Json
+          project_id: string
+          rejected_by_count: number
+          required_action: string | null
+          review_notes: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by_role: string | null
+          reviewed_by_user_id: string | null
+          section_title: string | null
+          source_citation_id: string | null
+          source_finding_id: string | null
+          source_quality: string | null
+          spec_section: string | null
+          submittal_item: string
+          submittal_type: string | null
+          superseded_by_id: string | null
+          updated_at: string
+          workflow_run_id: string
+        }
+        Insert: {
+          approval_required?: boolean | null
+          citation_completeness?: number | null
+          confidence?: number | null
+          confirmed_by_count?: number
+          created_at?: string
+          dedupe_key: string
+          id?: string
+          item_payload: Json
+          project_id: string
+          rejected_by_count?: number
+          required_action?: string | null
+          review_notes?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by_role?: string | null
+          reviewed_by_user_id?: string | null
+          section_title?: string | null
+          source_citation_id?: string | null
+          source_finding_id?: string | null
+          source_quality?: string | null
+          spec_section?: string | null
+          submittal_item: string
+          submittal_type?: string | null
+          superseded_by_id?: string | null
+          updated_at?: string
+          workflow_run_id: string
+        }
+        Update: {
+          approval_required?: boolean | null
+          citation_completeness?: number | null
+          confidence?: number | null
+          confirmed_by_count?: number
+          created_at?: string
+          dedupe_key?: string
+          id?: string
+          item_payload?: Json
+          project_id?: string
+          rejected_by_count?: number
+          required_action?: string | null
+          review_notes?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by_role?: string | null
+          reviewed_by_user_id?: string | null
+          section_title?: string | null
+          source_citation_id?: string | null
+          source_finding_id?: string | null
+          source_quality?: string | null
+          spec_section?: string | null
+          submittal_item?: string
+          submittal_type?: string | null
+          superseded_by_id?: string | null
+          updated_at?: string
+          workflow_run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_sri_run_project"
+            columns: ["workflow_run_id", "project_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_runs"
+            referencedColumns: ["id", "project_id"]
+          },
+          {
+            foreignKeyName: "submittal_register_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_quantity_summary"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "submittal_register_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submittal_register_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "utility_length_summary"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "submittal_register_items_source_citation_id_fkey"
+            columns: ["source_citation_id"]
+            isOneToOne: false
+            referencedRelation: "entity_citations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submittal_register_items_source_finding_id_fkey"
+            columns: ["source_finding_id"]
+            isOneToOne: false
+            referencedRelation: "entity_findings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submittal_register_items_superseded_by_id_fkey"
+            columns: ["superseded_by_id"]
+            isOneToOne: false
+            referencedRelation: "submittal_register_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           created_at: string | null
@@ -2839,6 +2976,88 @@ export type Database = {
           },
         ]
       }
+      workflow_runs: {
+        Row: {
+          completed_at: string | null
+          cost_usd: number | null
+          created_at: string
+          duration_ms: number | null
+          error: string | null
+          id: string
+          inputs: Json
+          output_payload: Json | null
+          output_summary: Json | null
+          project_id: string
+          source_type: string
+          started_at: string
+          status: string
+          triggered_by_role: string | null
+          triggered_by_user_id: string | null
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          completed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          inputs?: Json
+          output_payload?: Json | null
+          output_summary?: Json | null
+          project_id: string
+          source_type: string
+          started_at?: string
+          status?: string
+          triggered_by_role?: string | null
+          triggered_by_user_id?: string | null
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          completed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          id?: string
+          inputs?: Json
+          output_payload?: Json | null
+          output_summary?: Json | null
+          project_id?: string
+          source_type?: string
+          started_at?: string
+          status?: string
+          triggered_by_role?: string | null
+          triggered_by_user_id?: string | null
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_quantity_summary"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "workflow_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "utility_length_summary"
+            referencedColumns: ["project_id"]
+          },
+        ]
+      }
     }
     Views: {
       document_processing_status: {
@@ -3217,3 +3436,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
