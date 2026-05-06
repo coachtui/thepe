@@ -150,9 +150,36 @@ Implemented so far:
     - `npm run router:harness` passes.
     - `npm run build` passes.
 
+12. Persistence wired into the `buildSubmittalRegister` tool path
+    - Files:
+      - `src/lib/chat/submittal-register.ts` — adds pure transforms `buildOutputSummary`, `buildSubmittalRegisterItemRows`, `buildSubmittalRegisterPersistedPayload` plus `SubmittalRegisterOutputSummary` and `SubmittalRegisterItemRow` types. Pure helpers; no DB imports.
+      - `src/lib/chat/submittal-register-persistence.ts` *(new)* — `persistSubmittalRegisterRun(opts)` orchestrates the writes; uses service-role client only.
+      - `src/lib/chat/tools/index.ts` — `buildTools` now accepts an optional `userContext: { userId?: string | null; userRole?: string | null }`. The `buildSubmittalRegister` tool execute calls `persistSubmittalRegisterRun` after formatting the payload; persistence errors are swallowed.
+      - `src/lib/chat/chat-handler.ts` — `ChatHandlerOptions` accepts `userId?: string | null` and `userRole?: string | null`; threaded into `buildTools`.
+      - `src/app/api/chat/route.ts` — passes `userId: user.id` through to `handleChatRequest`.
+      - `src/app/api/mobile/chat/route.ts` — same.
+      - `scripts/task-router-harness.mjs` — adds two coverage blocks for the pure transforms (combined sample + fallback empty case).
+    - Tool return contract unchanged. The tool still returns the same JSON string from `formatSubmittalRegisterToolPayload`; persistence is invoked between formatting and return.
+    - Persistence flow on each `buildSubmittalRegister` execute:
+      1. Insert into `workflow_runs` with `status='running'`, `inputs` (sectionFilter, keyword, limit, taskType), `source_type='chat_tool'`, `triggered_by_user_id` (when available), `triggered_by_role` (null for now), `started_at=now()`. RETURNING `id`.
+      2. Insert per-item rows into `submittal_register_items` in a single batch. `dedupe_key`, denormalized filterable fields, `confidence`, `source_quality`, `citation_completeness`, full `item_payload` JSONB snapshot. `source_finding_id` / `source_citation_id` are null in Phase 1 (carrying those would require expanding `SubmittalRegisterItem`, which would change the tool return contract; deferred).
+      3. Update the `workflow_runs` row to `status='completed'`, `output_payload` (the full persisted snapshot), `output_summary` (compact aggregate counts + reviewFlags), `completed_at`, `duration_ms`.
+      4. On any error in steps 1–3: best-effort update to `status='failed'`, `error=<message>`, `completed_at`, `duration_ms`.
+    - Transactional pattern: Supabase JS does not expose multi-statement transactions to the JS client. The implementation uses sequential writes with status tracking — running → completed/failed — modelled on the existing `recheck_sessions` audit pattern (`00047`). A future hardening pass could move this into a Postgres function (RPC) for true atomicity if needed.
+    - Failure isolation: `persistSubmittalRegisterRun` is a no-throw boundary — every internal error is caught and logged, the function returns an outcome object instead of throwing. The tool execute also wraps the persistence call in `try/catch` as belt-and-suspenders. **A persistence failure never affects the tool response.** The tool still returns the formatted payload; only `console.warn` records the issue.
+    - Fallback / no-config behavior: if `SUPABASE_SERVICE_ROLE_KEY` is unset, `createServiceRoleClient` throws — the helper catches this, logs a warning, and returns `status='skipped'`. The tool response is unaffected.
+    - Provenance fields:
+      - `triggered_by_user_id` — populated from `user.id` in both API routes when available; null otherwise (e.g. background callers).
+      - `triggered_by_role` — null in Phase 1. Threaded as a parameter so a future PR can populate it from the `users.role` column without reshaping the helper.
+      - `source_type='chat_tool'` — fixed for this code path (other source types reserved for future API-direct / scheduled / admin invocations).
+    - Type safety note: the generated `Database` type (`src/lib/db/supabase/types.ts`) does not yet include `workflow_runs` or `submittal_register_items` — generated before the migration. The persistence helper casts the service-role client to `any` at the boundary to avoid blocking the build. Regenerating types is a future cleanup item.
+    - Harness coverage: pure transforms (`buildOutputSummary`, `buildSubmittalRegisterItemRows`) verified for both populated and empty results without requiring a live Supabase. Pure helpers live in `submittal-register.ts` precisely so the harness can load them without the service-role client import path.
+    - `npm run router:harness` passes — all 12 router classification cases plus new persistence transform checks.
+    - `npm run build` passes.
+
 ## Next Recommended Step
 
-Wire `workflow_runs` + `submittal_register_items` writes from the `buildSubmittalRegister` tool path using service-role only. Use a single transaction or the best available transactional pattern, set `status='completed'` on success, set `error` on failure, and do not modify the tool's return contract.
+Regenerate `src/lib/db/supabase/types.ts` against the live linked DB so `workflow_runs` and `submittal_register_items` are typed; remove the `ServiceRoleClient = any` cast from `submittal-register-persistence.ts`. Optional follow-up: thread `users.role` lookup so `triggered_by_role` is populated, and carry `entity_findings.id` / `entity_citations.id` through `SubmittalRegisterItem` so `source_finding_id` / `source_citation_id` get populated on persisted rows.
 
 ## Validation
 

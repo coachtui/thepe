@@ -12,6 +12,8 @@ import {
   extractSubmittalRegisterItemsFromText,
   groupSubmittalRegisterForReview,
   formatSubmittalRegisterToolPayload,
+  buildOutputSummary,
+  buildSubmittalRegisterItemRows,
 } from '../src/lib/chat/submittal-register.ts'
 
 const examples = [
@@ -256,4 +258,54 @@ console.log(JSON.stringify({
   ungroupedCount: fallbackPayload.ungrouped.length,
   summary: fallbackPayload.summary,
   notes: fallbackPayload.notes,
+}, null, 2))
+
+const persistenceSummary = buildOutputSummary(reviewSource)
+const persistenceRows = buildSubmittalRegisterItemRows(
+  '00000000-0000-0000-0000-000000000001',
+  'sample-project',
+  reviewSource.items
+)
+
+console.log('')
+console.log('Persistence pure-transform check:')
+console.log(JSON.stringify({
+  outputSummary: persistenceSummary,
+  itemRowCount: persistenceRows.length,
+  firstRowKeys: Object.keys(persistenceRows[0] ?? {}),
+  firstRowSample: persistenceRows[0] && {
+    project_id: persistenceRows[0].project_id,
+    workflow_run_id: persistenceRows[0].workflow_run_id,
+    dedupe_key: persistenceRows[0].dedupe_key,
+    spec_section: persistenceRows[0].spec_section,
+    submittal_item: persistenceRows[0].submittal_item,
+    submittal_type: persistenceRows[0].submittal_type,
+    confidence: persistenceRows[0].confidence,
+    source_quality: persistenceRows[0].source_quality,
+    citation_completeness: persistenceRows[0].citation_completeness,
+    source_finding_id: persistenceRows[0].source_finding_id,
+    source_citation_id: persistenceRows[0].source_citation_id,
+    item_payload_present: persistenceRows[0].item_payload !== undefined,
+  },
+}, null, 2))
+
+const fallbackPersistenceSummary = buildOutputSummary({
+  success: false,
+  projectId: 'sample-project',
+  source: 'spec_entity_graph',
+  items: [],
+  confidence: 0,
+  notes: ['No spec entity graph rows found.'],
+})
+const fallbackPersistenceRows = buildSubmittalRegisterItemRows(
+  '00000000-0000-0000-0000-000000000002',
+  'sample-project',
+  []
+)
+
+console.log('')
+console.log('Persistence fallback transform check:')
+console.log(JSON.stringify({
+  outputSummary: fallbackPersistenceSummary,
+  itemRowCount: fallbackPersistenceRows.length,
 }, null, 2))

@@ -242,6 +242,84 @@ export function formatSubmittalRegisterToolPayload(result: SubmittalRegisterResu
   }, null, 2)
 }
 
+export interface SubmittalRegisterOutputSummary {
+  totalItemCount: number
+  groupCount: number
+  averageConfidence: number
+  ungroupedCount: number
+  reviewFlags: string[]
+}
+
+export interface SubmittalRegisterItemRow {
+  project_id: string
+  workflow_run_id: string
+  dedupe_key: string
+  spec_section: string | null
+  section_title: string | null
+  submittal_item: string
+  submittal_type: string | null
+  required_action: string | null
+  approval_required: boolean | null
+  confidence: number | null
+  source_quality: 'high' | 'medium' | 'low' | null
+  citation_completeness: number | null
+  source_finding_id: string | null
+  source_citation_id: string | null
+  item_payload: SubmittalRegisterItem
+}
+
+export function buildOutputSummary(result: SubmittalRegisterResult): SubmittalRegisterOutputSummary {
+  const review = groupSubmittalRegisterForReview(result)
+  return {
+    totalItemCount: review.totalItemCount,
+    groupCount: review.groupCount,
+    averageConfidence: review.averageConfidence,
+    ungroupedCount: review.ungrouped.length,
+    reviewFlags: review.reviewFlags,
+  }
+}
+
+export function buildSubmittalRegisterItemRows(
+  workflowRunId: string,
+  projectId: string,
+  items: SubmittalRegisterItem[]
+): SubmittalRegisterItemRow[] {
+  return items.map((item, index) => ({
+    project_id: projectId,
+    workflow_run_id: workflowRunId,
+    dedupe_key: item.dedupeKey ?? `${index}:${item.submittalItem}`,
+    spec_section: item.specSection,
+    section_title: item.sectionTitle,
+    submittal_item: item.submittalItem,
+    submittal_type: item.submittalType,
+    required_action: item.requiredAction,
+    approval_required: item.approvalRequired,
+    confidence: item.confidence ?? null,
+    source_quality: item.sourceQuality ?? null,
+    citation_completeness: item.citationCompleteness ?? null,
+    source_finding_id: null,
+    source_citation_id: null,
+    item_payload: item,
+  }))
+}
+
+export function buildSubmittalRegisterPersistedPayload(
+  result: SubmittalRegisterResult,
+  summary: SubmittalRegisterOutputSummary
+) {
+  const review = groupSubmittalRegisterForReview(result)
+  return {
+    success: result.success,
+    source: result.source,
+    confidence: result.confidence,
+    notes: result.notes,
+    items: result.items,
+    summary,
+    groupedSections: review.groups,
+    ungrouped: review.ungrouped,
+  }
+}
+
 function buildSubmittalRegisterGroup(items: SubmittalRegisterItem[]): SubmittalRegisterGroup {
   const first = items[0]
   const confidenceBreakdown = { high: 0, medium: 0, low: 0 }

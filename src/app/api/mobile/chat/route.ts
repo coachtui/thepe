@@ -59,7 +59,13 @@ export async function POST(request: NextRequest) {
     const projectContext = await loadProjectContext(supabase, projectId)
 
     // Run the unified chat pipeline (same as web route)
-    return handleChatRequest({ messages, projectId, supabase, projectContext })
+    return handleChatRequest({
+      messages,
+      projectId,
+      supabase,
+      projectContext,
+      userId: user.id,
+    })
   } catch (error) {
     console.error('[Mobile Chat] Error:', error)
     return new Response(

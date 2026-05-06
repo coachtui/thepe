@@ -39,6 +39,9 @@ export interface ChatHandlerOptions {
   debugAi?: boolean
   /** Initial task classification scaffold. Retrieval still falls back to existing behavior. */
   taskRoute?: TaskRouteResult
+  /** Authenticated user context. When set, persistence layers record provenance. */
+  userId?: string | null
+  userRole?: string | null
 }
 
 export interface ChatMessage {
@@ -57,7 +60,7 @@ export interface ChatMessage {
 export async function handleChatRequest(
   opts: ChatHandlerOptions
 ): Promise<Response> {
-  const { messages, projectId, supabase, projectContext, debugAi, taskRoute } = opts
+  const { messages, projectId, supabase, projectContext, debugAi, taskRoute, userId, userRole } = opts
 
   const latestMessage = messages[messages.length - 1]
   if (!latestMessage || latestMessage.role !== 'user') {
@@ -83,7 +86,10 @@ export async function handleChatRequest(
   const memoryCtx = await loadProjectMemory(projectId)
 
   // Build tools with projectId + supabase in closure
-  const tools = buildTools(projectId, supabase, memoryCtx, retrievalStrategy)
+  const tools = buildTools(projectId, supabase, memoryCtx, retrievalStrategy, {
+    userId: userId ?? null,
+    userRole: userRole ?? null,
+  })
 
   // Build system prompt
   const systemPrompt = buildAgentSystemPrompt(projectContext, memoryCtx, retrievalStrategy)

@@ -37,7 +37,14 @@ export async function POST(request: NextRequest) {
     const projectContext = await loadProjectContext(supabase, projectId)
 
     // Run the unified chat pipeline
-    return handleChatRequest({ messages, projectId, supabase, projectContext, debugAi: !!debugAi })
+    return handleChatRequest({
+      messages,
+      projectId,
+      supabase,
+      projectContext,
+      debugAi: !!debugAi,
+      userId: user.id,
+    })
   } catch (error) {
     console.error('[Chat API] Error:', error)
     return new Response(

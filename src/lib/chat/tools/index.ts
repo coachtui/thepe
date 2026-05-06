@@ -19,6 +19,7 @@ import {
   buildSubmittalRegisterFromSpecs,
   formatSubmittalRegisterToolPayload,
 } from '../submittal-register'
+import { persistSubmittalRegisterRun } from '../submittal-register-persistence'
 import { runPlanReader } from '../plan-reader'
 import { verifyBeforeAnswering } from '../sheet-verifier'
 import { queryComponentCount, queryAllComponentsByUtility, queryUtilityLength } from '../vision-queries'
@@ -41,12 +42,18 @@ export type { ProjectMemoryContext }
  * @param supabase   - Supabase client (passed through to query functions)
  * @param memoryCtx  - Pre-loaded project memory (aliases, patterns, hints)
  */
+export interface ToolUserContext {
+  userId?: string | null
+  userRole?: string | null
+}
+
 export function buildTools(
   projectId: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   memoryCtx: ProjectMemoryContext,
-  retrievalStrategy?: RetrievalStrategy
+  retrievalStrategy?: RetrievalStrategy,
+  userContext?: ToolUserContext
 ) {
   // ── Tool 1: searchEntities ────────────────────────────────────────────────
   const searchEntities = tool({
@@ -439,21 +446,49 @@ export function buildTools(
       sectionNumber?: string
       keyword?: string
     }): Promise<string> => {
+      const startedAt = new Date()
+      const limit = retrievalStrategy?.taskType === 'submittal_register'
+        ? retrievalStrategy.defaultTopK
+        : 50
+
+      let result
       try {
-        const result = await buildSubmittalRegisterFromSpecs({
+        result = await buildSubmittalRegisterFromSpecs({
           projectId,
           supabase,
           sectionFilter: sectionNumber ?? null,
           keyword: keyword ?? null,
-          limit: retrievalStrategy?.taskType === 'submittal_register'
-            ? retrievalStrategy.defaultTopK
-            : 50,
+          limit,
         })
-
-        return formatSubmittalRegisterToolPayload(result)
       } catch (err) {
         return `buildSubmittalRegister error: ${err instanceof Error ? err.message : String(err)}`
       }
+
+      const payload = formatSubmittalRegisterToolPayload(result)
+
+      try {
+        await persistSubmittalRegisterRun({
+          projectId,
+          result,
+          inputs: {
+            sectionFilter: sectionNumber ?? null,
+            keyword: keyword ?? null,
+            limit,
+            taskType: retrievalStrategy?.taskType ?? 'submittal_register',
+          },
+          triggeredByUserId: userContext?.userId ?? null,
+          triggeredByRole: userContext?.userRole ?? null,
+          startedAt,
+        })
+      } catch (err) {
+        console.warn(
+          `[buildSubmittalRegister] persistence error swallowed: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        )
+      }
+
+      return payload
     },
   })
 
