@@ -20,13 +20,10 @@ import { getDocument, updateDocumentStatus } from '@/lib/db/queries/documents'
 import { parseDocumentFromUrlWithPdfJs } from '@/lib/parsers/pdfjs-parser'
 import { canParse } from '@/lib/parsers/llamaparse'
 import { chunkTextPreservingCallouts } from '@/lib/embeddings/chunking'
-import { generateEmbeddingsBatch } from '@/lib/embeddings/openai'
-import {
-  createDocumentChunks,
-  createDocumentEmbeddings,
-} from '@/lib/embeddings/vector-search'
+import { createDocumentChunks } from '@/lib/embeddings/vector-search'
 import { getDocumentSignedUrl } from '@/lib/db/queries/documents'
 import { triggerVisionWithInngest, shouldAutoProcessVision } from '@/lib/vision/auto-process'
+import { inngest } from '@/inngest/client'
 
 export async function POST(request: NextRequest) {
   try {
@@ -104,42 +101,7 @@ export async function POST(request: NextRequest) {
         }))
       )
 
-      // Step 5: Generate embeddings for all chunks (optional - skip if timeout)
-      let embeddingsCreated = false
-      try {
-        console.log(`Generating embeddings for ${chunks.length} chunks...`)
-        const chunkTexts = chunks.map((c) => c.content)
-
-        // Add timeout for embeddings (60 seconds)
-        const embeddingsPromise = generateEmbeddingsBatch(chunkTexts)
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Embeddings timeout')), 60000)
-        )
-
-        const embeddings = (await Promise.race([
-          embeddingsPromise,
-          timeoutPromise,
-        ])) as any[]
-
-        // Step 6: Store embeddings in database
-        console.log(`Storing ${embeddings.length} embeddings...`)
-        await createDocumentEmbeddings(
-          supabase,
-          embeddings.map((emb, index) => ({
-            chunkId: dbChunks[index].id,
-            embedding: emb.embedding,
-            modelVersion: emb.model,
-          }))
-        )
-        embeddingsCreated = true
-      } catch (embError) {
-        console.warn(
-          'Failed to generate embeddings (document processing will continue):',
-          embError instanceof Error ? embError.message : embError
-        )
-      }
-
-      // Step 7: Update document status to completed
+      // Step 5: Update document status to completed
       await updateDocumentStatus(
         supabase,
         documentId,
@@ -149,7 +111,17 @@ export async function POST(request: NextRequest) {
 
       console.log(`Document ${documentId} processed successfully`)
 
-      // Step 8: Trigger vision processing in background (non-blocking)
+      // Step 6: Trigger embedding generation via Inngest (non-blocking, durable)
+      // Runs outside the Vercel request lifecycle — no 300s deadline, no large
+      // single-payload inserts. Deduplicated by documentId so re-uploads only
+      // enqueue one job.
+      await inngest.send({
+        id: `embed-${documentId}`,
+        name: 'document/embeddings.requested',
+        data: { documentId, trigger: 'upload-auto' },
+      })
+
+      // Step 7: Trigger vision processing in background (non-blocking)
       // Only process PDFs automatically
       const shouldProcess = await shouldAutoProcessVision(documentId);
       if (shouldProcess && document.project_id) {
@@ -167,7 +139,8 @@ export async function POST(request: NextRequest) {
         documentId,
         chunks: chunks.length,
         pageCount: parsed.pageCount,
-        visionProcessingTriggered: shouldProcess
+        visionProcessingTriggered: shouldProcess,
+        embeddingsQueued: true,
       })
     } catch (processingError) {
       console.error('Document processing error:', processingError)

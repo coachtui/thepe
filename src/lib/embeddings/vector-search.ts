@@ -68,17 +68,26 @@ export async function createDocumentChunks(
     station: chunk.station,
   }))
 
-  const { data, error } = await supabase
-    .from('document_chunks')
-    .insert(chunksToInsert)
-    .select()
+  // Insert in batches of 500 to stay well under Supabase/Cloudflare body limits.
+  const INSERT_BATCH_SIZE = 500
+  const allData: DocumentChunk[] = []
 
-  if (error) {
-    console.error('Error creating document chunks:', error)
-    throw new Error('Failed to create document chunks')
+  for (let i = 0; i < chunksToInsert.length; i += INSERT_BATCH_SIZE) {
+    const batch = chunksToInsert.slice(i, i + INSERT_BATCH_SIZE)
+    const { data, error } = await supabase
+      .from('document_chunks')
+      .insert(batch)
+      .select()
+
+    if (error) {
+      console.error('Error creating document chunks:', error)
+      throw new Error('Failed to create document chunks')
+    }
+
+    allData.push(...data)
   }
 
-  return data
+  return allData
 }
 
 /**

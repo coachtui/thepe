@@ -13,6 +13,7 @@ import { inngest } from '@/inngest/client'
 import { visionProcessDocument } from '@/inngest/functions/vision-process-document'
 import { visionStuckRecovery } from '@/inngest/functions/vision-stuck-recovery'
 import { specExtractDocument } from '@/inngest/functions/spec-extract-document'
+import { embedDocumentChunks } from '@/inngest/functions/embed-document-chunks'
 
 // Allow each step invocation up to 5 minutes — vision processing (PDF render +
 // Claude API) for a page-range chunk can take 2-3 minutes on a large document.
@@ -25,5 +26,6 @@ export const { GET, POST, PUT } = serve({
     visionProcessDocument,
     visionStuckRecovery,
     specExtractDocument,
+    embedDocumentChunks,
   ],
 })

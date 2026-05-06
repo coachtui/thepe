@@ -38,4 +38,11 @@ export type Events = {
       trigger: string
     }
   }
+  'document/embeddings.requested': {
+    data: {
+      documentId: string
+      /** Label identifying which code path triggered this event */
+      trigger: string
+    }
+  }
 }
