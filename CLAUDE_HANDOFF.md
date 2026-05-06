@@ -305,6 +305,11 @@ Implemented so far:
       - `src/lib/chat/spec-extraction-pipeline.ts` *(new)* — single export `runSpecExtractionPipeline(input)`, plus exported phrase-detection helpers `detectApprovalRequired(text)` / `detectRecordOnly(text)`. Imports the deterministic helpers from `src/lib/vision/spec-extractor.ts` (`classifySpecDocument`, `extractSpecSections`, `splitIntoParts`, `classifyRequirement`, `extractRequirementStatements`, `buildSpecSectionCanonical`, `buildSpecRequirementCanonical`, `SPEC_SECTION_EXTRACTION_PROMPT`) — all already-existing pure functions that until now had zero callers.
       - `scripts/task-router-harness.mjs` — adds five harness blocks: happy-path (3 sections, regex agrees with model on 3/4 requirements, approval/record-only counts asserted, source chunks + page numbers attached); malformed-JSON (validationFailed=true, warning surfaced, regex first-pass still populated); oversize-section (skipped against `maxSectionChars=1000`, no LLM cost, `regexFirstPassTotal` still computed); approval/record-only phrase detection table over 8 sample strings.
       - `tsconfig.json` — adds `allowImportingTsExtensions: true` so the pipeline can use a literal `.ts` import path for `'../vision/spec-extractor.ts'`. Required because the harness loads the pipeline via Node 24's native TS support (which strict-resolves paths) AND the tsc build under `moduleResolution: "bundler"`. `noEmit: true` was already set (the prerequisite for the flag). No bundler behavior change.
+    - tsconfig flag verification (post-decision audit, kept for future maintainers):
+      - The `.ts` import is the only one in `src/`. All ~50+ existing imports use extension-less paths.
+      - The `.mjs` harness already uses `.ts` extensions; that's how Node 24 resolves the source files at runtime. The harness style is independent of tsc — it doesn't need the flag.
+      - Alternatives considered: `.js` extension (Node ESM doesn't auto-substitute to `.ts`, breaks harness); path alias `@/lib/...` (Node ESM doesn't resolve aliases, breaks harness); pure helper file split (loses end-to-end pipeline harness coverage); dependency-injected helpers (noisy API, undermines spec-extractor's role as centralized parser).
+      - Conclusion: the flag is the cheapest path that preserves end-to-end harness coverage of the pipeline orchestration. Documented stable TS feature since 5.0. Kept on purpose.
     - Pipeline API (input):
       - `projectId, documentId, documentMeta { title?, filename }, chunks, llmCaller, options?`
       - `chunks: Array<{ id, chunk_index, content, page_number?, metadata? }>` — caller-supplied; pipeline sorts by `chunk_index` defensively, never trusts caller ordering.
@@ -340,6 +345,49 @@ Implemented so far:
     - Build / harness:
       - `npm run router:harness` exit 0. Output is print-based per the existing harness convention; spot-check by scanning for the `Spec extraction —` blocks.
       - `npm run build` passes. No new routes; one shared module added (`spec-extraction-pipeline.ts`). `/projects/[id]` First Load JS unchanged at 12.9 kB (the pipeline is server-only — never bundled into client routes).
+
+19. Spec extraction persistence layer (Option A, phase A3b)
+    - Architectural context: A3b is the I/O layer that takes a `SpecExtractionPipelineResult` from A3a and writes it into the universal entity model. Pure row construction lives in `spec-extraction-pipeline.ts` (harness-loadable); I/O lives in `spec-extraction-persistence.ts` (service-role client; not loaded from harness). Mirrors the same split used by `submittal-register.ts` ↔ `submittal-register-persistence.ts`.
+    - Files:
+      - `src/lib/chat/spec-extraction-pipeline.ts` — extends with the pure row builder `buildSpecPersistenceRows(projectId, documentId, result, options?)` plus six new exported types: `SpecSectionEntityRow`, `SpecRequirementEntityRow`, `SpecCitationRowTemplate`, `SpecFindingRowTemplate`, `SpecRequirementBundle`, `SpecSectionBundle`, `SpecPersistenceRowSet`. Section metadata now also carries `regexFirstPassByFamily` + `regexFirstPassTotal` so oversize / validation-failed sections preserve their regex evidence even when no requirements are written.
+      - `src/lib/chat/spec-extraction-persistence.ts` *(new)* — `persistSpecExtractionResult(opts)`. Service-role client only. Five sequential write steps with structured per-step failure tracking. Idempotent.
+      - `scripts/task-router-harness.mjs` — adds three pure-transform coverage blocks: happy-path row construction (asserts canonical_name uniqueness, citation/finding rows have no FK columns yet, `findingType`/`subtype`/`support_level`/`extraction_source` shapes correct, approval_required propagated to finding metadata); validation-failed-with-zero-requirements skipped; oversize section preserved with regex evidence in metadata.
+    - Idempotency strategy:
+      - Single DELETE on `project_entities WHERE project_id=? AND discipline='spec' AND source_document_id=?` before any insert.
+      - Schema cascade verified live: `entity_findings.entity_id`, `entity_citations.entity_id`, and `entity_relationships.from/to_entity_id` all `ON DELETE CASCADE` from `project_entities`. So the single DELETE is sufficient — dependents drop automatically. No multi-table cleanup needed.
+      - Same pattern as the project's existing re-processing rule (CLAUDE.md key rule 6).
+    - Insert order (5 steps, sequential):
+      1. **delete_existing** — `DELETE FROM project_entities ...` (cascades to findings + citations + relationships).
+      2. **insert_section_entities** — bulk `INSERT INTO project_entities` with `entity_type='spec_section'`, `RETURNING id, canonical_name`. Build `Map<canonical_name, id>` for downstream linkage.
+      3. **insert_requirement_entities** — bulk `INSERT INTO project_entities` with `entity_type='spec_requirement'`, flat across all sections, `RETURNING id, canonical_name`. Build a second map.
+      4. **insert_citations** — bulk `INSERT INTO entity_citations`, each row carries `entity_id` from the requirement map. `RETURNING id, entity_id`. Build `Map<entity_id, citation_id>`.
+      5. **insert_findings** — bulk `INSERT INTO entity_findings`, each row carries `entity_id` (from requirement map) AND `citation_id` (from citation map).
+      - For 100 sections × 30 requirements (~3000 rows total), this is **5 round trips** total — not 3000.
+    - Foreign-key correlation strategy:
+      - `canonical_name` is unique within a (project_id, discipline) tuple, so `Map<canonical_name, id>` is safe.
+      - The pure builder leaves `entity_id` / `citation_id` / `finding_id` off the citation and finding row templates entirely (`Omit<...>` types). The I/O wrapper fills them in at insert time. Verified by harness — `citationsHaveNoEntityIdYet: true` and `findingsHaveNoEntityIdOrCitationIdYet: true`.
+    - Failure isolation (no-throw boundary):
+      - The function never throws. Every error path returns a typed `PersistSpecExtractionOutcome` with `status: 'failed'` + `failedAt: PersistSpecExtractionStep` + `warning` text.
+      - Steps that fail mid-flow leave a partial state on disk. Caller (Inngest function in A3c) is responsible for marking the run failed and deciding retry policy.
+      - Service-role client unavailability returns `{ status: 'failed', failedAt: 'service_role_unavailable' }`. No exception bubbles up.
+    - Row builder rules (pure transform):
+      - `extraction_source = 'text'` on every entity and citation row (per the spec-extractor design comment; spec extraction is text-only).
+      - `support_level = 'verified'` on findings (configurable via options). Spec text is the definitive authority for the requirement.
+      - `entity_type = 'spec_section'` on section rows; `entity_type = 'spec_requirement'` on requirement rows.
+      - `subtype` on section rows = `documentClassification` (e.g. `'project_manual'`). On requirement rows = the requirement family (e.g. `'submittal_requirement'`).
+      - `display_name` on requirement rows = first 120 chars of the verbatim statement (truncated with ellipsis). Useful for inline UI labels that don't need the full requirement text.
+      - `sheet_number` on citations carries the CSI section number (e.g. `'03 30 00'`). Per the spec-extractor.ts design comment.
+      - `metadata.parentSectionCanonical` on requirement entities so downstream can rebuild the section/requirement tree without joins.
+      - Sections with `validationFailed === true && requirements.length === 0` are skipped (counted in `skippedSectionCount`). Sections with zero requirements but `validationFailed === false` (e.g. oversize-skipped) are persisted as section entities only — preserving the audit trail and the regex first-pass evidence in metadata.
+    - DB type cast: the entity-graph tables (`project_entities`, `entity_findings`, `entity_citations`) are not yet in the generated `Database` types — they pre-date the workflow_runs regeneration. The persistence file uses a narrow `as any` cast at the supabase boundary, exactly the same pattern used elsewhere in the codebase (`mep-queries.ts`, `graph-queries.ts`, `submittal-queries.ts`, etc.). Documented in the file header. Will clear up on the next type regeneration.
+    - What this does NOT do (deferred to A3c):
+      - No Inngest function — `persistSpecExtractionResult` is a plain async function, not an Inngest handler.
+      - No API route — there's no manual re-run endpoint yet (that's A3d).
+      - No auto-trigger on document upload.
+      - No multi-statement transaction (supabase-js doesn't expose one). Mid-flow failures leave a partial state on disk; caller decides retry.
+    - Build / harness:
+      - `npm run router:harness` exit 0. Three new pure-transform blocks for the row builder.
+      - `npm run build` passes. No new routes; one new module added (`spec-extraction-persistence.ts`). `/projects/[id]` First Load JS unchanged at 12.9 kB.
 
 ## Next Recommended Step
 

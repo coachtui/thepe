@@ -778,3 +778,247 @@ function clamp01(n: number): number {
 function roundCurrency(n: number): number {
   return Math.round(n * 1_000_000) / 1_000_000
 }
+
+// ---------------------------------------------------------------------------
+// Persistence row builder (pure transform — no I/O)
+// ---------------------------------------------------------------------------
+//
+// `buildSpecPersistenceRows()` converts a `SpecExtractionPipelineResult` into
+// row "templates" suitable for direct insertion into `project_entities`,
+// `entity_citations`, and `entity_findings`. The I/O wrapper in
+// `spec-extraction-persistence.ts` calls this and then performs the actual
+// inserts in dependency order.
+//
+// Why "templates": citations and findings each carry foreign keys
+// (`entity_id`, `citation_id`, `finding_id`) that don't exist yet at row-
+// build time. The pure builder leaves them out; the I/O wrapper fills them
+// in after each insert step, correlating by `canonical_name` (which is
+// unique within a project for a given discipline).
+//
+// `extraction_source` is `'text'` per the spec-extractor design rules.
+// `support_level` is `'verified'` because spec text is the definitive
+// authority for the requirement — it doesn't get more directly attested.
+// `subtype` carries the document classification on section rows and the
+// requirement family on requirement rows.
+
+export interface SpecSectionEntityRow {
+  project_id: string
+  discipline: 'spec'
+  entity_type: 'spec_section'
+  canonical_name: string
+  display_name: string | null
+  subtype: string | null
+  status: string
+  confidence: number | null
+  extraction_source: 'text'
+  source_document_id: string
+  source_chunk_id: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface SpecRequirementEntityRow {
+  project_id: string
+  discipline: 'spec'
+  entity_type: 'spec_requirement'
+  canonical_name: string
+  display_name: string | null
+  subtype: string
+  status: string
+  confidence: number | null
+  extraction_source: 'text'
+  source_document_id: string
+  source_chunk_id: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface SpecCitationRowTemplate {
+  project_id: string
+  document_id: string
+  chunk_id: string | null
+  sheet_number: string
+  page_number: number | null
+  excerpt: string | null
+  context: string | null
+  confidence: number | null
+  extraction_source: 'text'
+}
+
+export interface SpecFindingRowTemplate {
+  project_id: string
+  finding_type: string
+  statement: string
+  text_value: string | null
+  numeric_value: number | null
+  unit: string | null
+  support_level: string
+  confidence: number | null
+  metadata: Record<string, unknown>
+}
+
+export interface SpecRequirementBundle {
+  requirementEntity: SpecRequirementEntityRow
+  citation: SpecCitationRowTemplate
+  finding: SpecFindingRowTemplate
+}
+
+export interface SpecSectionBundle {
+  sectionEntity: SpecSectionEntityRow
+  requirements: SpecRequirementBundle[]
+}
+
+export interface SpecPersistenceRowSet {
+  projectId: string
+  documentId: string
+  sections: SpecSectionBundle[]
+  totalSectionCount: number
+  totalRequirementCount: number
+  /** Sections that the pure builder skipped (validationFailed + zero requirements). */
+  skippedSectionCount: number
+}
+
+export interface BuildSpecPersistenceRowsOptions {
+  /** Default `status` value on entity rows. Defaults to `'active'`. */
+  defaultStatus?: string
+  /**
+   * Default `support_level` for finding rows. Defaults to `'verified'` —
+   * spec text is the definitive authority for the requirement.
+   */
+  defaultSupportLevel?: string
+  /** Maximum length of `display_name` for requirement entities (truncation target). */
+  maxRequirementDisplayName?: number
+}
+
+export function buildSpecPersistenceRows(
+  projectId: string,
+  documentId: string,
+  result: SpecExtractionPipelineResult,
+  options?: BuildSpecPersistenceRowsOptions
+): SpecPersistenceRowSet {
+  const opts = {
+    defaultStatus: options?.defaultStatus ?? 'active',
+    defaultSupportLevel: options?.defaultSupportLevel ?? 'verified',
+    maxRequirementDisplayName: options?.maxRequirementDisplayName ?? 120,
+  }
+
+  const sections: SpecSectionBundle[] = []
+  let totalRequirementCount = 0
+  let skippedSectionCount = 0
+
+  for (const section of result.sections) {
+    // Sections with no extracted requirements AND a validation failure are
+    // skipped — there's nothing actionable to persist. The fallback path
+    // (regex-first-pass) is preserved on the in-memory result so a future
+    // wrapper can choose to write those if desired.
+    if (section.requirements.length === 0 && section.validationFailed) {
+      skippedSectionCount += 1
+      continue
+    }
+
+    const primaryChunkId = section.sourceChunkIds[0] ?? null
+    const primaryPage = section.sourcePageNumbers[0] ?? null
+
+    const sectionEntity: SpecSectionEntityRow = {
+      project_id: projectId,
+      discipline: 'spec',
+      entity_type: 'spec_section',
+      canonical_name: section.canonicalName,
+      display_name: section.sectionTitle,
+      subtype: result.documentClassification ?? 'spec_section',
+      status: opts.defaultStatus,
+      confidence: section.confidence > 0 ? section.confidence : null,
+      extraction_source: 'text',
+      source_document_id: documentId,
+      source_chunk_id: primaryChunkId,
+      metadata: {
+        sectionNumber: section.sectionNumber,
+        divisionNumber: section.divisionNumber,
+        parts: section.parts,
+        referencedStandards: section.referencedStandards,
+        sectionCharCount: section.sectionCharCount,
+        sourceChunkIds: section.sourceChunkIds,
+        sourcePageNumbers: section.sourcePageNumbers,
+        warnings: section.warnings,
+        modelUsed: section.modelUsed ?? null,
+        regexFirstPassByFamily: section.regexFirstPassByFamily,
+        regexFirstPassTotal: section.regexFirstPassTotal,
+      },
+    }
+
+    const requirements: SpecRequirementBundle[] = []
+    for (const req of section.requirements) {
+      const requirementEntity: SpecRequirementEntityRow = {
+        project_id: projectId,
+        discipline: 'spec',
+        entity_type: 'spec_requirement',
+        canonical_name: req.canonicalName,
+        display_name: truncate(req.statement, opts.maxRequirementDisplayName),
+        subtype: req.requirementType,
+        status: opts.defaultStatus,
+        confidence: req.confidence,
+        extraction_source: 'text',
+        source_document_id: documentId,
+        source_chunk_id: primaryChunkId,
+        metadata: {
+          parentSectionCanonical: section.canonicalName,
+          parentSectionNumber: section.sectionNumber,
+          partReference: req.partReference,
+          regexFamily: req.regexFamily,
+          requirementTypeRemapped: req.requirementTypeRemapped,
+          approvalRequired: req.approvalRequired,
+          recordOnly: req.recordOnly,
+        },
+      }
+
+      const citation: SpecCitationRowTemplate = {
+        project_id: projectId,
+        document_id: documentId,
+        chunk_id: primaryChunkId,
+        // Spec citations reuse `sheet_number` to carry the CSI section number
+        // per the spec-extractor.ts design comment.
+        sheet_number: section.sectionNumber,
+        page_number: primaryPage,
+        excerpt: req.statement,
+        context: req.partReference,
+        confidence: req.confidence,
+        extraction_source: 'text',
+      }
+
+      const finding: SpecFindingRowTemplate = {
+        project_id: projectId,
+        finding_type: req.requirementType,
+        statement: req.statement,
+        text_value: null,
+        numeric_value: null,
+        unit: null,
+        support_level: opts.defaultSupportLevel,
+        confidence: req.confidence,
+        metadata: {
+          partReference: req.partReference,
+          regexFamily: req.regexFamily,
+          approvalRequired: req.approvalRequired,
+          recordOnly: req.recordOnly,
+          requirementTypeRemapped: req.requirementTypeRemapped,
+        },
+      }
+
+      requirements.push({ requirementEntity, citation, finding })
+      totalRequirementCount += 1
+    }
+
+    sections.push({ sectionEntity, requirements })
+  }
+
+  return {
+    projectId,
+    documentId,
+    sections,
+    totalSectionCount: sections.length,
+    totalRequirementCount,
+    skippedSectionCount,
+  }
+}
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text
+  return text.slice(0, Math.max(0, max - 1)).trimEnd() + '…'
+}

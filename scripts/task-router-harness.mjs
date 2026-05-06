@@ -20,6 +20,7 @@ import {
 } from '../src/lib/chat/submittal-register.ts'
 import {
   runSpecExtractionPipeline,
+  buildSpecPersistenceRows,
   detectApprovalRequired,
   detectRecordOnly,
 } from '../src/lib/chat/spec-extraction-pipeline.ts'
@@ -749,4 +750,88 @@ console.log(JSON.stringify({
     'Concrete shall be placed in accordance with ACI 301.',
     'The contractor shall maintain the work area.',
   ].map(s => ({ s, approvalRequired: detectApprovalRequired(s), recordOnly: detectRecordOnly(s) })),
+}, null, 2))
+
+// ---------------------------------------------------------------------------
+// Spec extraction persistence row builder (A3b) — pure transform coverage
+// ---------------------------------------------------------------------------
+
+const persistenceRowSet = buildSpecPersistenceRows(
+  'sample-project',
+  'sample-doc',
+  happyResult
+)
+
+console.log('')
+console.log('Spec persistence row builder — happy path:')
+console.log(JSON.stringify({
+  projectId: persistenceRowSet.projectId,
+  documentId: persistenceRowSet.documentId,
+  totalSectionCount: persistenceRowSet.totalSectionCount,
+  totalRequirementCount: persistenceRowSet.totalRequirementCount,
+  skippedSectionCount: persistenceRowSet.skippedSectionCount,
+  firstSection: persistenceRowSet.sections[0] && {
+    sectionEntityKeys: Object.keys(persistenceRowSet.sections[0].sectionEntity),
+    sectionCanonical: persistenceRowSet.sections[0].sectionEntity.canonical_name,
+    sectionDisplayName: persistenceRowSet.sections[0].sectionEntity.display_name,
+    sectionSubtype: persistenceRowSet.sections[0].sectionEntity.subtype,
+    sectionDiscipline: persistenceRowSet.sections[0].sectionEntity.discipline,
+    sectionEntityType: persistenceRowSet.sections[0].sectionEntity.entity_type,
+    sectionExtractionSource: persistenceRowSet.sections[0].sectionEntity.extraction_source,
+    sectionMetadataKeys: Object.keys(persistenceRowSet.sections[0].sectionEntity.metadata),
+    requirementCount: persistenceRowSet.sections[0].requirements.length,
+    firstRequirement: persistenceRowSet.sections[0].requirements[0] && {
+      entityCanonical: persistenceRowSet.sections[0].requirements[0].requirementEntity.canonical_name,
+      entitySubtype: persistenceRowSet.sections[0].requirements[0].requirementEntity.subtype,
+      entityDisplayName: persistenceRowSet.sections[0].requirements[0].requirementEntity.display_name,
+      entityMetadataParent: persistenceRowSet.sections[0].requirements[0].requirementEntity.metadata.parentSectionCanonical,
+      citationKeys: Object.keys(persistenceRowSet.sections[0].requirements[0].citation),
+      citationSheetNumber: persistenceRowSet.sections[0].requirements[0].citation.sheet_number,
+      citationDocumentId: persistenceRowSet.sections[0].requirements[0].citation.document_id,
+      citationExtractionSource: persistenceRowSet.sections[0].requirements[0].citation.extraction_source,
+      findingKeys: Object.keys(persistenceRowSet.sections[0].requirements[0].finding),
+      findingType: persistenceRowSet.sections[0].requirements[0].finding.finding_type,
+      findingSupportLevel: persistenceRowSet.sections[0].requirements[0].finding.support_level,
+      findingMetadataApprovalRequired: persistenceRowSet.sections[0].requirements[0].finding.metadata.approvalRequired,
+    },
+  },
+  citationsHaveNoEntityIdYet: persistenceRowSet.sections.every(s =>
+    s.requirements.every(r => !('entity_id' in r.citation) && !('finding_id' in r.citation))
+  ),
+  findingsHaveNoEntityIdOrCitationIdYet: persistenceRowSet.sections.every(s =>
+    s.requirements.every(r => !('entity_id' in r.finding) && !('citation_id' in r.finding))
+  ),
+  allRequirementCanonicalsAreUnique:
+    new Set(persistenceRowSet.sections.flatMap(s => s.requirements.map(r => r.requirementEntity.canonical_name))).size ===
+    persistenceRowSet.totalRequirementCount,
+}, null, 2))
+
+const failedSectionResult = {
+  ...malformedResult,
+  // mark as obviously empty + failed for the skip path
+}
+const skipRowSet = buildSpecPersistenceRows('sample-project', 'sample-doc', failedSectionResult)
+
+console.log('')
+console.log('Spec persistence row builder — skips validationFailed sections with zero requirements:')
+console.log(JSON.stringify({
+  totalSectionCount: skipRowSet.totalSectionCount,
+  totalRequirementCount: skipRowSet.totalRequirementCount,
+  skippedSectionCount: skipRowSet.skippedSectionCount,
+}, null, 2))
+
+const oversizeRowSet = buildSpecPersistenceRows('sample-project', 'sample-doc', oversizeResult)
+
+console.log('')
+console.log('Spec persistence row builder — oversize section preserved as section entity (no requirements, regex evidence in metadata):')
+console.log(JSON.stringify({
+  totalSectionCount: oversizeRowSet.totalSectionCount,
+  totalRequirementCount: oversizeRowSet.totalRequirementCount,
+  skippedSectionCount: oversizeRowSet.skippedSectionCount,
+  oversizeSectionMetadataKeys: oversizeRowSet.sections[0]
+    ? Object.keys(oversizeRowSet.sections[0].sectionEntity.metadata)
+    : null,
+  oversizeSectionWarnings: oversizeRowSet.sections[0]?.sectionEntity.metadata.warnings,
+  oversizeRegexFirstPassTotal:
+    oversizeRowSet.sections[0]?.sectionEntity.metadata.regexFirstPassTotal,
 }, null, 2))
