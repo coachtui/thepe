@@ -320,41 +320,51 @@ function SectionCard({
   onSave,
   onReset,
 }: SectionRenderProps & { section: SubmittalRegisterGroup }) {
+  const [open, setOpen] = useState(false)
   return (
     <div className="rounded-md border border-gray-200">
-      <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-        <div className="flex items-baseline justify-between gap-3">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full px-4 py-3 text-left bg-gray-50 hover:bg-gray-100 transition-colors"
+      >
+        <div className="flex items-center justify-between gap-3">
           <h4 className="text-sm font-semibold text-gray-900">
             {section.specSection ?? '—'}
             {section.sectionTitle ? <span className="text-gray-700 font-normal"> · {section.sectionTitle}</span> : null}
           </h4>
-          <span className="text-xs text-gray-500">
-            {section.itemCount} item{section.itemCount === 1 ? '' : 's'} · avg{' '}
-            {Math.round(section.averageConfidence * 100)}%
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-gray-500">
+              {section.itemCount} item{section.itemCount === 1 ? '' : 's'} · avg{' '}
+              {Math.round(section.averageConfidence * 100)}%
+            </span>
+            <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
+          </div>
         </div>
         {section.reviewFlags.length > 0 && (
-          <ul className="mt-2 text-xs text-amber-800 list-disc pl-5 space-y-0.5">
+          <ul className="mt-2 text-xs text-amber-800 list-disc pl-5 space-y-0.5 text-left">
             {section.reviewFlags.map((flag, idx) => (
               <li key={idx}>{flag}</li>
             ))}
           </ul>
         )}
-      </div>
-      <ul className="divide-y divide-gray-200">
-        {section.items.map((item, idx) => (
-          <ItemRow
-            key={item.persistedItemId ?? `${section.specSection ?? 'x'}-${idx}`}
-            item={item}
-            drafts={drafts}
-            rowSave={rowSave}
-            onStatus={onStatus}
-            onNotes={onNotes}
-            onSave={onSave}
-            onReset={onReset}
-          />
-        ))}
-      </ul>
+      </button>
+      {open && (
+        <ul className="divide-y divide-gray-200">
+          {section.items.map((item, idx) => (
+            <ItemRow
+              key={item.persistedItemId ?? `${section.specSection ?? 'x'}-${idx}`}
+              item={item}
+              drafts={drafts}
+              rowSave={rowSave}
+              onStatus={onStatus}
+              onNotes={onNotes}
+              onSave={onSave}
+              onReset={onReset}
+            />
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
