@@ -117,6 +117,25 @@ export async function persistSubmittalRegisterRun(
       throw new Error(`workflow_runs completion update failed: ${updateRun.error.message}`)
     }
 
+    // Best-effort: remove items from all prior runs for this project now that
+    // the new run is confirmed completed. A failure here does not roll back
+    // or fail the current run.
+    const staleCleanup = await supabase
+      .from('submittal_register_items')
+      .delete({ count: 'exact' })
+      .eq('project_id', opts.projectId)
+      .neq('workflow_run_id', workflowRunId)
+
+    if (staleCleanup.error) {
+      console.warn(
+        `[SubmittalRegisterPersistence] Stale item cleanup failed (non-fatal): ${staleCleanup.error.message}`
+      )
+    } else if ((staleCleanup.count ?? 0) > 0) {
+      console.log(
+        `[SubmittalRegisterPersistence] Deleted ${staleCleanup.count} stale submittal_register_item(s) from prior runs.`
+      )
+    }
+
     return { workflowRunId, status: 'completed', itemsWritten }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
