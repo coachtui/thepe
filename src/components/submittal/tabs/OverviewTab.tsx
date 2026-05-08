@@ -15,10 +15,10 @@ export function OverviewTab({ items }: OverviewTabProps) {
     return items
       .filter(i => {
         const status = resolveEffectiveStatus(i)
-        return (
-          isOverdue(i.lifecycleDueDate) ||
-          status === 'revise_resubmit'
-        )
+        if (status === 'approved' || status === 'approved_as_noted' || status === 'closed') {
+          return false
+        }
+        return isOverdue(i.lifecycleDueDate) || status === 'revise_resubmit'
       })
       .sort((a, b) => {
         const aOverdue = isOverdue(a.lifecycleDueDate) ? 0 : 1
