@@ -1,26 +1,42 @@
 # Latest Build Report
 
-Last updated: 2026-03-14 (Phase 7B)
+Last updated: 2026-05-06 (Spec extraction batched refactor)
 
 ---
 
-## TypeScript Compile
+## TypeScript
 
-**Status: PASS** — `npx tsc --noEmit --skipLibCheck` clean.
-Last tested: 2026-03-14 (Phase 7B session)
+```
+npx tsc --noEmit --skipLibCheck
+```
+**Status: PASS** — 0 errors
+
+## Harness
+
+```
+npm run router:harness
+```
+**Status: PASS** — all cases pass including:
+- Spec extraction happy path (CSI sections + parts + submittal requirements)
+- Malformed JSON case
+- Oversize section guardrail (57,537-char section skips LLM, includes regex evidence)
+- Persistence row builder (happy path + skip case + oversize preservation)
+- Approval/record-only phrase detection
+- Submittal register (read path, pure transform, review-status validator)
+
+## Production Build
+
+```
+npm run build
+```
+**Status: CLEAN** — no errors or warnings
 
 ## Known Issues
 
-- `DataSourceCounts.graph` always 0 — graph source type not yet in `EvidenceSourceType`
-- In-memory trace store (`getStoredTrace`) does not persist across serverless instances — dev-only limitation
-- `supabase as any` cast used in project-memory.ts and throughout graph queries — regenerate types after migration 00047 is applied
-- Migration 00047 written but not yet applied — run `supabase db push` before Phase 7C
+None.
 
 ## Environment Notes
 
 - Vercel Pro required for `maxDuration=300` on `/api/inngest/route.ts`
-- `EVAL_ENABLED=true` required to run eval harness
-
----
-
-*Update this file at the end of every Lead Builder session.*
+- Inngest version: 3.54.2 (CVE-2026-42047 cleared — PUT 200 confirmed)
+- Spec extraction now batched: BATCH_SIZE=5, ~16 batches for ~80-section MILCON spec

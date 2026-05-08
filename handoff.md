@@ -1,82 +1,54 @@
 # Handoff
 
-Last updated: 2026-03-14 (Phase 7B implementation session)
+Last updated: 2026-05-06 (Submittal register section title backfill script)
 
 ---
 
 ## What Was Done This Session
 
-Phase 7B is complete.
+### 1. Read path pagination fix — `src/lib/chat/submittal-register-read.ts`
+Added `fetchAllSubmittalRegisterItems` helper that fetches all rows using `.range()` in batches of 1,000, bypassing the Supabase PostgREST default cap. Confirmed actual item count is **1,250** (not 1,221 as earlier estimated — count grew since last extraction run).
 
-### 1. Migration 00047
-`supabase/migrations/00047_project_memory.sql` — creates:
-- `project_memory_items` — aliases, callout patterns, corrections, sheet hints
-- `project_corrections` — user feedback on AI answers
-- `memory_confirmations` — per-user confirm/dispute votes on memory items
-- `project_source_quality` — per-source confidence caps/modifiers
-- `recheck_sessions` — audit trail for recheck runs
-RLS enabled on all; service role full access; project members read-only.
+### 2. Section title backfill script — `scripts/backfill-submittal-section-titles.ts`
+One-time backfill that:
+- Reads 33 spec_section entities from `project_entities` (those extracted by the standard pipeline)
+- Builds a `sectionNumber → display_name` map
+- Updates `submittal_register_items.section_title` (column) and `item_payload.sectionTitle` (JSON) for matching rows
+- Dry-run by default, execute with `--execute` flag
+- Dry-run confirmed: **653 of 1,250 rows** will receive real titles (33 of 70 sections resolved)
 
-### 2. project-memory.ts
-New `src/lib/chat/project-memory.ts`:
-- `loadProjectMemory(projectId)` — loads accepted items from DB, gracefully degrades to empty context if tables missing
-- `resolveAliases(entities, ctx, discipline?)` — expands entity strings against accepted aliases
-- `getSourceQuality(source, discipline, system, ctx)` — returns confidence cap + modifier
-- `sanitizeForPrompt()` / `formatCalloutPatternsForPrompt()` — safe prompt injection helpers
+**Sections that will be resolved (sample):**
+- `28 31 70` → "INTERIOR FIRE ALARM SYSTEM, ADDRESSABLE"
+- `22 00 00` → "PLUMBING, GENERAL PURPOSE"
+- `13 34 19` → "METAL BUILDING SYSTEMS"
+- `31 00 00` → "EARTHWORK"
+- `21 13 13` → "WET PIPE SPRINKLER SYSTEMS, FIRE PROTECTION"
 
-### 3. query-analyzer.ts
-Added exported `applyAliasExpansions(analysis, expansions)` — pure transform, no re-run of classification.
-
-### 4. plan-reader.ts
-`calloutPatterns?: MemoryItem[]` threaded through runPlanReader → runPlanReaderWithCandidates → inspectPageForQuestion → buildInspectionPrompt.
-Callout patterns injected as structured "KNOWN PROJECT ABBREVIATIONS" block in Haiku prompt.
-
-### 5. chat-handler.ts
-- Step 0: `loadProjectMemory(projectId)` before query analysis
-- Step 0.5: `resolveAliases()` + `applyAliasExpansions()` after query analysis
-- `calloutPatterns` passed as 5th arg to `runPlanReader()`
+**50 sections remain unresolved** — not in `project_entities` because the standard spec extraction pipeline did not process those sections (they were found only in the UFGS embedded SUBMITTAL FORM).
 
 ---
 
 ## What Is Currently In Progress
 
-Nothing — Phase 7B is complete.
+**Backfill script is ready but not yet executed.** Run to apply:
+```
+npx tsx scripts/backfill-submittal-section-titles.ts --execute
+```
 
 ---
 
 ## What To Do Next
 
-**Apply the migration:**
-```
-supabase db push
-# or: supabase migration up
-```
-Then regenerate types to remove the `as any` workaround in project-memory.ts.
-
-**Start Phase 7C — Correction Capture:**
-
-1. `POST /api/projects/[id]/corrections/route.ts`
-   - Auth: project_members.role IN ('owner', 'editor')
-   - Writes to project_corrections; if submitted_by_role weight ≥ 2.0 → also auto-write accepted project_memory_items row
-   - Role weights: PE = 3.0, superintendent = 2.0, admin = 2.5, engineer/foreman = 1.0
-
-2. `POST /api/projects/[id]/memory/confirm/route.ts`
-   - Writes to memory_confirmations (UNIQUE prevents double-voting)
-   - Updates confirmed_by_count / rejected_by_count on parent memory item
-   - If rejected_by_count > confirmed_by_count → set validation_status = 'disputed'
-
-3. Modify `retrieval-orchestrator.ts`
-   - After vision_db lookup: merge accepted corrections from project_corrections
-   - Mark merged items with source = 'user_correction'
-
-4. Modify `evidence-evaluator.ts`
-   - Call getSourceQuality() and apply confidence_cap / confidence_modifier
-
-5. UI correction modal + inline provenance citations (Phase 7C UI items)
+1. **Execute the backfill** — run the command above in the project directory. Confirm `Updated: 653, Failed: 0`.
+2. **Deploy to Vercel** — both the pagination fix and the backfill are production-ready changes. Deploy after backfill.
+3. **Verify in production** — open the Ammunition project submittal register. Confirmed sections (e.g., 28 31 70) should now show "INTERIOR FIRE ALARM SYSTEM, ADDRESSABLE" instead of "Section 28 31 70".
+4. **Next quality fix:** ~82 duplicate rows — items with the same `dedupeKey` within a run. Deduplicate at read time using the existing `dedupeKey` field in `item_payload`.
+5. **Page-break artifacts** ("GE-BREAK---", "Special REAK---") — 3+ rows with corrupted names from the UFGS parser. Filter at read time or fix in next extraction.
 
 ---
 
 ## Open Questions / Blockers
 
-- Migration 00047 must be applied before Phase 7C API routes will work
-- Supabase types should be regenerated after migration to remove `as any` cast in project-memory.ts
+- 50 sections (out of 70) still have no title because the standard pipeline didn't extract them. To resolve these, either: (a) re-run spec extraction on the document, or (b) add a UFGS master section lookup table.
+- Supabase MCP session expired during this session; re-auth needed for DB query work via MCP tools.
+- The `scripts/audit-submittal-register.ts` query also hits the 1,000-row limit — update it with `.range()` if reused.

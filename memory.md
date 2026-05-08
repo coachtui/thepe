@@ -78,6 +78,15 @@ Full phase history and implementation checklists: `plans/current-phase.md`
 
 ---
 
+## Spec Extraction Batching
+
+- `BATCH_SIZE = 5` sections per Inngest step (16 batches for ~80-section spec)
+- `discoverSpecSections` runs all non-LLM phases (concat + CSI regex + dedup + cap) — fast, single step, no LLM
+- `extractSectionBatch` runs LLM for a batch; result returned from step is used for immediate persistence
+- Per-batch scoped delete: `canonical_name LIKE 'SPEC_{norm}%'` — covers section + all its requirements
+- `skipDelete: true` in `persistSpecExtractionResult` when caller handles delete externally
+- The 25-minute local failure was a stale-connection-in-single-step issue; production is safe because each Vercel invocation gets a fresh connection
+
 ## Recurring Failure Patterns
 
 ### "No valves/fittings found" after corrections
