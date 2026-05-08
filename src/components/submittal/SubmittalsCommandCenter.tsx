@@ -184,8 +184,6 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
               <SubmittalRegisterReview
                 projectId={projectId}
                 data={data}
-                refreshing={refreshing}
-                onRefresh={() => load('refresh')}
                 onPatchItem={patchItem}
               />
             )}

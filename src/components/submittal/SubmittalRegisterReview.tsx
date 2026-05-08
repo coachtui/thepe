@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   LatestSubmittalRegisterRun,
   SubmittalRegisterGroup,
@@ -11,8 +11,6 @@ import { LifecycleControls } from './LifecycleControls'
 interface SubmittalRegisterReviewProps {
   projectId: string
   data: LatestSubmittalRegisterRun
-  refreshing: boolean
-  onRefresh: () => void
   onPatchItem: (itemId: string, updates: Partial<SubmittalRegisterItem>) => void
 }
 
@@ -64,16 +62,17 @@ interface RowSaveState {
 export function SubmittalRegisterReview({
   projectId,
   data,
-  refreshing,
-  onRefresh,
   onPatchItem,
 }: SubmittalRegisterReviewProps) {
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({})
   const [rowSave, setRowSave] = useState<Record<string, RowSaveState>>({})
 
-  const orderedSections = useMemo(() => data.groupedSections, [data])
+  useEffect(() => {
+    setDrafts({})
+    setRowSave({})
+  }, [data])
 
-  const handleSetDraftStatus = (itemId: string, currentStatus: ReviewStatus, currentNotes: string, status: ReviewStatus) => {
+  const handleSetDraftStatus = (itemId: string, _currentStatus: ReviewStatus, currentNotes: string, status: ReviewStatus) => {
     setDrafts(prev => ({
       ...prev,
       [itemId]: { status, notes: prev[itemId]?.notes ?? currentNotes },
@@ -81,10 +80,9 @@ export function SubmittalRegisterReview({
     if (rowSave[itemId]?.error) {
       setRowSave(prev => ({ ...prev, [itemId]: { saving: false, error: null } }))
     }
-    void currentStatus
   }
 
-  const handleSetDraftNotes = (itemId: string, currentStatus: ReviewStatus, currentNotes: string, notes: string) => {
+  const handleSetDraftNotes = (itemId: string, currentStatus: ReviewStatus, _currentNotes: string, notes: string) => {
     setDrafts(prev => ({
       ...prev,
       [itemId]: { status: prev[itemId]?.status ?? currentStatus, notes },
@@ -92,7 +90,6 @@ export function SubmittalRegisterReview({
     if (rowSave[itemId]?.error) {
       setRowSave(prev => ({ ...prev, [itemId]: { saving: false, error: null } }))
     }
-    void currentNotes
   }
 
   const handleSave = async (itemId: string, currentStatus: ReviewStatus, currentNotes: string) => {
@@ -156,7 +153,7 @@ export function SubmittalRegisterReview({
         <>
           <RunSummary run={data} />
           <div className="space-y-4">
-            {orderedSections.map(section => (
+            {data.groupedSections.map(section => (
               <SectionCard
                 key={section.specSection ?? '__unsec__'}
                 section={section}
