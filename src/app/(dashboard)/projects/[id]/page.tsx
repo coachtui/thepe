@@ -9,7 +9,7 @@ import { DocumentUpload } from '@/components/documents/DocumentUpload'
 import { DocumentList } from '@/components/documents/DocumentList'
 import { DocumentSearch } from '@/components/documents/DocumentSearch'
 import { ChatInterface } from '@/components/chat/ChatInterface'
-import { SubmittalRegisterReview } from '@/components/submittal/SubmittalRegisterReview'
+import { SubmittalsCommandCenter } from '@/components/submittal/SubmittalsCommandCenter'
 import type { Database } from '@/lib/db/supabase/types'
 
 type Document = Database['public']['Tables']['documents']['Row']
@@ -439,9 +439,9 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
               </div>
             )}
 
-            {/* Submittal Register Review Section */}
+            {/* Submittals Command Center */}
             <div className="pt-6 border-t border-gray-200">
-              <SubmittalRegisterReview projectId={params.id} />
+              <SubmittalsCommandCenter projectId={params.id} />
             </div>
 
             <div className="pt-6 border-t border-gray-200">
