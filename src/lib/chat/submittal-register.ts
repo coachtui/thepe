@@ -29,6 +29,12 @@ export interface SubmittalRegisterItem {
   reviewNotes?: string | null
   reviewedAt?: string | null
   reviewedByRole?: string | null
+  // Artifact cleanup review fields. Written by clean-submittal-artifacts.ts --execute into
+  // item_payload JSONB for rows with ambiguous page-break artifacts. Preserved through the
+  // read path via the ...base spread in mergeRowOntoItemPayload.
+  artifactReviewStatus?: 'artifact_suspected' | 'resolved' | 'ignored'
+  artifactReviewReason?: string
+  artifactSuggestedName?: string | null
 }
 
 export interface SubmittalRegisterResult {

@@ -6,6 +6,7 @@ import type {
   SubmittalRegisterGroup,
   SubmittalRegisterItem,
 } from '@/lib/chat/submittal-register'
+import { ArtifactReviewQueue } from './ArtifactReviewQueue'
 
 interface SubmittalRegisterReviewProps {
   projectId: string
@@ -171,6 +172,25 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
     setRowSave(prev => ({ ...prev, [itemId]: { saving: false, error: null } }))
   }
 
+  const handleArtifactResolved = useCallback(
+    (
+      itemId: string,
+      updates: { submittalItem?: string; artifactReviewStatus: 'resolved' | 'ignored' }
+    ) => {
+      setData(prev =>
+        prev
+          ? patchItemFields(prev, itemId, {
+              ...(updates.submittalItem !== undefined
+                ? { submittalItem: updates.submittalItem }
+                : {}),
+              artifactReviewStatus: updates.artifactReviewStatus,
+            })
+          : prev
+      )
+    },
+    []
+  )
+
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
@@ -233,6 +253,11 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
       {data && data.items.length > 0 && (
         <>
           <RunSummary run={data} />
+          <ArtifactReviewQueue
+            projectId={projectId}
+            items={data.items}
+            onResolved={handleArtifactResolved}
+          />
           <div className="space-y-4">
             {orderedSections.map(section => (
               <SectionCard
@@ -600,6 +625,21 @@ function ItemRow({
 
 function isReviewStatus(value: unknown): value is ReviewStatus {
   return typeof value === 'string' && (REVIEW_STATUSES as readonly string[]).includes(value)
+}
+
+function patchItemFields(
+  run: LatestSubmittalRegisterRun,
+  itemId: string,
+  updates: Partial<SubmittalRegisterItem>
+): LatestSubmittalRegisterRun {
+  const patch = (item: SubmittalRegisterItem): SubmittalRegisterItem =>
+    item.persistedItemId === itemId ? { ...item, ...updates } : item
+  return {
+    ...run,
+    items: run.items.map(patch),
+    groupedSections: run.groupedSections.map(s => ({ ...s, items: s.items.map(patch) })),
+    ungrouped: run.ungrouped.map(patch),
+  }
 }
 
 function patchItemInRun(
