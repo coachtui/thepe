@@ -66,9 +66,11 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
         setData(body.found ? (body.run as LatestSubmittalRegisterRun) : null)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load submittal register')
+        setData(null)
+        setFound(null)
       } finally {
-        setLoading(false)
-        setRefreshing(false)
+        if (mode === 'initial') setLoading(false)
+        else setRefreshing(false)
       }
     },
     [projectId]
@@ -87,10 +89,10 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
     data?.items.filter(i => i.artifactReviewStatus === 'artifact_suspected').length ?? 0
 
   const approvalsPendingCount =
-    data?.items.filter(i =>
-      ['pending_review', 'submitted', 'revise_resubmit'].includes(
-        i.lifecycleStatus ?? 'draft'
-      )
+    data?.items.filter(
+      i =>
+        i.lifecycleStatus !== undefined &&
+        ['pending_review', 'submitted', 'revise_resubmit'].includes(i.lifecycleStatus)
     ).length ?? 0
 
   if (loading) {
@@ -101,6 +103,38 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
     )
   }
 
+  // Error state — no tab bar
+  if (error) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="rounded-md bg-red-50 border border-red-200 p-3">
+          <p className="text-sm text-red-800">{error}</p>
+        </div>
+        <button
+          onClick={() => load('refresh')}
+          disabled={refreshing}
+          className="mt-3 px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 cursor-pointer"
+        >
+          {refreshing ? 'Retrying…' : 'Retry'}
+        </button>
+      </div>
+    )
+  }
+
+  // No run yet — no tab bar
+  if (found === false) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="rounded-md bg-gray-50 border border-gray-200 p-4">
+          <p className="text-sm text-gray-700">
+            No submittal register run exists for this project yet.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Data available — show tabs
   return (
     <div className="bg-white rounded-lg shadow">
       {/* Tab bar */}
@@ -143,18 +177,6 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
 
       {/* Content */}
       <div className="p-6">
-        {error && (
-          <div className="rounded-md bg-red-50 border border-red-200 p-3 mb-4">
-            <p className="text-sm text-red-800">{error}</p>
-          </div>
-        )}
-        {found === false && !error && (
-          <div className="rounded-md bg-gray-50 border border-gray-200 p-4">
-            <p className="text-sm text-gray-700">
-              No submittal register run exists for this project yet.
-            </p>
-          </div>
-        )}
         {data && (
           <>
             {activeTab === 'overview' && <OverviewTab items={data.items} />}
