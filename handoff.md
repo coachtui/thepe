@@ -1,54 +1,48 @@
 # Handoff
 
-Last updated: 2026-05-06 (Submittal register section title backfill script)
+Last updated: 2026-05-07 20:17 HST (submittal register UI improvements)
 
 ---
 
 ## What Was Done This Session
 
-### 1. Read path pagination fix — `src/lib/chat/submittal-register-read.ts`
-Added `fetchAllSubmittalRegisterItems` helper that fetches all rows using `.range()` in batches of 1,000, bypassing the Supabase PostgREST default cap. Confirmed actual item count is **1,250** (not 1,221 as earlier estimated — count grew since last extraction run).
+### Submittal register review panel — UI improvements (`SubmittalRegisterReview.tsx`)
 
-### 2. Section title backfill script — `scripts/backfill-submittal-section-titles.ts`
-One-time backfill that:
-- Reads 33 spec_section entities from `project_entities` (those extracted by the standard pipeline)
-- Builds a `sectionNumber → display_name` map
-- Updates `submittal_register_items.section_title` (column) and `item_payload.sectionTitle` (JSON) for matching rows
-- Dry-run by default, execute with `--execute` flag
-- Dry-run confirmed: **653 of 1,250 rows** will receive real titles (33 of 70 sections resolved)
+**RunSummary expanded:**
+- 8 stats in two rows: Submittal Items, Spec Sections, Ungrouped Items, Review Confidence / Reviewed, Pending Review, Approval Required, Low Confidence
+- CSS-only review progress bar showing reviewed % across all items
+- Contextual readiness message: "Review pending" / "X of N reviewed (P%)" / "All reviewed — ready for export" / high-item-count suffix
+- Better label names (construction-specific)
+- Better timestamp format + monospace run ID span
 
-**Sections that will be resolved (sample):**
-- `28 31 70` → "INTERIOR FIRE ALARM SYSTEM, ADDRESSABLE"
-- `22 00 00` → "PLUMBING, GENERAL PURPOSE"
-- `13 34 19` → "METAL BUILDING SYSTEMS"
-- `31 00 00` → "EARTHWORK"
-- `21 13 13` → "WET PIPE SPRINKLER SYSTEMS, FIRE PROTECTION"
+**SectionCard headers enhanced:**
+- Section-level reviewed/pending counts computed from `section.items`
+- "X/Y reviewed" displayed inline next to item count
+- Thin CSS progress bar under each section header
 
-**50 sections remain unresolved** — not in `project_entities` because the standard spec extraction pipeline did not process those sections (they were found only in the UFGS embedded SUBMITTAL FORM).
+**Tests:**
+- router:harness: 12/12 PASS
+- build: clean
 
 ---
 
 ## What Is Currently In Progress
 
-**Backfill script is ready but not yet executed.** Run to apply:
-```
-npx tsx scripts/backfill-submittal-section-titles.ts --execute
-```
+Nothing. Session completed cleanly.
 
 ---
 
 ## What To Do Next
 
-1. **Execute the backfill** — run the command above in the project directory. Confirm `Updated: 653, Failed: 0`.
-2. **Deploy to Vercel** — both the pagination fix and the backfill are production-ready changes. Deploy after backfill.
-3. **Verify in production** — open the Ammunition project submittal register. Confirmed sections (e.g., 28 31 70) should now show "INTERIOR FIRE ALARM SYSTEM, ADDRESSABLE" instead of "Section 28 31 70".
-4. **Next quality fix:** ~82 duplicate rows — items with the same `dedupeKey` within a run. Deduplicate at read time using the existing `dedupeKey` field in `item_payload`.
-5. **Page-break artifacts** ("GE-BREAK---", "Special REAK---") — 3+ rows with corrupted names from the UFGS parser. Filter at read time or fix in next extraction.
+1. **Next quality fix:** ~82 duplicate rows — items with the same `dedupeKey` within a run. Deduplicate at read time using the existing `dedupeKey` field in `item_payload`. (Tracked in prior handoff.)
+2. **Page-break artifacts** ("GE-BREAK---", "Special REAK---") — 3+ rows with corrupted names from the UFGS parser. Filter at read time or fix in next extraction.
+3. **Ungrouped items card** — doesn't get a per-group progress bar yet; could add if needed.
+4. **Phase 7A** — Manual Analyze button bug fix is still the top unstarted phase item per `plans/current-phase.md`.
 
 ---
 
 ## Open Questions / Blockers
 
-- 50 sections (out of 70) still have no title because the standard pipeline didn't extract them. To resolve these, either: (a) re-run spec extraction on the document, or (b) add a UFGS master section lookup table.
-- Supabase MCP session expired during this session; re-auth needed for DB query work via MCP tools.
-- The `scripts/audit-submittal-register.ts` query also hits the 1,000-row limit — update it with `.range()` if reused.
+- None for the UI changes.
+- 50 sections (out of ~81) still lack titles — standard pipeline didn't extract them. Requires re-run of spec extraction or UFGS master lookup.
+- Supabase MCP session may need re-auth for any DB query work.

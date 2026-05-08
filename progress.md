@@ -21,3 +21,4 @@ Append one line per completed task: `YYYY-MM-DD — [task] — [files affected]`
 2026-03-14 — Phase 7B: calloutPatterns threaded through plan reader — src/lib/chat/plan-reader.ts
 2026-03-14 — Phase 7B: Steps 0 + 0.5 wired in chat handler — src/lib/chat/chat-handler.ts
 2026-05-06 — Spec extraction batched refactor: discoverSpecSections + extractSectionBatch helpers, skipDelete persistence option, Inngest function rewritten to multi-step batched flow (BATCH_SIZE=5) — src/lib/chat/spec-extraction-pipeline.ts, src/lib/chat/spec-extraction-persistence.ts, src/inngest/functions/spec-extract-document.ts
+2026-05-07 — Submittal register review panel: expanded RunSummary to 8 stats (reviewed/pending/approval-required/low-confidence), added CSS progress bar, contextual readiness message, construction-specific labels; added section-level review progress to SectionCard headers — src/components/submittal/SubmittalRegisterReview.tsx

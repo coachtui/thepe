@@ -266,24 +266,77 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
 
 function RunSummary({ run }: { run: LatestSubmittalRegisterRun }) {
   const wr = run.workflowRun
-  const completedAt = wr.completedAt ? new Date(wr.completedAt).toLocaleString() : 'in progress'
+  const completedAt = wr.completedAt
+    ? new Date(wr.completedAt).toLocaleString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : 'in progress'
+
+  const totalItems = run.summary.totalItemCount
+  const reviewedItems = run.items.filter(i => i.reviewStatus && i.reviewStatus !== 'pending').length
+  const pendingItems = totalItems - reviewedItems
+  const approvalRequiredItems = run.items.filter(i => i.approvalRequired === true).length
+  const lowConfidenceItems = run.items.filter(i => i.sourceQuality === 'low').length
+  const reviewedPct = totalItems > 0 ? Math.round((reviewedItems / totalItems) * 100) : 0
+
+  let statusMessage: string
+  let statusClass = 'text-gray-700'
+  if (totalItems === 0) {
+    statusMessage = 'No items in this run.'
+  } else if (reviewedItems === totalItems) {
+    statusMessage = `All ${totalItems.toLocaleString()} items reviewed across ${run.summary.groupCount} sections. Ready for export.`
+    statusClass = 'text-green-700'
+  } else if (reviewedItems === 0) {
+    statusMessage = `${totalItems.toLocaleString()} items across ${run.summary.groupCount} sections.${run.summary.ungroupedCount > 0 ? ` ${run.summary.ungroupedCount} ungrouped.` : ''} Review pending items before export.`
+  } else {
+    statusMessage = `${reviewedItems.toLocaleString()} of ${totalItems.toLocaleString()} items reviewed (${reviewedPct}%). ${pendingItems.toLocaleString()} pending.`
+  }
+  if (totalItems > 1000 && reviewedItems < totalItems) {
+    statusMessage += ' High item count — review by section before export.'
+  }
+
   return (
-    <div className="rounded-md border border-gray-200 p-4 space-y-2">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-        <SummaryStat label="Items" value={String(run.summary.totalItemCount)} />
-        <SummaryStat label="Sections" value={String(run.summary.groupCount)} />
-        <SummaryStat label="Ungrouped" value={String(run.summary.ungroupedCount)} />
+    <div className="rounded-md border border-gray-200 p-4 space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+        <SummaryStat label="Submittal Items" value={totalItems.toLocaleString()} />
+        <SummaryStat label="Spec Sections" value={String(run.summary.groupCount)} />
+        <SummaryStat label="Ungrouped Items" value={String(run.summary.ungroupedCount)} />
+        <SummaryStat label="Review Confidence" value={`${Math.round(run.summary.averageConfidence * 100)}%`} />
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+        <SummaryStat label="Reviewed" value={reviewedItems.toLocaleString()} />
+        <SummaryStat label="Pending Review" value={pendingItems.toLocaleString()} />
+        <SummaryStat label="Approval Required" value={approvalRequiredItems.toLocaleString()} />
         <SummaryStat
-          label="Avg confidence"
-          value={`${Math.round(run.summary.averageConfidence * 100)}%`}
+          label="Low Confidence"
+          value={lowConfidenceItems > 0 ? `${lowConfidenceItems.toLocaleString()} flagged` : '—'}
         />
       </div>
+
+      <div>
+        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+          <span>Review progress — {reviewedItems.toLocaleString()} / {totalItems.toLocaleString()} items</span>
+          <span>{reviewedPct}%</span>
+        </div>
+        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-blue-500 rounded-full transition-all duration-500"
+            style={{ width: `${reviewedPct}%` }}
+          />
+        </div>
+      </div>
+
+      <p className={`text-sm ${statusClass}`}>{statusMessage}</p>
+
       <p className="text-xs text-gray-500">
-        Run {wr.id.slice(0, 8)}… · completed {completedAt}
+        Run <span className="font-mono">{wr.id.slice(0, 8)}…</span> · generated {completedAt}
         {wr.durationMs != null ? ` · ${(wr.durationMs / 1000).toFixed(1)}s` : ''}
       </p>
+
       {run.summary.reviewFlags.length > 0 && (
-        <ul className="mt-1 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 list-disc pl-5 space-y-0.5">
+        <ul className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2 list-disc pl-5 space-y-0.5">
           {run.summary.reviewFlags.map((flag, idx) => (
             <li key={idx}>{flag}</li>
           ))}
@@ -321,6 +374,11 @@ function SectionCard({
   onReset,
 }: SectionRenderProps & { section: SubmittalRegisterGroup }) {
   const [open, setOpen] = useState(false)
+
+  const reviewedInSection = section.items.filter(i => i.reviewStatus && i.reviewStatus !== 'pending').length
+  const totalInSection = section.items.length
+  const sectionPct = totalInSection > 0 ? Math.round((reviewedInSection / totalInSection) * 100) : 0
+
   return (
     <div className="rounded-md border border-gray-200">
       <button
@@ -335,11 +393,18 @@ function SectionCard({
           </h4>
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-xs text-gray-500">
-              {section.itemCount} item{section.itemCount === 1 ? '' : 's'} · avg{' '}
-              {Math.round(section.averageConfidence * 100)}%
+              {section.itemCount} item{section.itemCount === 1 ? '' : 's'}
+              {' · '}{reviewedInSection}/{totalInSection} reviewed
+              {' · '}avg {Math.round(section.averageConfidence * 100)}%
             </span>
             <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
           </div>
+        </div>
+        <div className="mt-2 h-1 bg-gray-200 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-blue-400 rounded-full transition-all duration-300"
+            style={{ width: `${sectionPct}%` }}
+          />
         </div>
         {section.reviewFlags.length > 0 && (
           <ul className="mt-2 text-xs text-amber-800 list-disc pl-5 space-y-0.5 text-left">
