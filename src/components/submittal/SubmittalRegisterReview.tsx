@@ -7,6 +7,8 @@ import type {
   SubmittalRegisterItem,
 } from '@/lib/chat/submittal-register'
 import { ArtifactReviewQueue } from './ArtifactReviewQueue'
+import { LifecycleSummary } from './LifecycleSummary'
+import { LifecycleControls } from './LifecycleControls'
 
 interface SubmittalRegisterReviewProps {
   projectId: string
@@ -191,6 +193,13 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
     []
   )
 
+  const handleLifecycleTransitioned = useCallback(
+    (itemId: string, updates: Partial<SubmittalRegisterItem>) => {
+      setData(prev => (prev ? patchItemFields(prev, itemId, updates) : prev))
+    },
+    []
+  )
+
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
@@ -253,6 +262,7 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
       {data && data.items.length > 0 && (
         <>
           <RunSummary run={data} />
+          <LifecycleSummary items={data.items} />
           <ArtifactReviewQueue
             projectId={projectId}
             items={data.items}
@@ -263,23 +273,27 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
               <SectionCard
                 key={section.specSection ?? '__unsec__'}
                 section={section}
+                projectId={projectId}
                 drafts={drafts}
                 rowSave={rowSave}
                 onStatus={handleSetDraftStatus}
                 onNotes={handleSetDraftNotes}
                 onSave={handleSave}
                 onReset={handleResetDraft}
+                onLifecycleTransitioned={handleLifecycleTransitioned}
               />
             ))}
             {data.ungrouped.length > 0 && (
               <UngroupedCard
                 items={data.ungrouped}
+                projectId={projectId}
                 drafts={drafts}
                 rowSave={rowSave}
                 onStatus={handleSetDraftStatus}
                 onNotes={handleSetDraftNotes}
                 onSave={handleSave}
                 onReset={handleResetDraft}
+                onLifecycleTransitioned={handleLifecycleTransitioned}
               />
             )}
           </div>
@@ -381,22 +395,26 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
 }
 
 interface SectionRenderProps {
+  projectId: string
   drafts: Record<string, DraftState>
   rowSave: Record<string, RowSaveState>
   onStatus: (itemId: string, currentStatus: ReviewStatus, currentNotes: string, status: ReviewStatus) => void
   onNotes: (itemId: string, currentStatus: ReviewStatus, currentNotes: string, notes: string) => void
   onSave: (itemId: string, currentStatus: ReviewStatus, currentNotes: string) => void
   onReset: (itemId: string) => void
+  onLifecycleTransitioned: (itemId: string, updates: Partial<SubmittalRegisterItem>) => void
 }
 
 function SectionCard({
   section,
+  projectId,
   drafts,
   rowSave,
   onStatus,
   onNotes,
   onSave,
   onReset,
+  onLifecycleTransitioned,
 }: SectionRenderProps & { section: SubmittalRegisterGroup }) {
   const [open, setOpen] = useState(false)
 
@@ -445,12 +463,14 @@ function SectionCard({
             <ItemRow
               key={item.persistedItemId ?? `${section.specSection ?? 'x'}-${idx}`}
               item={item}
+              projectId={projectId}
               drafts={drafts}
               rowSave={rowSave}
               onStatus={onStatus}
               onNotes={onNotes}
               onSave={onSave}
               onReset={onReset}
+              onLifecycleTransitioned={onLifecycleTransitioned}
             />
           ))}
         </ul>
@@ -461,12 +481,14 @@ function SectionCard({
 
 function UngroupedCard({
   items,
+  projectId,
   drafts,
   rowSave,
   onStatus,
   onNotes,
   onSave,
   onReset,
+  onLifecycleTransitioned,
 }: SectionRenderProps & { items: SubmittalRegisterItem[] }) {
   return (
     <div className="rounded-md border border-gray-200">
@@ -481,12 +503,14 @@ function UngroupedCard({
           <ItemRow
             key={item.persistedItemId ?? `ungrouped-${idx}`}
             item={item}
+            projectId={projectId}
             drafts={drafts}
             rowSave={rowSave}
             onStatus={onStatus}
             onNotes={onNotes}
             onSave={onSave}
             onReset={onReset}
+            onLifecycleTransitioned={onLifecycleTransitioned}
           />
         ))}
       </ul>
@@ -496,12 +520,14 @@ function UngroupedCard({
 
 function ItemRow({
   item,
+  projectId,
   drafts,
   rowSave,
   onStatus,
   onNotes,
   onSave,
   onReset,
+  onLifecycleTransitioned,
 }: SectionRenderProps & { item: SubmittalRegisterItem }) {
   const itemId = item.persistedItemId
   const currentStatus: ReviewStatus = isReviewStatus(item.reviewStatus) ? item.reviewStatus : 'pending'
@@ -618,6 +644,14 @@ function ItemRow({
             </p>
           )}
         </div>
+      )}
+
+      {itemId && (
+        <LifecycleControls
+          item={item}
+          projectId={projectId}
+          onTransitioned={updates => onLifecycleTransitioned(itemId, updates)}
+        />
       )}
     </li>
   )

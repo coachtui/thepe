@@ -1,4 +1,5 @@
 import type { SourceReference } from './source-references'
+import type { SubmittalLifecycleStatus, LifecycleHistoryEntry } from './submittal-lifecycle'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = any
@@ -35,6 +36,18 @@ export interface SubmittalRegisterItem {
   artifactReviewStatus?: 'artifact_suspected' | 'resolved' | 'ignored'
   artifactReviewReason?: string
   artifactSuggestedName?: string | null
+  // Lifecycle fields. Written via POST /submittal-register/lifecycle into item_payload JSONB.
+  // Defaults: lifecycleStatus is treated as 'draft' when absent.
+  lifecycleStatus?: SubmittalLifecycleStatus
+  lifecycleResponsibleParty?: string | null
+  lifecycleAssignedReviewer?: string | null
+  lifecycleDueDate?: string | null          // ISO date YYYY-MM-DD
+  lifecycleLeadTimeDays?: number | null
+  lifecycleLongLeadFlag?: boolean
+  lifecycleSubmittedAt?: string | null      // ISO timestamp
+  lifecycleApprovedAt?: string | null       // ISO timestamp
+  lifecycleClosedAt?: string | null         // ISO timestamp
+  lifecycleStatusHistory?: LifecycleHistoryEntry[]
 }
 
 export interface SubmittalRegisterResult {

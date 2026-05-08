@@ -1,63 +1,70 @@
 # Handoff
 
-Last updated: 2026-05-07 21:05 HST (artifact review workflow)
+Last updated: 2026-05-07 21:45 HST (submittal lifecycle engine)
 
 ---
 
 ## What Was Done This Session
 
-### 1. Submittal register review panel UI improvements
-- RunSummary: 8 stats, progress bar, readiness message, construction-specific labels
-- SectionCard headers: per-section "X/Y reviewed" + mini progress bar
+### Submittal Lifecycle Engine — foundational workflow architecture
 
-### 2. Artifact cleanup script (`scripts/clean-submittal-artifacts.ts`)
-- Dry-run audit: 4 safe_delete, 2 safe_clean, 16 manual_review found
-- In --execute mode now also marks manual_review rows with `artifactReviewStatus: 'artifact_suspected'` in item_payload
-- Safe rows (4 delete + 2 clean) are auto-applied; ambiguous rows are queued
+**`src/lib/chat/submittal-lifecycle.ts`** — new status engine
+- `SubmittalLifecycleStatus` type: draft | pending_submission | submitted | pending_review | approved | approved_as_noted | revise_resubmit | rejected | closed
+- `LifecycleHistoryEntry` type
+- `TRANSITIONS` map with all valid status paths
+- `canTransition()`, `buildTransition()`, `getNextStatuses()`
+- `STATUS_LABELS`, `STATUS_COLORS` (Tailwind classes)
+- `resolveEffectiveStatus()` — artifact_suspected items surface as pending_review
+- `isOverdue()`, `formatDueDate()`, `timestampFieldForStatus()`
 
-### 3. Artifact review product workflow
-- New type fields on `SubmittalRegisterItem`: `artifactReviewStatus`, `artifactReviewReason`, `artifactSuggestedName`
-- New API route: `POST /api/projects/[id]/submittal-register/artifact-review` (accept/edit/ignore)
-- New component: `ArtifactReviewQueue.tsx` — collapsible amber panel above sections
-- `SubmittalRegisterReview.tsx` integrated with queue + `patchItemFields` helper
+**`src/lib/chat/submittal-register.ts`** — lifecycle fields on SubmittalRegisterItem
+- 10 new optional fields: lifecycleStatus, lifecycleResponsibleParty, lifecycleAssignedReviewer, lifecycleDueDate, lifecycleLeadTimeDays, lifecycleLongLeadFlag, lifecycleSubmittedAt, lifecycleApprovedAt, lifecycleClosedAt, lifecycleStatusHistory
+- Stored in item_payload JSONB, no migration needed
+
+**`POST /api/projects/[id]/submittal-register/lifecycle`** — transition API
+- Validates transition using engine
+- Appends to statusHistory array
+- Sets timestamps for key transitions (submittedAt, approvedAt, closedAt)
+- Optional metadata updates: responsibleParty, assignedReviewer, dueDate, leadTimeDays, longLeadFlag
+
+**`LifecycleBadge.tsx`** — status pill with Tailwind color mapping + overdue indicator
+
+**`LifecycleSummary.tsx`** — 6-stat operational dashboard: Total, Pending Review, Revision Required, Long Lead, Approved, Overdue
+
+**`LifecycleControls.tsx`** — per-item inline controls
+- Shows lifecycle badge + due date + responsible party + long-lead flag
+- "Advance" button → select next valid status + optional note → POST /lifecycle
+- "N updates" link → opens history drawer (modal)
+- History drawer shows reverse-chronological entries with timestamps
+
+**`SubmittalRegisterReview.tsx`** — integrated all of the above
+- LifecycleSummary between RunSummary and ArtifactReviewQueue
+- LifecycleControls at the bottom of each ItemRow
+- handleLifecycleTransitioned patches local state via patchItemFields
+- projectId and onLifecycleTransitioned threaded through SectionRenderProps → SectionCard → UngroupedCard → ItemRow
 
 ---
 
 ## What Is Currently In Progress
 
-Nothing. All three sessions completed cleanly.
+Nothing. Session completed cleanly. Build clean, 12/12 harness.
 
 ---
 
 ## What To Do Next
 
-### IMMEDIATE: Run the script to populate the review queue
-
-```
-npx tsx scripts/clean-submittal-artifacts.ts --execute
-```
-
-This will:
-- DELETE 4 pure artifact rows (`-PAGE-BREAK---`, `GE-BREAK---`)
-- UPDATE 2 rows with clean names (Raised Pavement Markers, Control Contractor's... Testing)
-- MARK 16 rows as `artifact_suspected` in `item_payload` so they appear in the review queue
-
-After running, open the Ammunition project submittal register — the amber "Extraction Review Queue" panel will appear with 16 items to review.
-
-### After executing, verify in UI
-1. The 4 deleted rows should not appear in any section
-2. The 2 cleaned rows should show clean names
-3. The amber review queue panel should show 16 items needing review
-
-### Remaining backlog
-- ~82 duplicate rows (same dedupeKey within a run) — deduplicate at read time
-- 50 sections still lack titles — standard pipeline didn't extract them
-- Phase 7A — Manual Analyze button bug fix (see plans/current-phase.md)
+1. **Commit and push** this session's work
+2. **Test lifecycle transitions in the UI** — open any item, click "Advance", select a status, save
+3. **Future lifecycle phases:**
+   - Due date + responsible party editors (currently set only via API, UI coming)
+   - Bulk status update (advance all items in a section)
+   - Schedule/FOW linkage (connect lifecycle to project activities)
+   - Export/report with lifecycle status filter
 
 ---
 
 ## Open Questions / Blockers
 
-- 16 manual_review rows need human judgment via the UI review queue once the script is executed
-- Some stripped texts may be complete names ("Surge Arresters", "Initiating devices") — user can accept the suggestion or edit
-- Some stripped texts are clearly truncated ("Operation and", "Probing and") — user should edit with the real name or ignore
+- Lifecycle fields default to `draft` when not set. All existing 1,221 items show as Draft until explicitly advanced. This is correct behavior for v1.
+- `responsible_party`, `due_date` etc. are only settable via API body alongside a transition. A future UI can allow editing metadata without a status change.
+- History drawer is a simple modal — no virtualization; fine for expected history depth (< 20 entries per item).
