@@ -1,17 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type {
   LatestSubmittalRegisterRun,
   SubmittalRegisterGroup,
   SubmittalRegisterItem,
 } from '@/lib/chat/submittal-register'
-import { ArtifactReviewQueue } from './ArtifactReviewQueue'
-import { LifecycleSummary } from './LifecycleSummary'
 import { LifecycleControls } from './LifecycleControls'
 
 interface SubmittalRegisterReviewProps {
   projectId: string
+  data: LatestSubmittalRegisterRun
+  refreshing: boolean
+  onRefresh: () => void
+  onPatchItem: (itemId: string, updates: Partial<SubmittalRegisterItem>) => void
 }
 
 const REVIEW_STATUSES = [
@@ -59,50 +61,17 @@ interface RowSaveState {
   error: string | null
 }
 
-export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewProps) {
-  const [data, setData] = useState<LatestSubmittalRegisterRun | null>(null)
-  const [found, setFound] = useState<boolean | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+export function SubmittalRegisterReview({
+  projectId,
+  data,
+  refreshing,
+  onRefresh,
+  onPatchItem,
+}: SubmittalRegisterReviewProps) {
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({})
   const [rowSave, setRowSave] = useState<Record<string, RowSaveState>>({})
 
-  const load = useCallback(
-    async (mode: 'initial' | 'refresh') => {
-      if (mode === 'initial') setLoading(true)
-      else setRefreshing(true)
-      setError(null)
-      try {
-        const res = await fetch(`/api/projects/${projectId}/submittal-register/latest`, {
-          credentials: 'include',
-        })
-        const body = await res.json()
-        if (!res.ok || !body.success) {
-          throw new Error(body?.error ?? `Request failed (${res.status})`)
-        }
-        setFound(Boolean(body.found))
-        setData(body.found ? (body.run as LatestSubmittalRegisterRun) : null)
-        setDrafts({})
-        setRowSave({})
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load submittal register')
-      } finally {
-        setLoading(false)
-        setRefreshing(false)
-      }
-    },
-    [projectId]
-  )
-
-  useEffect(() => {
-    load('initial')
-  }, [load])
-
-  const orderedSections = useMemo(() => {
-    if (!data) return []
-    return data.groupedSections
-  }, [data])
+  const orderedSections = useMemo(() => data.groupedSections, [data])
 
   const handleSetDraftStatus = (itemId: string, currentStatus: ReviewStatus, currentNotes: string, status: ReviewStatus) => {
     setDrafts(prev => ({
@@ -150,7 +119,12 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
         reviewedAt: string | null
         reviewedByRole: string | null
       }
-      setData(prev => prev ? patchItemInRun(prev, itemId, updated) : prev)
+      onPatchItem(itemId, {
+        reviewStatus: updated.reviewStatus,
+        reviewNotes: updated.reviewNotes,
+        reviewedAt: updated.reviewedAt,
+        reviewedByRole: updated.reviewedByRole,
+      })
       setDrafts(prev => {
         const next = { ...prev }
         delete next[itemId]
@@ -174,100 +148,13 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
     setRowSave(prev => ({ ...prev, [itemId]: { saving: false, error: null } }))
   }
 
-  const handleArtifactResolved = useCallback(
-    (
-      itemId: string,
-      updates: { submittalItem?: string; artifactReviewStatus: 'resolved' | 'ignored' }
-    ) => {
-      setData(prev =>
-        prev
-          ? patchItemFields(prev, itemId, {
-              ...(updates.submittalItem !== undefined
-                ? { submittalItem: updates.submittalItem }
-                : {}),
-              artifactReviewStatus: updates.artifactReviewStatus,
-            })
-          : prev
-      )
-    },
-    []
-  )
-
-  const handleLifecycleTransitioned = useCallback(
-    (itemId: string, updates: Partial<SubmittalRegisterItem>) => {
-      setData(prev => (prev ? patchItemFields(prev, itemId, updates) : prev))
-    },
-    []
-  )
-
-  if (loading) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-2">Submittal Register Review</h3>
-        <p className="text-sm text-gray-500">Loading latest submittal register…</p>
-      </div>
-    )
-  }
-
   return (
-    <div className="bg-white rounded-lg shadow p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-lg font-medium text-gray-900">Submittal Register Review</h3>
-          <p className="text-sm text-gray-500 mt-1">
-            Review the latest persisted submittal register run for this project. Updates are saved per item.
-          </p>
-        </div>
-        <button
-          onClick={() => load('refresh')}
-          disabled={refreshing}
-          className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-        >
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
-
-      {error && (
-        <div className="rounded-md bg-red-50 border border-red-200 p-3">
-          <p className="text-sm text-red-800">{error}</p>
-        </div>
-      )}
-
-      {found === false && !error && (
-        <div className="rounded-md bg-gray-50 border border-gray-200 p-4">
-          <p className="text-sm text-gray-700">
-            No submittal register run exists for this project yet.
-          </p>
-          <p className="text-xs text-gray-500 mt-1">
-            Ask the assistant to <span className="font-mono">build a submittal register</span> for this project. Once it completes, it will appear here.
-          </p>
-        </div>
-      )}
-
-      {data && data.items.length === 0 && (
-        <div className="rounded-md bg-gray-50 border border-gray-200 p-4">
-          <p className="text-sm text-gray-700">
-            The latest run completed but contained no items.
-          </p>
-          {data.summary.reviewFlags.length > 0 && (
-            <ul className="mt-2 text-xs text-gray-500 list-disc pl-5 space-y-0.5">
-              {data.summary.reviewFlags.map((flag, idx) => (
-                <li key={idx}>{flag}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {data && data.items.length > 0 && (
+    <div className="space-y-4">
+      {data.items.length === 0 ? (
+        <p className="text-sm text-gray-500">No items in this submittal register run.</p>
+      ) : (
         <>
           <RunSummary run={data} />
-          <LifecycleSummary items={data.items} />
-          <ArtifactReviewQueue
-            projectId={projectId}
-            items={data.items}
-            onResolved={handleArtifactResolved}
-          />
           <div className="space-y-4">
             {orderedSections.map(section => (
               <SectionCard
@@ -280,7 +167,7 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
                 onNotes={handleSetDraftNotes}
                 onSave={handleSave}
                 onReset={handleResetDraft}
-                onLifecycleTransitioned={handleLifecycleTransitioned}
+                onLifecycleTransitioned={onPatchItem}
               />
             ))}
             {data.ungrouped.length > 0 && (
@@ -293,7 +180,7 @@ export function SubmittalRegisterReview({ projectId }: SubmittalRegisterReviewPr
                 onNotes={handleSetDraftNotes}
                 onSave={handleSave}
                 onReset={handleResetDraft}
-                onLifecycleTransitioned={handleLifecycleTransitioned}
+                onLifecycleTransitioned={onPatchItem}
               />
             )}
           </div>
@@ -661,44 +548,3 @@ function isReviewStatus(value: unknown): value is ReviewStatus {
   return typeof value === 'string' && (REVIEW_STATUSES as readonly string[]).includes(value)
 }
 
-function patchItemFields(
-  run: LatestSubmittalRegisterRun,
-  itemId: string,
-  updates: Partial<SubmittalRegisterItem>
-): LatestSubmittalRegisterRun {
-  const patch = (item: SubmittalRegisterItem): SubmittalRegisterItem =>
-    item.persistedItemId === itemId ? { ...item, ...updates } : item
-  return {
-    ...run,
-    items: run.items.map(patch),
-    groupedSections: run.groupedSections.map(s => ({ ...s, items: s.items.map(patch) })),
-    ungrouped: run.ungrouped.map(patch),
-  }
-}
-
-function patchItemInRun(
-  run: LatestSubmittalRegisterRun,
-  itemId: string,
-  updated: { reviewStatus: string; reviewNotes: string | null; reviewedAt: string | null; reviewedByRole: string | null }
-): LatestSubmittalRegisterRun {
-  const patchItem = (item: SubmittalRegisterItem): SubmittalRegisterItem =>
-    item.persistedItemId === itemId
-      ? {
-          ...item,
-          reviewStatus: updated.reviewStatus,
-          reviewNotes: updated.reviewNotes,
-          reviewedAt: updated.reviewedAt,
-          reviewedByRole: updated.reviewedByRole,
-        }
-      : item
-
-  return {
-    ...run,
-    items: run.items.map(patchItem),
-    groupedSections: run.groupedSections.map(section => ({
-      ...section,
-      items: section.items.map(patchItem),
-    })),
-    ungrouped: run.ungrouped.map(patchItem),
-  }
-}
