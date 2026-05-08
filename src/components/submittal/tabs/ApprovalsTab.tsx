@@ -55,10 +55,10 @@ export function ApprovalsTab({ projectId, items, onPatchItem }: ApprovalsTabProp
   const [rowSave, setRowSave] = useState<Record<string, RowSave>>({})
 
   const approvalItems = useMemo(() => {
-    return items.filter(i =>
-      i.lifecycleStatus !== undefined &&
-      APPROVAL_STATUSES.includes(i.lifecycleStatus as typeof APPROVAL_STATUSES[number])
-    )
+    return items.filter(i => {
+      const s = resolveEffectiveStatus(i)
+      return APPROVAL_STATUSES.includes(s as typeof APPROVAL_STATUSES[number])
+    })
   }, [items])
 
   const getDraft = (item: SubmittalRegisterItem): DraftState => {
