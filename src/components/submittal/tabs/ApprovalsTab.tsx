@@ -61,20 +61,19 @@ export function ApprovalsTab({ projectId, items, onPatchItem }: ApprovalsTabProp
     })
   }, [items])
 
-  const getDraft = (item: SubmittalRegisterItem): DraftState => {
-    const id = item.persistedItemId ?? ''
-    return (
-      drafts[id] ?? {
-        status: (item.reviewStatus as ReviewStatusValue) ?? 'pending',
-        notes: item.reviewNotes ?? '',
-      }
-    )
-  }
+  const getOrInitDraft = (prevDrafts: Record<string, DraftState>, id: string, item: SubmittalRegisterItem): DraftState =>
+    prevDrafts[id] ?? {
+      status: (item.reviewStatus as ReviewStatusValue) ?? 'pending',
+      notes: item.reviewNotes ?? '',
+    }
 
   const handleSave = async (item: SubmittalRegisterItem) => {
     const id = item.persistedItemId
     if (!id) return
-    const draft = getDraft(item)
+    const draft = drafts[id] ?? {
+      status: (item.reviewStatus as ReviewStatusValue) ?? 'pending',
+      notes: item.reviewNotes ?? '',
+    }
     setRowSave(prev => ({ ...prev, [id]: { saving: true, error: null } }))
     try {
       const res = await fetch(
@@ -92,6 +91,7 @@ export function ApprovalsTab({ projectId, items, onPatchItem }: ApprovalsTabProp
       )
       const body = await res.json()
       if (!res.ok || !body.success) throw new Error(body?.error ?? `Failed (${res.status})`)
+      if (!body.item) throw new Error('API returned success but no item data')
       const updated = body.item as {
         reviewStatus: string
         reviewNotes: string | null
@@ -122,11 +122,14 @@ export function ApprovalsTab({ projectId, items, onPatchItem }: ApprovalsTabProp
     <div className="space-y-3">
       {approvalItems.map((item, idx) => {
         const id = item.persistedItemId ?? String(idx)
-        const draft = getDraft(item)
+        const currentDraft = drafts[id] ?? {
+          status: (item.reviewStatus as ReviewStatusValue) ?? 'pending',
+          notes: item.reviewNotes ?? '',
+        }
         const save = rowSave[id]
         const isDirty =
-          draft.status !== ((item.reviewStatus as ReviewStatusValue) ?? 'pending') ||
-          draft.notes !== (item.reviewNotes ?? '')
+          currentDraft.status !== ((item.reviewStatus as ReviewStatusValue) ?? 'pending') ||
+          currentDraft.notes !== (item.reviewNotes ?? '')
         const overdue = isOverdue(item.lifecycleDueDate)
 
         return (
@@ -158,11 +161,11 @@ export function ApprovalsTab({ projectId, items, onPatchItem }: ApprovalsTabProp
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Review status</label>
                 <select
-                  value={draft.status}
+                  value={currentDraft.status}
                   onChange={e =>
                     setDrafts(prev => ({
                       ...prev,
-                      [id]: { ...getDraft(item), status: e.target.value as ReviewStatusValue },
+                      [id]: { ...getOrInitDraft(prev, id, item), status: e.target.value as ReviewStatusValue },
                     }))
                   }
                   className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
@@ -176,11 +179,11 @@ export function ApprovalsTab({ projectId, items, onPatchItem }: ApprovalsTabProp
                 <label className="block text-xs text-gray-500 mb-1">Notes</label>
                 <input
                   type="text"
-                  value={draft.notes}
+                  value={currentDraft.notes}
                   onChange={e =>
                     setDrafts(prev => ({
                       ...prev,
-                      [id]: { ...getDraft(item), notes: e.target.value },
+                      [id]: { ...getOrInitDraft(prev, id, item), notes: e.target.value },
                     }))
                   }
                   placeholder="Optional notes"

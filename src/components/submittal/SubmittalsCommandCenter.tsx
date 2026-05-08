@@ -10,6 +10,7 @@ import { ArtifactReviewQueue } from './ArtifactReviewQueue'
 import { OverviewTab } from './tabs/OverviewTab'
 import { ApprovalsTab } from './tabs/ApprovalsTab'
 import { LongLeadTab } from './tabs/LongLeadTab'
+import { resolveEffectiveStatus } from '@/lib/chat/submittal-lifecycle'
 
 type Tab = 'overview' | 'register' | 'queue' | 'approvals' | 'longlead'
 
@@ -89,11 +90,10 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
     data?.items.filter(i => i.artifactReviewStatus === 'artifact_suspected').length ?? 0
 
   const approvalsPendingCount =
-    data?.items.filter(
-      i =>
-        i.lifecycleStatus !== undefined &&
-        ['pending_review', 'submitted', 'revise_resubmit'].includes(i.lifecycleStatus)
-    ).length ?? 0
+    data?.items.filter(i => {
+      const s = resolveEffectiveStatus(i)
+      return ['pending_review', 'submitted', 'revise_resubmit'].includes(s)
+    }).length ?? 0
 
   if (loading) {
     return (
