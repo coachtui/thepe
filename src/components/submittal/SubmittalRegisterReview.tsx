@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   LatestSubmittalRegisterRun,
   SubmittalRegisterGroup,
@@ -435,7 +435,7 @@ function ItemRow({
   const draftNotes = draft?.notes ?? currentNotes
   const isDirty = !!draft && (draft.status !== currentStatus || draft.notes !== currentNotes)
   const save = itemId ? rowSave[itemId] : undefined
-  const hasSource = !!(item.sourceExcerpt ?? item.excerpt ?? item.sourceReference?.pageNumber)
+  const hasSource = !!(item.sourceExcerpt ?? item.excerpt ?? (item.sourceReference?.pageNumber != null ? item.sourceReference.pageNumber : null))
 
   return (
     <li className="p-4 space-y-3">
