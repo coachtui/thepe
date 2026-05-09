@@ -432,7 +432,7 @@ function SectionCard({
           </h4>
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-xs text-gray-500">
-              {section.itemCount} item{section.itemCount === 1 ? '' : 's'}
+              {totalInSection} item{totalInSection === 1 ? '' : 's'}
               {' · '}{reviewedInSection}/{totalInSection} reviewed
               {' · '}avg {Math.round(section.averageConfidence * 100)}%
             </span>
