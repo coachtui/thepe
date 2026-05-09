@@ -39,7 +39,7 @@ export function SourceDetailDrawer({ item, onClose }: SourceDetailDrawerProps) {
           </h2>
           <button
             onClick={onClose}
-            className="ml-4 text-gray-400 hover:text-gray-600 text-xl leading-none"
+            className="ml-4 text-gray-400 hover:text-gray-600 text-xl leading-none cursor-pointer"
             aria-label="Close"
           >
             ×
