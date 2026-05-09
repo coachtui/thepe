@@ -48,6 +48,13 @@ export interface SubmittalRegisterItem {
   lifecycleApprovedAt?: string | null       // ISO timestamp
   lifecycleClosedAt?: string | null         // ISO timestamp
   lifecycleStatusHistory?: LifecycleHistoryEntry[]
+  sdCode?: string | null
+  approvalAuthority?: string | null
+  sourcePage?: number | null
+  sourceExcerpt?: string | null
+  relatedFOW?: string | null
+  scheduleActivity?: string | null
+  blockingRisk?: 'none' | 'low' | 'medium' | 'high' | null
 }
 
 export interface SubmittalRegisterResult {
