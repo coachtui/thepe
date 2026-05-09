@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type {
   LatestSubmittalRegisterRun,
   SubmittalRegisterGroup,
@@ -68,11 +68,47 @@ export function SubmittalRegisterReview({
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({})
   const [rowSave, setRowSave] = useState<Record<string, RowSaveState>>({})
   const [selectedSourceItem, setSelectedSourceItem] = useState<SubmittalRegisterItem | null>(null)
+  const [specSectionFilter, setSpecSectionFilter] = useState('')
+  const [sdCodeFilter, setSdCodeFilter] = useState('')
+  const [approvalAuthorityFilter, setApprovalAuthorityFilter] = useState('')
+  const [blockingRiskFilter, setBlockingRiskFilter] = useState('')
 
   useEffect(() => {
     setDrafts({})
     setRowSave({})
+    setSpecSectionFilter('')
+    setSdCodeFilter('')
+    setApprovalAuthorityFilter('')
+    setBlockingRiskFilter('')
   }, [data])
+
+  const uniqueSdCodes = useMemo(() => {
+    const codes = new Set(data.items.flatMap(i => (i.sdCode ? [i.sdCode] : [])))
+    return [...codes].sort()
+  }, [data.items])
+
+  const uniqueAuthorities = useMemo(() => {
+    const auths = new Set(data.items.flatMap(i => (i.approvalAuthority ? [i.approvalAuthority] : [])))
+    return [...auths].sort()
+  }, [data.items])
+
+  const filteredData = useMemo(() => {
+    const matchItem = (item: SubmittalRegisterItem): boolean => {
+      if (specSectionFilter && !(item.specSection ?? '').toLowerCase().startsWith(specSectionFilter.toLowerCase())) return false
+      if (sdCodeFilter && item.sdCode !== sdCodeFilter) return false
+      if (approvalAuthorityFilter && item.approvalAuthority !== approvalAuthorityFilter) return false
+      if (blockingRiskFilter && (item.blockingRisk ?? 'none') !== blockingRiskFilter) return false
+      return true
+    }
+    const items = data.items.filter(matchItem)
+    const groupedSections = data.groupedSections
+      .map(s => ({ ...s, items: s.items.filter(matchItem) }))
+      .filter(s => s.items.length > 0)
+    const ungrouped = data.ungrouped.filter(matchItem)
+    return { items, groupedSections, ungrouped }
+  }, [data, specSectionFilter, sdCodeFilter, approvalAuthorityFilter, blockingRiskFilter])
+
+  const filtersActive = !!(specSectionFilter || sdCodeFilter || approvalAuthorityFilter || blockingRiskFilter)
 
   const handleSetDraftStatus = (itemId: string, _currentStatus: ReviewStatus, currentNotes: string, status: ReviewStatus) => {
     setDrafts(prev => ({
@@ -154,8 +190,74 @@ export function SubmittalRegisterReview({
       ) : (
         <>
           <RunSummary run={data} />
+
+          <div className="flex flex-wrap items-end gap-3 p-3 bg-gray-50 rounded-md border border-gray-200">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Spec section</label>
+              <input
+                type="text"
+                value={specSectionFilter}
+                onChange={e => setSpecSectionFilter(e.target.value)}
+                placeholder="e.g. 03 30"
+                className="rounded border border-gray-300 px-2 py-1.5 text-sm w-28"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">SD code</label>
+              <select
+                value={sdCodeFilter}
+                onChange={e => setSdCodeFilter(e.target.value)}
+                className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
+              >
+                <option value="">All</option>
+                {uniqueSdCodes.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Approval authority</label>
+              <select
+                value={approvalAuthorityFilter}
+                onChange={e => setApprovalAuthorityFilter(e.target.value)}
+                className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
+              >
+                <option value="">All</option>
+                {uniqueAuthorities.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Blocking risk</label>
+              <select
+                value={blockingRiskFilter}
+                onChange={e => setBlockingRiskFilter(e.target.value)}
+                className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
+              >
+                <option value="">All</option>
+                {(['none', 'low', 'medium', 'high'] as const).map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            {filtersActive && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSpecSectionFilter('')
+                  setSdCodeFilter('')
+                  setApprovalAuthorityFilter('')
+                  setBlockingRiskFilter('')
+                }}
+                className="text-sm text-blue-600 hover:underline cursor-pointer"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
           <div className="space-y-4">
-            {data.groupedSections.map(section => (
+            {filtersActive && filteredData.items.length === 0 && (
+              <p className="text-sm text-gray-500 py-4 text-center">No items match the current filters.</p>
+            )}
+            {filteredData.groupedSections.map(section => (
               <SectionCard
                 key={section.specSection ?? '__unsec__'}
                 section={section}
@@ -170,9 +272,9 @@ export function SubmittalRegisterReview({
                 onViewSource={setSelectedSourceItem}
               />
             ))}
-            {data.ungrouped.length > 0 && (
+            {filteredData.ungrouped.length > 0 && (
               <UngroupedCard
-                items={data.ungrouped}
+                items={filteredData.ungrouped}
                 projectId={projectId}
                 drafts={drafts}
                 rowSave={rowSave}
