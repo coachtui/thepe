@@ -690,6 +690,8 @@ function extractItemsFromSpecEntity(row: any, keyword: string | null): Submittal
           paragraphReference: finding.metadata?.paragraph_reference,
         }),
         excerpt: citation?.excerpt ?? statement,
+        sourceExcerptText: citation?.context ?? citation?.excerpt ?? null,
+        sdCodeOverride: finding.metadata?.sd_code ?? null,
         baseConfidence: finding.confidence ?? row.confidence ?? 0.82,
         extractionMethod: 'spec_entity_graph',
         isExplicitFinding: finding.finding_type === 'submittal_requirement' ||
@@ -706,6 +708,10 @@ function buildItemFromStatement(
     sectionTitle: string | null
     sourceReference: SourceReference
     excerpt: string | null
+    /** Surrounding context window from the citation (richer than excerpt). */
+    sourceExcerptText?: string | null
+    /** SD code from finding.metadata when the entity graph already knows it. */
+    sdCodeOverride?: string | null
     baseConfidence: number
     extractionMethod: 'spec_entity_graph' | 'sample_text'
     isExplicitFinding: boolean
@@ -714,6 +720,8 @@ function buildItemFromStatement(
 ): SubmittalRegisterItem {
   const submittalItem = cleanSubmittalItem(statement)
   const submittalType = detectSubmittalType(statement)
+  const sdCode = context.sdCodeOverride ?? extractSdCode(statement)
+  const approvalAuthority = extractApprovalAuthority(statement)
   const quality = assessSourceQuality({
     sourceReference: context.sourceReference,
     extractionMethod: context.extractionMethod,
@@ -721,11 +729,17 @@ function buildItemFromStatement(
     baseConfidence: context.baseConfidence,
   })
 
+  const rawSourceExcerpt = context.sourceExcerptText ?? context.excerpt ?? null
   const item: SubmittalRegisterItem = {
     specSection: context.specSection,
     sectionTitle: context.sectionTitle,
     submittalItem,
     submittalType,
+    sdCode: sdCode ?? null,
+    approvalAuthority: approvalAuthority ?? null,
+    sourcePage: context.sourceReference.pageNumber ?? null,
+    sourceExcerpt: rawSourceExcerpt ? rawSourceExcerpt.slice(0, 400) : null,
+    blockingRisk: assessBlockingRisk(statement, submittalType),
     requiredAction: detectRequiredAction(statement),
     approvalRequired: detectApprovalRequired(statement),
     sourceReference: context.sourceReference,
@@ -793,6 +807,33 @@ function detectRequiredAction(statement: string): string | null {
 function detectApprovalRequired(statement: string): boolean | null {
   if (/\bfor\s+approval\b|\bapproval\s+(?:by|required|from)\b|\bapproved\s+by\b/i.test(statement)) return true
   if (/\bfor\s+record\b|\bfor\s+information\b/i.test(statement)) return false
+  return null
+}
+
+export function extractSdCode(statement: string): string | null {
+  const match = statement.match(/\bSD[-\s]?(0[1-9]|10|11)\b/i)
+  if (!match) return null
+  const num = parseInt(match[1], 10).toString().padStart(2, '0')
+  return `SD-${num}`
+}
+
+export function extractApprovalAuthority(statement: string): string | null {
+  if (/\b(?:government|contracting\s+officer)\b/i.test(statement)) return 'GOV'
+  if (/\bquality\s+control\s+(?:manager|officer)\b|\bCQC\b/i.test(statement)) return 'QC'
+  if (/\barchitect[\-\s]?[\-\/]?engineer\b|\bA[\-\/]E\b/i.test(statement)) return 'A-E'
+  if (/\bapproval\s+by\s+(?:the\s+)?contractor\b/i.test(statement)) return 'Contractor'
+  return null
+}
+
+export function assessBlockingRisk(
+  statement: string,
+  _submittalType: string | null,
+): 'none' | 'low' | 'medium' | 'high' | null {
+  // Only assign risk for explicit, unambiguous signals. Leave null when uncertain.
+  if (/\blong[\-\s]lead\b|\bcritical[\-\s]path\b/i.test(statement)) return 'high'
+  if (/\bno\s+work\s+shall\s+proceed\b/i.test(statement)) return 'medium'
+  if (/\bprior\s+to\s+(?:fabrication|installation|procurement|purchase)\b/i.test(statement)) return 'medium'
+  if (/\bbefore\s+(?:any\s+)?(?:work|construction|installation)\s+(?:begins?|starts?|commences?)\b/i.test(statement)) return 'medium'
   return null
 }
 

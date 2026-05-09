@@ -17,6 +17,9 @@ import {
   reconstructLatestSubmittalRegisterRun,
   validateSubmittalRegisterReviewUpdate,
   ALLOWED_REVIEW_STATUSES,
+  extractSdCode,
+  extractApprovalAuthority,
+  assessBlockingRisk,
 } from '../src/lib/chat/submittal-register.ts'
 import {
   runSpecExtractionPipeline,
@@ -835,3 +838,104 @@ console.log(JSON.stringify({
   oversizeRegexFirstPassTotal:
     oversizeRowSet.sections[0]?.sectionEntity.metadata.regexFirstPassTotal,
 }, null, 2))
+
+// ---------------------------------------------------------------------------
+// Enrichment harness — SD code extraction, approvalAuthority, blockingRisk
+// ---------------------------------------------------------------------------
+
+console.log('')
+console.log('=== Submittal enrichment harness ===')
+console.log('')
+
+function assertEnrichment(label, actual, expected) {
+  const pass = actual === expected
+  console.log(`${pass ? 'PASS' : 'FAIL'} ${label}`)
+  if (!pass) console.log(`     expected: ${JSON.stringify(expected)}  got: ${JSON.stringify(actual)}`)
+}
+
+// SD code extraction
+console.log('--- extractSdCode ---')
+assertEnrichment('SD-02 from "SD-02 Shop Drawings"', extractSdCode('SD-02 Shop Drawings'), 'SD-02')
+assertEnrichment('SD-06 from "Submit SD-06 test reports"', extractSdCode('Submit SD-06 test reports for record.'), 'SD-06')
+assertEnrichment('SD-07 from "Provide SD-07 certificates"', extractSdCode('Provide SD-07 certificates for reinforcing.'), 'SD-07')
+assertEnrichment('SD-10 from "SD 10 O&M manuals"', extractSdCode('Submit SD 10 operation and maintenance manuals.'), 'SD-10')
+assertEnrichment('null when no SD code present', extractSdCode('Submit shop drawings for approval.'), null)
+assertEnrichment('null for SD-99 (out of range)', extractSdCode('See SD-99 for reference.'), null)
+
+// Approval authority inference
+console.log('')
+console.log('--- extractApprovalAuthority ---')
+assertEnrichment('GOV from "contracting officer"', extractApprovalAuthority('Submit for approval by the contracting officer.'), 'GOV')
+assertEnrichment('GOV from "Government"', extractApprovalAuthority('Submit to Government for review.'), 'GOV')
+assertEnrichment('QC from "quality control manager"', extractApprovalAuthority('Submit to quality control manager for approval.'), 'QC')
+assertEnrichment('A-E from "architect-engineer"', extractApprovalAuthority('Approval by architect-engineer required prior to use.'), 'A-E')
+assertEnrichment('A-E from "A/E"', extractApprovalAuthority('Submit to A/E for review.'), 'A-E')
+assertEnrichment('Contractor from "approval by the contractor"', extractApprovalAuthority('Review and approval by the contractor before submittal.'), 'Contractor')
+assertEnrichment('null for generic approval language', extractApprovalAuthority('Submit shop drawings for approval.'), null)
+assertEnrichment('null for no authority stated', extractApprovalAuthority('Submit product data for record.'), null)
+
+// Blocking risk — conservative
+console.log('')
+console.log('--- assessBlockingRisk (conservative) ---')
+assertEnrichment('high for long-lead', assessBlockingRisk('Submit long-lead equipment list 90 days in advance.', null), 'high')
+assertEnrichment('high for critical-path', assessBlockingRisk('Critical path item — submit before procurement.', null), 'high')
+assertEnrichment('medium for no work shall proceed', assessBlockingRisk('No work shall proceed until submittals are approved.', null), 'medium')
+assertEnrichment('medium for prior to fabrication', assessBlockingRisk('Submit shop drawings prior to fabrication.', null), 'medium')
+assertEnrichment('medium for prior to installation', assessBlockingRisk('Provide certificates prior to installation.', null), 'medium')
+assertEnrichment('null for ordinary submittal', assessBlockingRisk('Submit product data for approval.', null), null)
+assertEnrichment('null for record-only submittal', assessBlockingRisk('Submit O&M manuals for record.', null), null)
+
+// Integration: extractSubmittalRegisterItemsFromText populates enrichment fields
+console.log('')
+console.log('--- Integration: enrichment fields in extracted items ---')
+
+const enrichedText = `
+Submit SD-02 shop drawings for structural steel prior to fabrication.
+Submit SD-06 test reports for concrete to quality control manager.
+Provide SD-07 certificates for approval by contracting officer.
+Submit O&M manuals for record.
+`
+const enrichedItems = extractSubmittalRegisterItemsFromText(
+  enrichedText,
+  normalizeSourceReference({
+    source_type: 'specification',
+    spec_section: '05 12 00',
+    section_title: 'Structural Steel',
+    page_number: 7,
+    document_id: 'doc_sample_enrichment',
+  })
+)
+
+for (const item of enrichedItems) {
+  console.log(JSON.stringify({
+    submittalItem: item.submittalItem,
+    specSection: item.specSection,
+    sectionTitle: item.sectionTitle,
+    sdCode: item.sdCode,
+    approvalAuthority: item.approvalAuthority,
+    sourcePage: item.sourcePage,
+    sourceExcerpt: item.sourceExcerpt,
+    blockingRisk: item.blockingRisk,
+  }, null, 2))
+}
+
+// Verify spec section propagation
+const sectionItem = enrichedItems[0]
+const sectionPass = sectionItem?.specSection === '05 12 00' && sectionItem?.sectionTitle === 'Structural Steel' && sectionItem?.sourcePage === 7
+console.log(`${sectionPass ? 'PASS' : 'FAIL'} Spec section, title, and page propagate from sourceReference`)
+
+// Verify sourceExcerpt is populated (sample_text path uses line as context)
+const excerptPass = enrichedItems.every(i => typeof i.sourceExcerpt === 'string' && i.sourceExcerpt.length > 0)
+console.log(`${excerptPass ? 'PASS' : 'FAIL'} sourceExcerpt is non-empty for all items`)
+
+// Verify rawExcerpt is NOT overwritten
+const rawPass = enrichedItems.every(i => i.rawExcerpt === i.excerpt)
+console.log(`${rawPass ? 'PASS' : 'FAIL'} rawExcerpt preserved (not overwritten by sourceExcerpt)`)
+
+// Verify blocking risk is conservative (only the prior-to-fabrication item should have risk)
+const blockingItems = enrichedItems.filter(i => i.blockingRisk !== null)
+const conservativePass = blockingItems.length === 1 && blockingItems[0]?.blockingRisk === 'medium'
+console.log(`${conservativePass ? 'PASS' : 'FAIL'} blockingRisk is conservative — only 1 item flagged (medium, prior to fabrication)`)
+
+console.log('')
+console.log('=== Enrichment harness complete ===')
