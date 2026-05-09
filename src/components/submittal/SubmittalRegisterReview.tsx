@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type {
   LatestSubmittalRegisterRun,
   SubmittalRegisterGroup,
   SubmittalRegisterItem,
 } from '@/lib/chat/submittal-register'
 import { LifecycleControls } from './LifecycleControls'
+import { SourceDetailDrawer } from './SourceDetailDrawer'
 
 interface SubmittalRegisterReviewProps {
   projectId: string
@@ -66,6 +67,7 @@ export function SubmittalRegisterReview({
 }: SubmittalRegisterReviewProps) {
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({})
   const [rowSave, setRowSave] = useState<Record<string, RowSaveState>>({})
+  const [selectedSourceItem, setSelectedSourceItem] = useState<SubmittalRegisterItem | null>(null)
 
   useEffect(() => {
     setDrafts({})
@@ -165,6 +167,7 @@ export function SubmittalRegisterReview({
                 onSave={handleSave}
                 onReset={handleResetDraft}
                 onLifecycleTransitioned={onPatchItem}
+                onViewSource={setSelectedSourceItem}
               />
             ))}
             {data.ungrouped.length > 0 && (
@@ -178,11 +181,16 @@ export function SubmittalRegisterReview({
                 onSave={handleSave}
                 onReset={handleResetDraft}
                 onLifecycleTransitioned={onPatchItem}
+                onViewSource={setSelectedSourceItem}
               />
             )}
           </div>
         </>
       )}
+      <SourceDetailDrawer
+        item={selectedSourceItem}
+        onClose={() => setSelectedSourceItem(null)}
+      />
     </div>
   )
 }
@@ -287,6 +295,7 @@ interface SectionRenderProps {
   onSave: (itemId: string, currentStatus: ReviewStatus, currentNotes: string) => void
   onReset: (itemId: string) => void
   onLifecycleTransitioned: (itemId: string, updates: Partial<SubmittalRegisterItem>) => void
+  onViewSource: (item: SubmittalRegisterItem) => void
 }
 
 function SectionCard({
@@ -299,6 +308,7 @@ function SectionCard({
   onSave,
   onReset,
   onLifecycleTransitioned,
+  onViewSource,
 }: SectionRenderProps & { section: SubmittalRegisterGroup }) {
   const [open, setOpen] = useState(false)
 
@@ -355,6 +365,7 @@ function SectionCard({
               onSave={onSave}
               onReset={onReset}
               onLifecycleTransitioned={onLifecycleTransitioned}
+              onViewSource={onViewSource}
             />
           ))}
         </ul>
@@ -373,6 +384,7 @@ function UngroupedCard({
   onSave,
   onReset,
   onLifecycleTransitioned,
+  onViewSource,
 }: SectionRenderProps & { items: SubmittalRegisterItem[] }) {
   return (
     <div className="rounded-md border border-gray-200">
@@ -395,6 +407,7 @@ function UngroupedCard({
             onSave={onSave}
             onReset={onReset}
             onLifecycleTransitioned={onLifecycleTransitioned}
+            onViewSource={onViewSource}
           />
         ))}
       </ul>
@@ -412,6 +425,7 @@ function ItemRow({
   onSave,
   onReset,
   onLifecycleTransitioned,
+  onViewSource,
 }: SectionRenderProps & { item: SubmittalRegisterItem }) {
   const itemId = item.persistedItemId
   const currentStatus: ReviewStatus = isReviewStatus(item.reviewStatus) ? item.reviewStatus : 'pending'
@@ -421,6 +435,7 @@ function ItemRow({
   const draftNotes = draft?.notes ?? currentNotes
   const isDirty = !!draft && (draft.status !== currentStatus || draft.notes !== currentNotes)
   const save = itemId ? rowSave[itemId] : undefined
+  const hasSource = !!(item.sourceExcerpt ?? item.excerpt ?? item.sourceReference?.pageNumber)
 
   return (
     <li className="p-4 space-y-3">
@@ -429,12 +444,27 @@ function ItemRow({
         <span className={`px-2 py-0.5 text-xs font-medium rounded ${STATUS_PILL_CLASSES[currentStatus]}`}>
           {STATUS_LABELS[currentStatus]}
         </span>
+        {hasSource && (
+          <button
+            type="button"
+            onClick={() => onViewSource(item)}
+            className="px-2 py-0.5 text-xs text-blue-600 border border-blue-200 rounded hover:bg-blue-50 cursor-pointer"
+            title="View source excerpt"
+          >
+            View source
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
         {item.submittalType && (
           <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded">
             {item.submittalType}
+          </span>
+        )}
+        {item.sdCode && (
+          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 border border-gray-200 rounded">
+            {item.sdCode}
           </span>
         )}
         {item.approvalRequired && (
