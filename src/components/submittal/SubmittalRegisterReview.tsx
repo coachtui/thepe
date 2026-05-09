@@ -564,7 +564,7 @@ function ItemRow({
             {item.submittalType}
           </span>
         )}
-        {item.sdCode && (
+        {item.sdCode && !item.submittalType?.includes(item.sdCode) && (
           <span className="px-2 py-0.5 bg-gray-100 text-gray-700 border border-gray-200 rounded">
             {item.sdCode}
           </span>
