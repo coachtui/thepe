@@ -1,6 +1,24 @@
 # Handoff
 
 ## Completed This Session
+- Document normalization layer (`src/lib/ingestion/document-normalization.ts`) — strips repeated headers/footers and project identifier prefixes before extraction. Handles both `\f` and `---PAGE-BREAK---` page separators. Uses 95% majority prefix detection (not 100%) to handle minor formatting variants.
+- Applied normalization in `ingestion-runner.ts` (PDF-only path, before extraction).
+- Harness updated with `Norm-Rm` column showing lines removed/stripped per file.
+- 7 new NORM-* tests in QA harness (139/139 pass). TypeCheck clean. Build clean.
+- Validated against real UFGS spec: full header ("FY22 MILCON PROJECT PN 080133 AMMUNITION STORAGE 1644749 WEST LOCH, HAWAII") correctly stripped from 1540 lines. Suspicious rows now show real spec content.
+
+## In Progress
+Nothing.
+
+## What To Do Next
+- **UFGS SD code gap**: SD coverage stays at 26.6% even after normalization. Root cause is that UFGS spec body puts SD codes on separate lines from item descriptions (not inline). Need multi-line context extraction OR parsing the 75-page DD-form submittal appendix.
+- **DD-form appendix parser**: The spec's 75-page table-format submittal register (SUBMITTAL FORM, Jan 96) contains the authoritative SD code assignments. A table-aware parser for this section would likely push SD coverage to 80%+.
+- **Get more real specs**: Only 1 spec in the database. Commercial CSI specs (no DoD watermarks) likely perform significantly better — test those to confirm demo readiness for non-UFGS projects.
+
+## Open Questions / Blockers
+- None.
+
+## Completed This Session
 - `evaluateRegisterPublishReadiness` — pure function in `src/lib/chat/submittal-publish-readiness.ts`. Accepts optional `ingestionGrade`, `ingestionGradeReasons`, `qaResult`. Returns `{status, reasons, requiredActions}`.
 - `PublishReadinessBanner` — `src/components/submittal/PublishReadinessBanner.tsx`. Shows green/amber/red status, reason list, Publish Register button. Blocked = disabled button. needs_review = confirmation modal before publishing. Local publish state (publishedAt) + Unpublish.
 - `OverviewTab` updated to compute `qaResult` and `readiness` via `useMemo`, render banner at top. Accepts new optional `ingestionGrade?` / `ingestionGradeReasons?` props.

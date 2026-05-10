@@ -12,6 +12,8 @@ import {
 
 import { evaluateRegisterPublishReadiness } from '../src/lib/chat/submittal-publish-readiness.ts'
 
+import { normalizeDocumentText } from '../src/lib/ingestion/document-normalization.ts'
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -697,6 +699,150 @@ console.log('\n=== Publish Readiness Tests ===\n')
   const result = evaluateRegisterPublishReadiness({})
   assert('status is ready', result.status === 'ready')
   assert('empty reasons', result.reasons.length === 0)
+  console.log()
+}
+
+// ---------------------------------------------------------------------------
+// Document Normalization Tests
+// ---------------------------------------------------------------------------
+
+console.log('\n=== Document Normalization Tests ===\n')
+
+// Build a mock multi-page document with the West Loch DoD header format
+const WEST_LOCH_PREFIX = 'FY22   MILCON PROJECT PN 080133 AMMUNITION   STORAGE   1644749 WEST   LOCH, HAWAII'
+
+function makeDodPage(content) {
+  return [
+    `${WEST_LOCH_PREFIX} ${content}`,
+    `${WEST_LOCH_PREFIX} continued text`,
+    'Normal spec content line without header.',
+  ].join('\n')
+}
+
+function makeMockDodDoc(pageContents) {
+  return pageContents.map(makeDodPage).join('\f')
+}
+
+// NORM-1: Detect and strip the project identifier prefix
+{
+  console.log('NORM-1: DoD project identifier prefix detected and stripped')
+  const doc = makeMockDodDoc([
+    'SECTION 03 30 00 CAST-IN-PLACE CONCRETE',
+    'SECTION 05 12 00 STRUCTURAL STEEL FRAMING',
+    'SECTION 07 84 00 FIRESTOPPING',
+    'SECTION 09 65 00 RESILIENT FLOORING',
+    'SECTION 27 10 00 STRUCTURED CABLING',
+  ])
+  const result = normalizeDocumentText(doc)
+
+  assert('prefix pattern detected', result.removedPatterns.some(p => p.startsWith('[PREFIX]')))
+  assert('prefix stripped lines > 0', result.prefixStrippedLineCount > 0)
+  assert('cleanedText does not start with FY22', !result.cleanedText.startsWith('FY22'))
+  assert('section content preserved after stripping', result.cleanedText.includes('SECTION 03 30 00'))
+  assert('warnings mention project identifier', result.normalizationWarnings.some(w => w.includes('Project identifier')))
+  console.log()
+}
+
+// NORM-2: Pure-header lines (no content after prefix) are removed entirely
+{
+  console.log('NORM-2: Pure-header lines (no trailing content) are removed entirely')
+  // Real-looking spec pages: each page starts with a pure header line, then header+content
+  const specPages = [
+    `${WEST_LOCH_PREFIX}\n${WEST_LOCH_PREFIX} SECTION 03 30 00 CAST-IN-PLACE CONCRETE\nA. Submit concrete mix design. SD-03 Product Data.\nB. Mix designs shall conform to ACI requirements.`,
+    `${WEST_LOCH_PREFIX}\n${WEST_LOCH_PREFIX} SECTION 05 12 00 STRUCTURAL STEEL FRAMING\nA. Shop drawings for structural steel connections. SD-02 Shop Drawings.\nB. Mill certificates for all structural steel members.`,
+    `${WEST_LOCH_PREFIX}\n${WEST_LOCH_PREFIX} SECTION 07 84 00 FIRESTOPPING\nA. Certificate of compliance for firestop systems. SD-06 Test Reports.\nB. Installation instructions from manufacturer.`,
+    `${WEST_LOCH_PREFIX}\n${WEST_LOCH_PREFIX} SECTION 09 65 00 RESILIENT FLOORING\nA. Product data for resilient floor tile. SD-03 Product Data.\nB. Samples of flooring materials for approval.`,
+    `${WEST_LOCH_PREFIX}\n${WEST_LOCH_PREFIX} SECTION 27 10 00 STRUCTURED CABLING\nA. System design drawings for cabling infrastructure. SD-02 Shop Drawings.\nB. Test reports for cable system performance.`,
+  ]
+  const doc = specPages.join('\f')
+  const result = normalizeDocumentText(doc)
+
+  assert('pure-header lines removed (removedLineCount > 0)', result.removedLineCount > 0)
+  assert('prefix pattern detected', result.removedPatterns.some(p => p.startsWith('[PREFIX]')))
+  assert('spec SD code content preserved', result.cleanedText.includes('SD-03') || result.cleanedText.includes('SD-02'))
+  console.log()
+}
+
+// NORM-3: Repeated page headers are detected and removed
+{
+  console.log('NORM-3: Repeated page header detected via frequency analysis')
+  const header = 'CONTRACT NO. W9128F-24-C-0042  WEST LOCH AMMUNITION STORAGE FACILITY'
+  const makeSimplePage = (body) => [header, body, 'Footer line'].join('\n')
+  const doc = [
+    makeSimplePage('SECTION 03 30 00 CONCRETE 1.1 SUBMITTALS Product data required.'),
+    makeSimplePage('SECTION 05 12 00 STRUCTURAL STEEL 1.1 SUBMITTALS Shop drawings required.'),
+    makeSimplePage('SECTION 07 84 00 FIRESTOPPING 1.1 SUBMITTALS Certificate of compliance.'),
+    makeSimplePage('SECTION 09 65 00 RESILIENT FLOOR 1.1 SUBMITTALS Material samples.'),
+  ].join('\f')
+  const result = normalizeDocumentText(doc)
+
+  // The header appears in 4/4 pages → should be detected
+  const hasHeaderPattern = result.removedPatterns.some(p => p.includes('[HEADER]'))
+  assert('repeated header detected', hasHeaderPattern)
+  assert('header lines removed from output', !result.cleanedText.includes(header))
+  assert('spec content preserved', result.cleanedText.includes('SECTION 03 30 00'))
+  console.log()
+}
+
+// NORM-4: Repeated footer detected and removed
+{
+  console.log('NORM-4: Repeated footer detected via frequency analysis')
+  // Footer must survive normalization with ≥15 chars — use a realistic UFGS footer
+  const footer = 'UFGS CONSTRUCTION SPECIFICATION GUIDE — NAVFAC STANDARD — CONTROLLED DISTRIBUTION'
+  const makePageWithFooter = (body) => [body, footer].join('\n')
+  const doc = [
+    makePageWithFooter('SECTION 03 30 00 CONCRETE content here'),
+    makePageWithFooter('SECTION 05 12 00 STRUCTURAL STEEL content'),
+    makePageWithFooter('SECTION 07 84 00 FIRESTOPPING spec text'),
+    makePageWithFooter('SECTION 09 65 00 RESILIENT FLOORING spec'),
+  ].join('\f')
+  const result = normalizeDocumentText(doc)
+
+  const hasFooterPattern = result.removedPatterns.some(p => p.includes('[FOOTER]'))
+  assert('repeated footer detected', hasFooterPattern)
+  assert('spec content preserved', result.cleanedText.includes('CONCRETE content here'))
+  assert('footer removed from output', !result.cleanedText.includes(footer))
+  console.log()
+}
+
+// NORM-5: Clean doc with no repeated patterns passes through unchanged
+{
+  console.log('NORM-5: Clean document passes through with no removals')
+  const cleanDoc = [
+    'SECTION 03 30 00 CAST-IN-PLACE CONCRETE\n1.1 SUBMITTALS\nA. Submit mix design for approval. SD-03 Product Data.',
+    'SECTION 05 12 00 STRUCTURAL STEEL FRAMING\n1.1 SUBMITTALS\nA. Shop drawings. SD-02 Shop Drawings.',
+    'SECTION 07 84 00 FIRESTOPPING\n1.1 SUBMITTALS\nA. Certificate of compliance. SD-06 Test Reports.',
+    'SECTION 09 65 00 RESILIENT FLOORING\n1.1 SUBMITTALS\nA. Material samples. SD-04 Samples.',
+  ].join('\f')
+  const result = normalizeDocumentText(cleanDoc)
+
+  assert('no patterns removed from clean doc', result.removedPatterns.length === 0)
+  assert('no lines removed from clean doc', result.removedLineCount === 0)
+  assert('no lines prefix-stripped', result.prefixStrippedLineCount === 0)
+  assert('text unchanged', result.cleanedText === cleanDoc)
+  console.log()
+}
+
+// NORM-6: Single-page doc skips frequency detection (< MIN_PAGES)
+{
+  console.log('NORM-6: Single-page doc skips frequency detection gracefully')
+  const singlePage = `${WEST_LOCH_PREFIX} SECTION 03 30 00 CONCRETE`
+  const result = normalizeDocumentText(singlePage)
+  // No crash; warnings mention short doc
+  assert('no crash on single page', true)
+  assert('warning about short doc', result.normalizationWarnings.some(w => w.includes('too short')))
+  console.log()
+}
+
+// NORM-7: NormalizationResult shape is correct
+{
+  console.log('NORM-7: NormalizationResult has all required fields')
+  const result = normalizeDocumentText('anything')
+  assert('cleanedText is string', typeof result.cleanedText === 'string')
+  assert('removedPatterns is array', Array.isArray(result.removedPatterns))
+  assert('removedLineCount is number', typeof result.removedLineCount === 'number')
+  assert('prefixStrippedLineCount is number', typeof result.prefixStrippedLineCount === 'number')
+  assert('normalizationWarnings is array', Array.isArray(result.normalizationWarnings))
   console.log()
 }
 

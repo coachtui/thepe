@@ -40,6 +40,13 @@ export function computeIngestionGrade(metrics: {
   return { grade: 'needs_review', reasons: [] }
 }
 
+export interface NormalizationMetrics {
+  removedLineCount: number
+  prefixStrippedLineCount: number
+  patternsDetected: number
+  warnings: string[]
+}
+
 export interface IngestionSuspiciousRow {
   submittalItem: string
   specSection: string | null
@@ -87,6 +94,9 @@ export interface IngestionHarnessResult {
 
   // Top rows with highest QA finding density
   topSuspiciousRows: IngestionSuspiciousRow[]
+
+  // Normalization metrics (populated when normalization was applied)
+  normalization?: NormalizationMetrics
 
   // Set when file failed to process
   error?: string

@@ -1,4 +1,5 @@
 # Progress Log
+2026-05-09 — Document normalization layer: normalizeDocumentText (frequency-based header/footer + majority-prefix detection, ---PAGE-BREAK--- separator support), NormalizationMetrics type, harness Norm-Rm column, 7 NORM-* harness tests (139/139 pass) — src/lib/ingestion/document-normalization.ts, src/lib/eval/ingestion-types.ts, src/lib/eval/ingestion-runner.ts, scripts/ingestion-harness.mjs, scripts/qa-submittal-harness.mjs
 2026-05-09 — Publish Register gate: evaluateRegisterPublishReadiness utility, PublishReadinessBanner component (status/confirmation modal/publish state), OverviewTab wired with readiness banner, 7 harness tests (114/114 pass) — src/lib/chat/submittal-publish-readiness.ts, src/components/submittal/PublishReadinessBanner.tsx, src/components/submittal/tabs/OverviewTab.tsx, scripts/qa-submittal-harness.mjs
 
 Append one line per completed task: `YYYY-MM-DD — [task] — [files affected]`

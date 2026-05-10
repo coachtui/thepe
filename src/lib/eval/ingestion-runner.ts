@@ -6,10 +6,11 @@ import {
 } from '../chat/submittal-register.ts'
 import { extractSpecSections } from '../vision/spec-extractor.ts'
 import { evaluateSubmittalCoverageQA, getSubmittalItemKey } from '../chat/submittal-coverage-qa.ts'
+import { normalizeDocumentText } from '../ingestion/document-normalization.ts'
 import { readFile } from 'fs/promises'
 import path from 'path'
 import { computeIngestionGrade } from './ingestion-types.ts'
-import type { IngestionHarnessResult, IngestionSuspiciousRow, IngestionQABreakdown } from './ingestion-types.ts'
+import type { IngestionHarnessResult, IngestionSuspiciousRow, IngestionQABreakdown, NormalizationMetrics } from './ingestion-types.ts'
 
 // ---------------------------------------------------------------------------
 // Per-file evaluation — no DB writes, no Supabase dependency
@@ -22,6 +23,8 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
   try {
     let text: string
     let pagesProcessed: number | null
+
+    let normalization: NormalizationMetrics | undefined
 
     if (path.extname(filePath).toLowerCase() === '.txt') {
       text = await readFile(filePath, 'utf-8')
@@ -36,8 +39,17 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
       } finally {
         console.log = savedLog
       }
-      text = parsed.text
       pagesProcessed = parsed.pageCount
+
+      // Normalize BEFORE extraction — strip repeated headers/footers/prefixes
+      const norm = normalizeDocumentText(parsed.text)
+      text = norm.cleanedText
+      normalization = {
+        removedLineCount:      norm.removedLineCount,
+        prefixStrippedLineCount: norm.prefixStrippedLineCount,
+        patternsDetected:      norm.removedPatterns.length,
+        warnings:              norm.normalizationWarnings,
+      }
     }
 
     // Count suppressed candidates (full-text approximation)
@@ -165,6 +177,7 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
       }),
       parseDurationMs: Date.now() - t0,
       topSuspiciousRows,
+      ...(normalization !== undefined ? { normalization } : {}),
     }
   } catch (err) {
     return {

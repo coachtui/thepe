@@ -108,7 +108,7 @@ function r1(n) {
 // Console table
 // ---------------------------------------------------------------------------
 
-const W = { file: 30, pg: 5, sect: 6, items: 7, supp: 6, sd: 7, auth: 7, src: 7, dup: 5, risk: 5, qa: 12, grade: 8, ms: 8 }
+const W = { file: 30, pg: 5, sect: 6, items: 7, supp: 6, norm: 8, sd: 7, auth: 7, src: 7, dup: 5, risk: 5, qa: 12, grade: 8, ms: 8 }
 
 const GRADE_LABEL = {
   good:             'GOOD   ',
@@ -124,6 +124,12 @@ function col(v, w) {
 
 function pct(n) { return `${Number(n).toFixed(1)}%` }
 
+function normRmStr(norm) {
+  if (!norm) return '—'
+  const total = (norm.removedLineCount ?? 0) + (norm.prefixStrippedLineCount ?? 0)
+  return total === 0 ? '—' : `${total}`
+}
+
 function printTable(report) {
   console.log('\n=== Ingestion Quality Harness ===\n')
 
@@ -133,6 +139,7 @@ function printTable(report) {
     col('Sects',    W.sect) +
     col('Items',    W.items)+
     col('Supp',     W.supp) +
+    col('Norm-Rm',  W.norm) +
     col('SD%',      W.sd)   +
     col('Auth%',    W.auth) +
     col('Src%',     W.src)  +
@@ -146,7 +153,7 @@ function printTable(report) {
 
   for (const r of report.results) {
     if (r.error) {
-      console.log(col(r.fileName, W.file) + col('ERROR', W.pg + W.sect + W.items + W.sd + W.auth + W.src + W.dup + W.risk + W.qa + W.ms))
+      console.log(col(r.fileName, W.file) + col('ERROR', W.pg + W.sect + W.items + W.supp + W.norm + W.sd + W.auth + W.src + W.dup + W.risk + W.qa + W.ms))
       console.log(`  ⚠ ${r.error.slice(0, 100)}`)
       continue
     }
@@ -159,6 +166,7 @@ function printTable(report) {
       col(r.specSectionsDetected,             W.sect) +
       col(r.extractedSubmittalCount,          W.items)+
       col(r.suppressedCandidateCount ?? 0,    W.supp) +
+      col(normRmStr(r.normalization),         W.norm) +
       col(pct(r.sdCodeCoverage),              W.sd)   +
       col(pct(r.approvalAuthorityCoverage),   W.auth) +
       col(pct(r.sourceExcerptCoverage),       W.src)  +
@@ -171,6 +179,13 @@ function printTable(report) {
 
     if (r.gradeReasons?.length > 0 && r.grade !== 'good') {
       console.log(`  → ${r.gradeReasons.join(' · ')}`)
+    }
+    if (r.normalization) {
+      const { removedLineCount: rm, prefixStrippedLineCount: ps, patternsDetected: pd } = r.normalization
+      if (pd > 0) {
+        console.log(`  ✂ norm: ${pd} pattern(s) detected · ${rm} lines removed · ${ps} lines prefix-stripped`)
+        for (const w of r.normalization.warnings) console.log(`    · ${w}`)
+      }
     }
     for (const row of r.topSuspiciousRows.slice(0, 2)) {
       console.log(`  ⚑ ${row.submittalItem.slice(0, 65)} [${row.reason}]`)
@@ -188,6 +203,7 @@ function printTable(report) {
       col('',                                          W.sect) +
       col(report.totalSubmittals,                      W.items)+
       col(report.totalSuppressedCandidateCount ?? 0,   W.supp) +
+      col('',                                          W.norm) +
       col(pct(report.avgSdCodeCoverage),               W.sd)   +
       col(pct(report.avgApprovalAuthorityCoverage),    W.auth) +
       col(pct(report.avgSourceExcerptCoverage),        W.src)  +

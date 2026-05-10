@@ -1,6 +1,6 @@
 # Latest Build Report
 
-Last updated: 2026-05-09 20:08 HST (Publish Register gate)
+Last updated: 2026-05-09 21:00 HST (Document normalization layer)
 
 ---
 
@@ -17,7 +17,7 @@ npm run build
 ```
 npm run qa:harness
 ```
-**Status: PASS — 114/114** (was 96; +18 for 7 publish readiness test cases)
+**Status: PASS — 139/139** (was 114; +25 for 7 normalization test cases)
 
 ```
 npm run ingestion:harness
