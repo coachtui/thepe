@@ -93,6 +93,39 @@ export function SourceDetailDrawer({ item, onClose }: SourceDetailDrawerProps) {
               </dl>
             </section>
           )}
+          {(item.relatedFOW || item.scheduleActivity || item.activityNeedByDate || item.blocksWork) && (
+            <section>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                Work Impact
+              </p>
+              <dl className="space-y-1">
+                {item.relatedFOW && (
+                  <div className="flex gap-3 text-sm">
+                    <dt className="text-gray-500 w-36 shrink-0">Feature of Work</dt>
+                    <dd className="text-gray-900">{item.relatedFOW}</dd>
+                  </div>
+                )}
+                {item.scheduleActivity && (
+                  <div className="flex gap-3 text-sm">
+                    <dt className="text-gray-500 w-36 shrink-0">Schedule Activity</dt>
+                    <dd className="text-gray-900">{item.scheduleActivity}</dd>
+                  </div>
+                )}
+                {item.activityNeedByDate && (
+                  <div className="flex gap-3 text-sm">
+                    <dt className="text-gray-500 w-36 shrink-0">Need-by Date</dt>
+                    <dd className="text-gray-900">{item.activityNeedByDate}</dd>
+                  </div>
+                )}
+                {item.blocksWork && (
+                  <div className="flex gap-3 text-sm">
+                    <dt className="text-gray-500 w-36 shrink-0">Blocks Work</dt>
+                    <dd className="text-red-700 font-medium">Yes</dd>
+                  </div>
+                )}
+              </dl>
+            </section>
+          )}
           {item.notes && (
             <section>
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">

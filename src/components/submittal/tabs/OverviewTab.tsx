@@ -68,6 +68,29 @@ export function OverviewTab({ items, onSelectFindingType }: OverviewTabProps) {
     return { specLinked, missingSpec, govtApproval, blockingRisk }
   }, [items])
 
+  const workImpact = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const in14d = new Date(today)
+    in14d.setDate(in14d.getDate() + 14)
+
+    let blocksWork = 0
+    let needByNext14d = 0
+    let missingFOW = 0
+    for (const item of items) {
+      const effectiveBlocks =
+        item.blocksWork === true || (item.blockingRisk === 'high' && !!item.activityNeedByDate)
+      if (effectiveBlocks) blocksWork++
+      if (item.activityNeedByDate) {
+        const d = new Date(item.activityNeedByDate)
+        if (d >= today && d <= in14d) needByNext14d++
+      }
+      const isRisky = item.blockingRisk === 'high' || item.blockingRisk === 'medium'
+      if (isRisky && !item.relatedFOW && !item.scheduleActivity) missingFOW++
+    }
+    return { blocksWork, needByNext14d, missingFOW }
+  }, [items])
+
   return (
     <div className="space-y-6">
       <LifecycleSummary items={items} />
@@ -90,6 +113,26 @@ export function OverviewTab({ items, onSelectFindingType }: OverviewTabProps) {
           ))}
         </div>
       </div>
+
+      {(workImpact.blocksWork > 0 || workImpact.needByNext14d > 0 || workImpact.missingFOW > 0) && (
+        <div className="rounded-md border border-gray-200 p-3">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Work Impact</p>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { label: 'Blocks Work', value: workImpact.blocksWork, warn: true },
+              { label: 'Need-by ≤ 14 days', value: workImpact.needByNext14d, warn: true },
+              { label: 'Missing FOW linkage', value: workImpact.missingFOW, warn: true },
+            ] as const).map(({ label, value, warn }) => (
+              <div key={label} className="text-center px-3 py-2 bg-white rounded border border-gray-200">
+                <div className={`text-lg font-semibold tabular-nums ${warn && value > 0 ? 'text-amber-700' : 'text-gray-900'}`}>
+                  {value}
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <CoverageQACard items={items} onSelectFindingType={onSelectFindingType} />
 

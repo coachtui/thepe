@@ -68,12 +68,19 @@ export async function POST(
     return NextResponse.json({ error: 'itemId is required' }, { status: 400 })
   }
 
-  const hasFieldUpdate = 'sdCode' in body || 'approvalAuthority' in body || 'dueDate' in body
+  const hasFieldUpdate =
+    'sdCode' in body ||
+    'approvalAuthority' in body ||
+    'dueDate' in body ||
+    'relatedFOW' in body ||
+    'scheduleActivity' in body ||
+    'activityNeedByDate' in body ||
+    'blocksWork' in body
   const hasAcknowledge = 'acknowledge' in body
 
   if (!hasFieldUpdate && !hasAcknowledge) {
     return NextResponse.json(
-      { error: 'At least one of sdCode, approvalAuthority, dueDate, or acknowledge is required' },
+      { error: 'At least one of sdCode, approvalAuthority, dueDate, relatedFOW, scheduleActivity, activityNeedByDate, blocksWork, or acknowledge is required' },
       { status: 400 },
     )
   }
@@ -119,6 +126,22 @@ export async function POST(
     if ('dueDate' in body) {
       updatedPayload.lifecycleDueDate = body.dueDate ?? null
       updatedFields.lifecycleDueDate = updatedPayload.lifecycleDueDate
+    }
+    if ('relatedFOW' in body) {
+      updatedPayload.relatedFOW = body.relatedFOW ?? null
+      updatedFields.relatedFOW = updatedPayload.relatedFOW
+    }
+    if ('scheduleActivity' in body) {
+      updatedPayload.scheduleActivity = body.scheduleActivity ?? null
+      updatedFields.scheduleActivity = updatedPayload.scheduleActivity
+    }
+    if ('activityNeedByDate' in body) {
+      updatedPayload.activityNeedByDate = body.activityNeedByDate ?? null
+      updatedFields.activityNeedByDate = updatedPayload.activityNeedByDate
+    }
+    if ('blocksWork' in body) {
+      updatedPayload.blocksWork = typeof body.blocksWork === 'boolean' ? body.blocksWork : null
+      updatedFields.blocksWork = updatedPayload.blocksWork
     }
   }
 

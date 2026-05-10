@@ -6,6 +6,7 @@ export type QAFindingType =
   | 'missing_sd_code'
   | 'missing_approval_authority'
   | 'blocking_risk_no_due_date'
+  | 'blocking_risk_missing_work_linkage'
   | 'missing_source_excerpt'
   | 'duplicate_submittal'
   | 'spec_section_no_submittals'
@@ -101,7 +102,25 @@ export function evaluateSubmittalCoverageQA(input: QAInput): QAResult {
     })
   }
 
-  // 4. Missing source excerpt — info by default; warning if any affected item has blocking risk.
+  // 4. Blocking risk without work linkage — high/medium items missing both relatedFOW and scheduleActivity.
+  const missingWorkLinkageIds = keys.filter((_, i) => {
+    const item = items[i]
+    const isHighRisk = item.blockingRisk === 'high' || item.blockingRisk === 'medium'
+    return isHighRisk && !item.relatedFOW && !item.scheduleActivity
+  })
+  if (missingWorkLinkageIds.length > 0) {
+    findings.push({
+      id: 'blocking_risk_missing_work_linkage',
+      severity: 'warning',
+      type: 'blocking_risk_missing_work_linkage',
+      message: `${missingWorkLinkageIds.length} high/medium-risk item${missingWorkLinkageIds.length === 1 ? '' : 's'} not linked to a Feature of Work or schedule activity`,
+      affectedItemIds: missingWorkLinkageIds,
+      suggestedAction:
+        'Link these items to a Feature of Work or schedule activity so blocking risk becomes operationally traceable.',
+    })
+  }
+
+  // 6. Missing source excerpt — info by default; warning if any affected item has blocking risk.
   //    Skips items where the user has acknowledged the issue via qaAcknowledgements.
   const missingExcerptEntries = items
     .map((item, i) => ({ item, key: keys[i] }))
@@ -121,7 +140,7 @@ export function evaluateSubmittalCoverageQA(input: QAInput): QAResult {
     })
   }
 
-  // 5. Duplicate-looking submittals (conservative — flag only, never merge).
+  // 7. Duplicate-looking submittals (conservative — flag only, never merge).
   //    Suppression is group-based: a group is suppressed only when ALL members are acknowledged.
   //    If any member is unacknowledged, the entire group stays visible for context.
   const dupGroups = new Map<string, { key: string; item: SubmittalRegisterItem }[]>()
@@ -148,7 +167,7 @@ export function evaluateSubmittalCoverageQA(input: QAInput): QAResult {
     })
   }
 
-  // 6. Spec sections with no submittals — skip gracefully when specSections not provided
+  // 8. Spec sections with no submittals — skip gracefully when specSections not provided
   if (specSections && specSections.length > 0) {
     const coveredSections = new Set(items.map(i => i.specSection).filter(Boolean))
     const uncovered = specSections

@@ -33,6 +33,10 @@ export function QAInlineEditor({
   const [error, setError] = useState<string | null>(null)
   const [dueDateLocal, setDueDateLocal] = useState(item.lifecycleDueDate ?? '')
   const [noteLocal, setNoteLocal] = useState('')
+  const [fowLocal, setFowLocal] = useState(item.relatedFOW ?? '')
+  const [activityLocal, setActivityLocal] = useState(item.scheduleActivity ?? '')
+  const [needByLocal, setNeedByLocal] = useState(item.activityNeedByDate ?? '')
+  const [blocksWorkLocal, setBlocksWorkLocal] = useState(item.blocksWork ?? false)
 
   const itemId = item.persistedItemId
   if (!itemId) {
@@ -165,6 +169,75 @@ export function QAInlineEditor({
             </div>
           </>
         )}
+      </div>
+    )
+  }
+
+  if (activeQaFilter === 'blocking_risk_missing_work_linkage') {
+    const hasLinkage = !!(item.relatedFOW || item.scheduleActivity)
+    if (hasLinkage) {
+      return (
+        <div className={`${STRIP} text-indigo-700`}>
+          <span className="font-medium">Work linkage set</span>
+          {item.relatedFOW && <> · FOW: {item.relatedFOW}</>}
+          {item.scheduleActivity && <> · Activity: {item.scheduleActivity}</>}
+        </div>
+      )
+    }
+    return (
+      <div className={`${STRIP} flex flex-col gap-1.5`}>
+        <span className="font-medium text-indigo-800">Work linkage</span>
+        <div className="flex flex-wrap gap-2 items-center">
+          <input
+            type="text"
+            value={fowLocal}
+            onChange={e => setFowLocal(e.target.value)}
+            placeholder="Feature of Work"
+            disabled={saving}
+            className="rounded border border-indigo-300 px-2 py-1 text-xs bg-white disabled:opacity-50 flex-1 min-w-32"
+          />
+          <input
+            type="text"
+            value={activityLocal}
+            onChange={e => setActivityLocal(e.target.value)}
+            placeholder="Schedule Activity"
+            disabled={saving}
+            className="rounded border border-indigo-300 px-2 py-1 text-xs bg-white disabled:opacity-50 flex-1 min-w-32"
+          />
+          <input
+            type="date"
+            value={needByLocal}
+            onChange={e => setNeedByLocal(e.target.value)}
+            disabled={saving}
+            className="rounded border border-indigo-300 px-2 py-1 text-xs bg-white disabled:opacity-50"
+          />
+          <label className="flex items-center gap-1 cursor-pointer select-none whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={blocksWorkLocal}
+              onChange={e => setBlocksWorkLocal(e.target.checked)}
+              disabled={saving}
+              className="cursor-pointer"
+            />
+            <span className="text-xs text-indigo-800">Blocks Work</span>
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              const updates: Record<string, unknown> = {}
+              if (fowLocal.trim()) updates.relatedFOW = fowLocal.trim()
+              if (activityLocal.trim()) updates.scheduleActivity = activityLocal.trim()
+              if (needByLocal) updates.activityNeedByDate = needByLocal
+              updates.blocksWork = blocksWorkLocal
+              patch(updates)
+            }}
+            disabled={saving || (!fowLocal.trim() && !activityLocal.trim())}
+            className={BTN_PRIMARY}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {error && <span className="text-red-700">{error}</span>}
+        </div>
       </div>
     )
   }

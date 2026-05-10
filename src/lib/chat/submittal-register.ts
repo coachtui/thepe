@@ -54,6 +54,9 @@ export interface SubmittalRegisterItem {
   sourceExcerpt?: string | null
   relatedFOW?: string | null
   scheduleActivity?: string | null
+  activityStartDate?: string | null    // ISO date YYYY-MM-DD
+  activityNeedByDate?: string | null   // ISO date YYYY-MM-DD
+  blocksWork?: boolean
   blockingRisk?: 'none' | 'low' | 'medium' | 'high' | null
   // QA acknowledgements — stored in item_payload JSONB, no migration required.
   // Only for findings that represent intentional acceptance, not fixable metadata gaps.

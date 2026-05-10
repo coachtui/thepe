@@ -242,9 +242,91 @@ console.log('\n=== QA Submittal Harness ===\n')
     lifecycleDueDate: '2026-07-01',
     sourceExcerpt: 'Some excerpt',
     persistedItemId: 'clean-item',
+    relatedFOW: 'Foundations',
+    scheduleActivity: 'Pour Footings',
   })
   const result = evaluateSubmittalCoverageQA({ items: [item] })
   assert('0 findings', result.findings.length === 0)
+  console.log()
+}
+
+// ---------------------------------------------------------------------------
+// blocking_risk_missing_work_linkage tests
+// ---------------------------------------------------------------------------
+
+// Test WL-1: high-risk item with no FOW or activity → flagged
+{
+  console.log('Test WL-1: High-risk, no FOW or scheduleActivity → flagged')
+  const item = mockItem({ blockingRisk: 'high', relatedFOW: null, scheduleActivity: null })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const finding = result.findings.find(f => f.type === 'blocking_risk_missing_work_linkage')
+  assert('finding exists', !!finding)
+  assert('severity is warning', finding?.severity === 'warning')
+  assert('one affected item', finding?.affectedItemIds.length === 1)
+  console.log()
+}
+
+// Test WL-2: medium-risk item with no FOW or activity → flagged
+{
+  console.log('Test WL-2: Medium-risk, no FOW or scheduleActivity → flagged')
+  const item = mockItem({ blockingRisk: 'medium', relatedFOW: null, scheduleActivity: null })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const finding = result.findings.find(f => f.type === 'blocking_risk_missing_work_linkage')
+  assert('finding exists', !!finding)
+  console.log()
+}
+
+// Test WL-3: high-risk item with relatedFOW set → not flagged
+{
+  console.log('Test WL-3: High-risk with relatedFOW set → not flagged')
+  const item = mockItem({ blockingRisk: 'high', relatedFOW: 'Foundations', scheduleActivity: null })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const finding = result.findings.find(f => f.type === 'blocking_risk_missing_work_linkage')
+  assert('no finding when relatedFOW is set', !finding)
+  console.log()
+}
+
+// Test WL-4: high-risk item with scheduleActivity set → not flagged
+{
+  console.log('Test WL-4: High-risk with scheduleActivity set → not flagged')
+  const item = mockItem({ blockingRisk: 'high', relatedFOW: null, scheduleActivity: 'Pour Footings' })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const finding = result.findings.find(f => f.type === 'blocking_risk_missing_work_linkage')
+  assert('no finding when scheduleActivity is set', !finding)
+  console.log()
+}
+
+// Test WL-5: low-risk item with no FOW or activity → NOT flagged
+{
+  console.log('Test WL-5: Low-risk, no FOW or scheduleActivity → not flagged')
+  const item = mockItem({ blockingRisk: 'low', relatedFOW: null, scheduleActivity: null })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const finding = result.findings.find(f => f.type === 'blocking_risk_missing_work_linkage')
+  assert('no finding for low-risk item', !finding)
+  console.log()
+}
+
+// Test WL-6: none-risk item with no FOW or activity → NOT flagged
+{
+  console.log('Test WL-6: None-risk, no FOW or scheduleActivity → not flagged')
+  const item = mockItem({ blockingRisk: 'none', relatedFOW: null, scheduleActivity: null })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const finding = result.findings.find(f => f.type === 'blocking_risk_missing_work_linkage')
+  assert('no finding for none-risk item', !finding)
+  console.log()
+}
+
+// Test WL-7: mixed — 2 high-risk missing linkage, 1 high-risk with linkage
+{
+  console.log('Test WL-7: Mixed set — 2 missing linkage, 1 linked → only 2 flagged')
+  const a = mockItem({ blockingRisk: 'high', persistedItemId: 'wl-a', relatedFOW: null, scheduleActivity: null })
+  const b = mockItem({ blockingRisk: 'medium', persistedItemId: 'wl-b', relatedFOW: null, scheduleActivity: null })
+  const c = mockItem({ blockingRisk: 'high', persistedItemId: 'wl-c', relatedFOW: 'Superstructure', scheduleActivity: null })
+  const result = evaluateSubmittalCoverageQA({ items: [a, b, c] })
+  const finding = result.findings.find(f => f.type === 'blocking_risk_missing_work_linkage')
+  assert('finding exists', !!finding)
+  assert('2 affected items', finding?.affectedItemIds.length === 2)
+  assert('linked item not included', !finding?.affectedItemIds.includes('wl-c'))
   console.log()
 }
 
