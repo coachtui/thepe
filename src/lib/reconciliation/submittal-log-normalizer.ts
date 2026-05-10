@@ -165,22 +165,122 @@ export function normalizeRows(
   })
 }
 
+// ---------------------------------------------------------------------------
+// NAVFAC DD-form submittal register format
+// Merged-cell headers produce mostly __EMPTY_N keys. This format uses
+// positional column mapping instead of header name resolution.
+// ---------------------------------------------------------------------------
+
+function isNavfacFormat(firstRowKeys: string[]): boolean {
+  if (firstRowKeys[0]?.includes('SUBMITTAL REGISTER')) return true
+  const emptyCount = firstRowKeys.filter(k => k.startsWith('__EMPTY')).length
+  return emptyCount / firstRowKeys.length > 0.6
+}
+
+const NAVFAC_STATUS_MAP: Record<string, string> = {
+  '1': 'draft',
+  '2': 'pending_review',
+  '3': 'revise_resubmit',
+  '4': 'pending_review',
+  '5': 'pending_submission',
+  '6': 'submitted',
+  '7': 'pending_review',
+  'c': 'approved',
+}
+
+function parseNavfacFormat(
+  rawArrays: (string | null)[][],
+  fileName: string
+): NormalizedExternalRow[] {
+  // Column positions (0-indexed) from the NAVFAC DD-form layout:
+  // col 2 = Spec Section, col 3 = Item No, col 4 = SD Code (group headers only),
+  // col 5 = Description, col 8 = Planned Submit, col 9 = Approval Needed By,
+  // col 12 = Contractor Action Date, col 20 = Status
+  const COL_SPEC = 2
+  const COL_ITEM = 3
+  const COL_SD = 4
+  const COL_DESC = 5
+  const COL_PLANNED_SUBMIT = 8
+  const COL_APPROVAL_BY = 9
+  const COL_ACTION_DATE = 12
+  const COL_STATUS = 20
+
+  const results: NormalizedExternalRow[] = []
+  let currentSdCode: string | null = null
+  let idx = 0
+
+  for (let i = 0; i < rawArrays.length; i++) {
+    const row = rawArrays[i]
+    if (!row || row.every(v => !v)) continue
+
+    const specRaw = row[COL_SPEC]
+    const sdRaw = row[COL_SD]
+    const descRaw = row[COL_DESC]
+
+    // Group header row: col 4 has SD code (e.g. "SD-01")
+    if (sdRaw && /^SD-\d+/i.test(String(sdRaw))) {
+      const m = String(sdRaw).match(/^(SD-\d+)/i)
+      if (m) currentSdCode = m[1].toUpperCase()
+      continue
+    }
+
+    // Item row: must have a spec section and description
+    if (!specRaw || !descRaw) continue
+    if (!/^\d{2}\s?\d{2}\s?\d{2}/.test(String(specRaw))) continue
+
+    const title = String(descRaw).trim()
+    const actionDate = row[COL_ACTION_DATE] ? String(row[COL_ACTION_DATE]).trim() : null
+    const statusRaw = row[COL_STATUS] ? String(row[COL_STATUS]).trim().toLowerCase() : null
+    const status = statusRaw ? (NAVFAC_STATUS_MAP[statusRaw] ?? statusRaw) : null
+
+    results.push({
+      externalId: `navfac-${idx++}`,
+      specSection: String(specRaw).replace(/\s+/g, ' ').trim(),
+      submittalNumber: row[COL_ITEM] ? String(row[COL_ITEM]).trim() : null,
+      title,
+      description: null,
+      sdCode: currentSdCode,
+      status,
+      submittedAt: actionDate ?? (row[COL_PLANNED_SUBMIT] ? String(row[COL_PLANNED_SUBMIT]).trim() : null),
+      returnedAt: null,
+      approvedAt: status === 'approved' ? actionDate : null,
+      dueDate: row[COL_APPROVAL_BY] ? String(row[COL_APPROVAL_BY]).trim() : null,
+      responsibleParty: null,
+      reviewer: null,
+      remarks: null,
+      normalizedTitle: buildNormalizedTitle(title),
+      sourceRowNumber: i + 1,
+      sourceFileName: fileName,
+    })
+  }
+
+  return results
+}
+
 // Parses an XLSX or CSV File into normalized rows. Client-side only (uses File API + xlsx).
 export async function parseSubmittalLog(file: File): Promise<NormalizedExternalRow[]> {
   const XLSX = await import('xlsx')
   const ab = await file.arrayBuffer()
-  const wb = XLSX.read(ab, { type: 'array', raw: false, cellDates: false })
+  const wb = XLSX.read(new Uint8Array(ab), { type: 'array', raw: false, cellDates: false })
   const ws = wb.Sheets[wb.SheetNames[0]]
   if (!ws) return []
 
-  const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+  const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
     defval: null,
     raw: false,
   })
-  if (rawRows.length === 0) return []
+  if (jsonRows.length === 0) return []
 
-  const headers = Object.keys(rawRows[0])
+  const headers = Object.keys(jsonRows[0])
+
+  // NAVFAC DD-form: merged cells produce mostly __EMPTY_N header keys
+  if (isNavfacFormat(headers)) {
+    const rawArrays = XLSX.utils.sheet_to_json<(string | null)[]>(ws, {
+      header: 1, defval: null, raw: false,
+    })
+    return parseNavfacFormat(rawArrays as (string | null)[][], file.name)
+  }
+
   const headerMap = normalizeHeaders(headers)
-
-  return normalizeRows(rawRows, headerMap, file.name)
+  return normalizeRows(jsonRows, headerMap, file.name)
 }
