@@ -106,7 +106,11 @@ export function OverviewTab({ items, onSelectFindingType, ingestionGrade, ingest
 
   return (
     <div className="space-y-6">
-      <PublishReadinessBanner readiness={readiness} />
+      <PublishReadinessBanner
+        readiness={readiness}
+        qaResult={qaResult}
+        ingestionGradeReasons={ingestionGradeReasons}
+      />
 
       <LifecycleSummary items={items} />
 
