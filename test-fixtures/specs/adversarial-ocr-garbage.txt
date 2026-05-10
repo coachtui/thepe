@@ -1,0 +1,52 @@
+SECTION 03 30 00 - CAST-lN-PLACE CONCRETE
+
+PART l - GENERAL
+
+1.1 RELATED DOCUMENlS
+Drawings and general prov1sions of the Contract, including General and Supplementary
+Cond1tions and Div1s1on Ol Specification Sections, apply to this Section.
+
+l.2 SUBMITTALS
+
+A. Product Data: Subm1t 1n accordance with Section Ol33 00 — Admin1strat1ve Requirernents.
+   Subm1t product data for concrete adm1xtures. s.d. 03 Product Data
+
+B. M1x Des1gns: Subm1t concrete m1x des1gns at Ieast 30 days pr10r to concrete placement.
+   SD-O3 product data. Governrnent approval requlred.
+
+C. Re1nforc1ng Steel: Certlfied m1ll test reports. SD07 certs. Gov Approval.
+
+D. Forrnwork: Sh0p draw1ngs for all f0rmwork systems. SD-02 shop draw1ngs. G0vernment.
+
+E. Concrete P|acement Plan: Subm1t concrete placement and sequenc1ng p|an.
+   SD-Ol preconstruct|on subm1ttals. Governrnent approva| requ1red.
+
+F. F1e|d Qua|ity Contr0|: Test reports for concrete cyl1nders. SD-06 test/lnspect1on rep0rts.
+
+G. C|0sure P0urs: Sh0p draw1ngs f0r c|0sure p0ur |0cat10ns. SD-02. AOR approv a| requ1red.
+
+H. Chem1ca| Adm1xtures: Product data, br0chures, mix des1gns. S.D. 03.
+
+
+SECTION 03 20 O0 — CONCRETE REINFORC1NG
+
+PART 1 - GENERAL
+
+1.1 SUBM1TTALS
+
+A. Sh0p Draw1ngs: Re1nforc1ng stee| p|acement draw1ngs.  Sd-02 shop draw1ngs. G0vernment
+   approv a | requ1 red .
+
+B. M1|| Cert1f1cates: Cert1f1ed m1|| test rep0rts. SD- 07 certs. Govemment approv.
+
+C. C0up|er Data: Data f0r mechan1ca| sp|1ces. SD-03 Pr0duct data. A0R Approv a| Requ1red.
+
+D. Weld 1nspect10n: Reports f0r a|| we|d1ng 1nspect10n. SD- 06 lnspect10n.
+
+    -- PAGE BREAK --
+
+SECTION 03 20 O0 — CONCRETE REINFORC1NG (CONTINUED)
+
+E. Epoxy-C0ated Re1nf0rc1ng: Product data f0r ep0xy c0at1ng. SD07 cert1f1cates. G0v approv.
+
+F. Fiber Re1nf0rcement: Pr0duct data f0r f1ber adm1xtures. SD-O3. N0 approv a| requ1red.

@@ -5,10 +5,12 @@ export type QASeverity = 'info' | 'warning' | 'critical'
 export type QAFindingType =
   | 'missing_sd_code'
   | 'missing_approval_authority'
+  | 'conditional_approval_authority'
   | 'blocking_risk_no_due_date'
   | 'blocking_risk_missing_work_linkage'
   | 'missing_source_excerpt'
   | 'duplicate_submittal'
+  | 'cross_section_duplicate_submittal'
   | 'spec_section_no_submittals'
 
 export interface QAFinding {
@@ -80,6 +82,43 @@ export function evaluateSubmittalCoverageQA(input: QAInput): QAResult {
       affectedItemIds: missingAuthIds,
       suggestedAction:
         'Review spec language to determine if Government or Contracting Officer approval is required.',
+    })
+  }
+
+  // 3. Conditional approval authority — authority present but conditioned on circumstances
+  const conditionalAuthEntries = items
+    .map((item, i) => ({ item, key: keys[i] }))
+    .filter(({ item }) => !!(item as SubmittalRegisterItem & { approvalAuthorityCondition?: string | null }).approvalAuthorityCondition)
+  for (const { item, key } of conditionalAuthEntries) {
+    const condition = (item as SubmittalRegisterItem & { approvalAuthorityCondition?: string | null }).approvalAuthorityCondition!
+    findings.push({
+      id: `conditional_auth_${key}`,
+      severity: 'warning',
+      type: 'conditional_approval_authority',
+      message: `Approval authority may vary: "${condition.slice(0, 80)}"`,
+      affectedItemIds: [key],
+      suggestedAction: 'Confirm the applicable approval authority — language contains a condition or dual-approval requirement.',
+    })
+  }
+
+  // Cross-section duplicate: same normalized name in different spec sections
+  const byNormalizedName = new Map<string, Array<{ key: string; specSection: string | null }>>()
+  for (const [i, item] of items.entries()) {
+    const normalized = normalizeName(item.submittalItem)
+    const arr = byNormalizedName.get(normalized) ?? []
+    arr.push({ key: keys[i], specSection: item.specSection })
+    byNormalizedName.set(normalized, arr)
+  }
+  for (const [name, occurrences] of byNormalizedName) {
+    const sections = new Set(occurrences.map(o => o.specSection))
+    if (sections.size < 2) continue
+    findings.push({
+      id: `cross_section_dup_${name.slice(0, 20).replace(/\s+/g, '_')}`,
+      severity: 'warning',
+      type: 'cross_section_duplicate_submittal',
+      message: `"${name}" appears in ${sections.size} different spec sections`,
+      affectedItemIds: occurrences.map(o => o.key),
+      suggestedAction: 'Verify these are distinct requirements — do not merge without manual review.',
     })
   }
 

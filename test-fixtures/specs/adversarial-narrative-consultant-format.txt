@@ -1,0 +1,56 @@
+SECTION 09 91 13 - EXTERIOR PAINTING
+
+NOTE: This section was authored by the mechanical/electrical consultant and does not
+follow standard CSI formatting. Submittal requirements are embedded in narrative prose.
+
+GENERAL PROVISIONS
+
+The painting contractor shall be responsible for all surface preparation, priming, and
+topcoat application for all exterior surfaces as shown on the drawings and as specified
+herein. The contractor shall submit product data sheets and color samples to the Architect
+for review and approval prior to ordering any materials. SD-03 product data required for all
+paint products. Prior to beginning work, contractor shall submit a complete color schedule
+cross-referencing paint system, substrate, and color for each exterior surface type
+(SD-03, Architect approval).
+
+Paint mock-up panels shall be prepared in field locations as directed. Photographs of
+accepted mock-up panels shall be submitted for record (SD-06, for information only).
+
+WARRANTY SUBMITTALS: At project closeout, contractor shall submit manufacturer paint
+warranty documents (SD-11 Closeout, no approval required) along with as-applied paint
+records including batch numbers, application dates, and ambient conditions log.
+
+SURFACE PREPARATION
+
+All surfaces shall be clean, dry, and free of contaminants. Contractor shall submit a
+written surface preparation and application procedure for review before beginning work.
+This procedure submittal does not require Government approval — Architect review only.
+
+
+SECTION 09 91 23 - INTERIOR PAINTING
+
+Similar requirements apply for interior painting. The contractor must submit:
+
+- Color selections: 3 physical samples of each proposed color per the color schedule.
+  These are SD-08 samples and require Architect selection/approval.
+
+- Product data for each paint product including VOC content, coverage, and application
+  temperature range. Government approval required for all interior paints in food service
+  areas. For other areas, Architect approval only. (SD-03)
+
+- Applicator qualifications if the painting contractor has fewer than 5 years experience
+  with commercial interior work. (SD-01, for information only)
+
+The painting contractor shall also submit touch-up paint in labeled containers at
+substantial completion — see Closeout requirements in Division 01. This is not a
+formal submittal per se but shall be logged in the submittal register.
+
+
+SECTION 09 00 00 - FINISHES SUMMARY
+
+This section does not contain individual submittal requirements. All finish submittals are
+covered under their respective sections (09 91 13, 09 91 23, 09 30 00, 09 65 13).
+Contractor shall prepare a consolidated finish submittal schedule for Architect review.
+
+The consolidated finish schedule submittal: SD-03. Architect Approval Required.
+Submit 60 days before any finish installation.

@@ -1,0 +1,199 @@
+import { parseDocumentWithPdfJs } from '../parsers/pdfjs-parser.ts'
+import {
+  extractSubmittalRegisterItemsFromText,
+  isLikelySubmittalRequirement,
+  shouldSuppressSubmittalCandidate,
+} from '../chat/submittal-register.ts'
+import { extractSpecSections } from '../vision/spec-extractor.ts'
+import { evaluateSubmittalCoverageQA, getSubmittalItemKey } from '../chat/submittal-coverage-qa.ts'
+import { readFile } from 'fs/promises'
+import path from 'path'
+import { computeIngestionGrade } from './ingestion-types.ts'
+import type { IngestionHarnessResult, IngestionSuspiciousRow, IngestionQABreakdown } from './ingestion-types.ts'
+
+// ---------------------------------------------------------------------------
+// Per-file evaluation — no DB writes, no Supabase dependency
+// ---------------------------------------------------------------------------
+
+export async function evaluateIngestionFile(filePath: string): Promise<IngestionHarnessResult> {
+  const fileName = path.basename(filePath)
+  const t0 = Date.now()
+
+  try {
+    let text: string
+    let pagesProcessed: number | null
+
+    if (path.extname(filePath).toLowerCase() === '.txt') {
+      text = await readFile(filePath, 'utf-8')
+      pagesProcessed = null
+    } else {
+      // pdfjs-parser emits per-page logs; suppress them during parse
+      const savedLog = console.log
+      console.log = () => {}
+      let parsed
+      try {
+        parsed = await parseDocumentWithPdfJs(filePath, fileName)
+      } finally {
+        console.log = savedLog
+      }
+      text = parsed.text
+      pagesProcessed = parsed.pageCount
+    }
+
+    // Count suppressed candidates (full-text approximation)
+    const suppressedCandidateCount = text
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l && isLikelySubmittalRequirement(l) && shouldSuppressSubmittalCandidate(l).suppress)
+      .length
+
+    // CSI section detection
+    const specSections = extractSpecSections(text)
+    const specSectionsDetected = specSections.length
+
+    // Extract submittal items — per-section with context if sections found, otherwise full text
+    let items: ReturnType<typeof extractSubmittalRegisterItemsFromText>
+
+    if (specSections.length > 0) {
+      const allItems: typeof items = []
+      const seen = new Set<string>()
+
+      for (let i = 0; i < specSections.length; i++) {
+        const section = specSections[i]
+        const nextStart = specSections[i + 1]?.startIndex ?? text.length
+        const sectionText = text.slice(section.startIndex, nextStart)
+
+        const sectionItems = extractSubmittalRegisterItemsFromText(sectionText, {
+          specSection: section.sectionNumber,
+          sectionTitle: section.sectionTitle,
+        })
+
+        for (const item of sectionItems) {
+          const key = item.dedupeKey ?? `${item.submittalItem}|${item.specSection ?? ''}`
+          if (!seen.has(key)) {
+            seen.add(key)
+            allItems.push(item)
+          }
+        }
+      }
+      items = allItems
+    } else {
+      items = extractSubmittalRegisterItemsFromText(text)
+    }
+
+    const extractedSubmittalCount = items.length
+
+    // QA evaluation
+    const qaResult = evaluateSubmittalCoverageQA({ items })
+
+    // Map item key → finding types for suspicious row ranking
+    const findingsByItemKey = new Map<string, string[]>()
+    for (const finding of qaResult.findings) {
+      for (const itemId of finding.affectedItemIds) {
+        const arr = findingsByItemKey.get(itemId) ?? []
+        arr.push(finding.type)
+        findingsByItemKey.set(itemId, arr)
+      }
+    }
+
+    const total = items.length
+
+    const sdCodeCoverage =
+      total === 0 ? 0 : (items.filter(i => i.sdCode).length / total) * 100
+
+    const approvalAuthorityCoverage =
+      total === 0 ? 0 : (items.filter(i => i.approvalAuthority).length / total) * 100
+
+    const sourceExcerptCoverage =
+      total === 0 ? 0 : (items.filter(i => i.sourceExcerpt || i.excerpt).length / total) * 100
+
+    const duplicateCount = qaResult.findings
+      .filter(f => f.type === 'duplicate_submittal')
+      .reduce((sum, f) => sum + f.affectedItemIds.length, 0)
+
+    const blockingRiskCount = items.filter(
+      i => i.blockingRisk === 'medium' || i.blockingRisk === 'high'
+    ).length
+
+    const qaFindings: IngestionQABreakdown = {
+      critical: qaResult.findings.filter(f => f.severity === 'critical').length,
+      warning:  qaResult.findings.filter(f => f.severity === 'warning').length,
+      info:     qaResult.findings.filter(f => f.severity === 'info').length,
+      byType:   {},
+    }
+    for (const finding of qaResult.findings) {
+      qaFindings.byType[finding.type] = (qaFindings.byType[finding.type] ?? 0) + 1
+    }
+
+    // Top 5 rows with highest finding density
+    const topSuspiciousRows: IngestionSuspiciousRow[] = items
+      .map((item, idx) => {
+        const key = getSubmittalItemKey(item, idx)
+        const findingTypes = findingsByItemKey.get(key) ?? []
+        return { item, findingTypes }
+      })
+      .filter(({ findingTypes }) => findingTypes.length > 0)
+      .sort((a, b) => b.findingTypes.length - a.findingTypes.length)
+      .slice(0, 5)
+      .map(({ item, findingTypes }) => ({
+        submittalItem:  item.submittalItem,
+        specSection:    item.specSection,
+        sdCode:         item.sdCode ?? null,
+        qaFindingTypes: findingTypes,
+        reason:         findingTypes.join(', '),
+      }))
+
+    return {
+      fileName,
+      filePath,
+      pagesProcessed,
+      specSectionsDetected,
+      extractedSubmittalCount,
+      sdCodeCoverage:            round1(sdCodeCoverage),
+      approvalAuthorityCoverage: round1(approvalAuthorityCoverage),
+      sourceExcerptCoverage:     round1(sourceExcerptCoverage),
+      duplicateCount,
+      blockingRiskCount,
+      qaFindings,
+      suppressedCandidateCount,
+      ...gradeFields({
+        sdCodeCoverage:            round1(sdCodeCoverage),
+        approvalAuthorityCoverage: round1(approvalAuthorityCoverage),
+        suppressedCandidateCount,
+        extractedSubmittalCount,
+        qaFindingsCritical:        qaFindings.critical,
+      }),
+      parseDurationMs: Date.now() - t0,
+      topSuspiciousRows,
+    }
+  } catch (err) {
+    return {
+      fileName,
+      filePath,
+      pagesProcessed:            null,
+      specSectionsDetected:      0,
+      extractedSubmittalCount:   0,
+      sdCodeCoverage:            0,
+      approvalAuthorityCoverage: 0,
+      sourceExcerptCoverage:     0,
+      duplicateCount:            0,
+      blockingRiskCount:         0,
+      qaFindings:                { critical: 0, warning: 0, info: 0, byType: {} },
+      suppressedCandidateCount:  0,
+      grade:                     'poor_extraction' as const,
+      gradeReasons:              ['file failed to process'],
+      parseDurationMs:           Date.now() - t0,
+      topSuspiciousRows:         [],
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10
+}
+
+function gradeFields(metrics: Parameters<typeof computeIngestionGrade>[0]) {
+  const { grade, reasons } = computeIngestionGrade(metrics)
+  return { grade, gradeReasons: reasons }
+}

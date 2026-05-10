@@ -66,6 +66,8 @@ const QA_FINDING_LABELS: Record<QAFindingType, string> = {
   blocking_risk_missing_work_linkage: 'Missing FOW/activity',
   missing_source_excerpt: 'Missing excerpt',
   duplicate_submittal: 'Duplicate',
+  cross_section_duplicate_submittal: 'Cross-section duplicate',
+  conditional_approval_authority: 'Conditional authority',
   spec_section_no_submittals: 'No submittals in section',
 }
 

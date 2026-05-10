@@ -1,0 +1,91 @@
+{
+  "runAt": "2026-05-10T04:35:05.083Z",
+  "fixtureDir": "/Users/tui/thepe/test-fixtures/specs",
+  "version": "1.0.0",
+  "totalFiles": 1,
+  "totalFilesWithErrors": 0,
+  "totalSubmittals": 18,
+  "avgSdCodeCoverage": 77.8,
+  "avgApprovalAuthorityCoverage": 33.3,
+  "avgSourceExcerptCoverage": 100,
+  "avgQaFindingsPerSpec": 2,
+  "totalBlockingRiskCount": 0,
+  "totalDuplicateCount": 0,
+  "avgParseDurationMs": 4,
+  "totalParseDurationMs": 4,
+  "results": [
+    {
+      "fileName": "sample-division-03-concrete.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/sample-division-03-concrete.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 3,
+      "extractedSubmittalCount": 18,
+      "sdCodeCoverage": 77.8,
+      "approvalAuthorityCoverage": 33.3,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "parseDurationMs": 4,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "This section includes requirements for cast-in-place concrete including formwork, reinforcing steel, concrete materials, mix design, placing, finishing, and curing.",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "1.2 SUBMITTALS",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "1.1 SUBMITTALS",
+          "specSection": "03 20 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "1.1 SUBMITTALS",
+          "specSection": "05 12 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "A. Product Data: Submit manufacturer data for all concrete admixtures, curing compounds, form release agents, and bonding agents. SD-07 Certificates.",
+          "specSection": "03 30 00",
+          "sdCode": "SD-07",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        }
+      ]
+    }
+  ]
+}

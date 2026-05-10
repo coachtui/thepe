@@ -1,0 +1,55 @@
+SECTION 26 05 19 - LOW-VOLTAGE ELECTRICAL POWER CONDUCTORS AND CABLES
+
+PART 1 - GENERAL
+
+1.3 SUBMITTALS
+
+The following submittals are required. Submit all items in accordance with Section 01 33 00.
+
+-----------------------------------------------------------------------
+| No. | Description                        | SD Code | Authority      |
+-----------------------------------------------------------------------
+| 1   | Product data for all conductors    | SD-03   | Government     |
+| 2   | Product data for cable tray system | SD-03   | Government     |
+| 3   | Shop drawings — cable tray layout  | SD-02   | Government     |
+| 4   | Test reports — insulation testing  |
+
+--- PAGE BREAK ---
+
+SECTION 26 05 19 - LOW-VOLTAGE ELECTRICAL POWER CONDUCTORS (CONT.)
+
+-----------------------------------------------------------------------
+(table continued from previous page)
+-----------------------------------------------------------------------
+| No. | Description                        | SD Code | Authority      |
+-----------------------------------------------------------------------
+|     | (continued)                        |         |                |
+| 4   | Test reports — insulation testing  | SD-06   | Government     |
+| 5   | Manufacturer certifications        | SD-07   | Government     |
+| 6   | Splice kit data                    | SD-03   |                |
+| 7   | Wire and cable schedule            | SD-03   | Government     |
+| 8   | Conductor ampacity calculations    | SD-01   | AOR            |
+-----------------------------------------------------------------------
+
+Additional submittal requirements not included in the table above:
+
+A. System Grounding: Submit grounding system design and installation plan. SD-01 Preconstruction Submittals. Government Approval Required.
+B. Conduit Schedule: Submit conduit types, sizes, and routing schedule. SD-02 Shop Drawings. Government Approval Required.
+
+
+SECTION 26 05 26 - GROUNDING AND BONDING FOR ELECTRICAL SYSTEMS
+
+1.3 SUBMITTALS
+
+A. Shop Drawings: Submit grounding electrode system layout. SD-02 Shop Drawings. Government.
+B. Product Data: Grounding conductors, electrodes, connectors. SD-03 Product Data. Government.
+C. System Resistance Test Report: Submit ground resistance test results. SD-06. Government.
+D. Special Inspection Reports: Submit all third-party inspection reports. SD-06 Test/Inspection Reports.
+
+--- PAGE BREAK ---
+
+SECTION 26 05 26 - GROUNDING (CONT.)
+
+E. Grounding Schedule: (this item was cut off at bottom of previous page and continues here)
+   Submit complete grounding electrode schedule showing type, size, location, and resistance
+   target for each electrode. SD-02 Shop Drawings. AOR Approval Required.

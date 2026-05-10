@@ -50,6 +50,7 @@ export interface SubmittalRegisterItem {
   lifecycleStatusHistory?: LifecycleHistoryEntry[]
   sdCode?: string | null
   approvalAuthority?: string | null
+  approvalAuthorityCondition?: string | null
   sourcePage?: number | null
   sourceExcerpt?: string | null
   relatedFOW?: string | null
@@ -187,6 +188,7 @@ export function extractSubmittalRegisterItemsFromText(
 
   return lines
     .filter(isLikelySubmittalRequirement)
+    .filter(line => !shouldSuppressSubmittalCandidate(line).suppress)
     .map(line => buildItemFromStatement(line, {
       specSection: section,
       sectionTitle,
@@ -736,9 +738,10 @@ function buildItemFromStatement(
   }
 ): SubmittalRegisterItem {
   const submittalItem = cleanSubmittalItem(statement)
-  const submittalType = detectSubmittalType(statement)
   const sdCode = context.sdCodeOverride ?? extractSdCode(statement)
+  const submittalType = detectSubmittalType(statement, sdCode)
   const approvalAuthority = extractApprovalAuthority(statement)
+  const approvalAuthorityCondition = extractConditionalAuthorityCondition(statement)
   const quality = assessSourceQuality({
     sourceReference: context.sourceReference,
     extractionMethod: context.extractionMethod,
@@ -754,6 +757,7 @@ function buildItemFromStatement(
     submittalType,
     sdCode: sdCode ?? null,
     approvalAuthority: approvalAuthority ?? null,
+    approvalAuthorityCondition: approvalAuthorityCondition ?? null,
     sourcePage: context.sourceReference.pageNumber ?? null,
     sourceExcerpt: rawSourceExcerpt ? rawSourceExcerpt.slice(0, 400) : null,
     blockingRisk: assessBlockingRisk(statement, submittalType),
@@ -774,9 +778,57 @@ function buildItemFromStatement(
   return item
 }
 
-function isLikelySubmittalRequirement(value: string): boolean {
+export function isLikelySubmittalRequirement(value: string): boolean {
   return /\b(?:submit|submittals?|product\s+data|shop\s+drawings?|samples?|certificates?|certifications?|test\s+reports?|mix\s+design|calculations?|warrant(?:y|ies)|O&M|operation\s+and\s+maintenance)\b/i
     .test(value)
+}
+
+export function shouldSuppressSubmittalCandidate(
+  text: string
+): { suppress: boolean; reason?: string } {
+  const t = text.trim()
+
+  // CSI numeric heading + SUBMITTALS only — handles OCR artifacts (l, I in place of 1)
+  if (/^[0-9lIi][0-9lIi.]*\s+SUBMITTAL[S]?(?:\s+(?:REQUIREMENTS?|PROCEDURES?|SCHEDULES?|AND\s+SHOP\s+DRAWINGS?))?\s*[:.)]?\s*$/i.test(t))
+    return { suppress: true, reason: 'section_heading' }
+
+  // Bare heading: only "SUBMITTALS" (or variant) on the line
+  if (/^SUBMITTAL[S]?(?:\s+(?:REQUIREMENTS?|PROCEDURES?|SCHEDULES?))?\s*[:.)]?\s*$/i.test(t))
+    return { suppress: true, reason: 'section_heading' }
+
+  // Note / preamble prefix
+  if (/^(?:note|notes?)[:.\s]/i.test(t))
+    return { suppress: true, reason: 'note_preamble' }
+
+  // Section intro sentences
+  if (/^This\s+section\s+(?:includes?|covers?|describes?|specifies?|contains?|addresses?)\b/i.test(t))
+    return { suppress: true, reason: 'section_intro' }
+
+  // List-intro phrases — introduce a submittal list rather than naming an item
+  if (/^The\s+following\s+submittals?\s+(?:are\s+)?required\b/i.test(t))
+    return { suppress: true, reason: 'list_intro' }
+  if (/^(?:The\s+)?[Cc]ontractor\s+shall\s+submit\s+the\s+following\b/i.test(t))
+    return { suppress: true, reason: 'list_intro' }
+
+  // Pure cross-reference: entire purpose is pointing to another spec section
+  if (/^Submit\s+(?:all\s+)?(?:items?\s+)?in\s+accordance\s+with\s+Section\b/i.test(t))
+    return { suppress: true, reason: 'cross_reference' }
+
+  // Page-break artifacts
+  if (/^[-=*]{3,}$/.test(t))
+    return { suppress: true, reason: 'page_artifact' }
+  if (/^\s*[-–—]+\s*PAGE[\s-]+BREAK\s*[-–—]+\s*$/i.test(t))
+    return { suppress: true, reason: 'page_artifact' }
+  if (/^\((?:continued?|table\s+continued?|cont\.?)\)/i.test(t))
+    return { suppress: true, reason: 'page_artifact' }
+
+  // Mid-sentence fragment markers
+  if (/^are\s+required\b/i.test(t))
+    return { suppress: true, reason: 'sentence_fragment' }
+  if (/^(?:herein|therein)[.,]/i.test(t))
+    return { suppress: true, reason: 'sentence_fragment' }
+
+  return { suppress: false }
 }
 
 function cleanSubmittalItem(statement: string): string {
@@ -787,16 +839,25 @@ function cleanSubmittalItem(statement: string): string {
     .trim()
 }
 
-function detectSubmittalType(statement: string): string | null {
-  const checks: Array<[RegExp, string]> = [
-    [/\bSD[-\s]?01\b/i, 'SD-01 Preconstruction Submittal'],
-    [/\bSD[-\s]?02\b/i, 'SD-02 Shop Drawings'],
-    [/\bSD[-\s]?03\b/i, 'SD-03 Product Data'],
-    [/\bSD[-\s]?04\b/i, 'SD-04 Samples'],
-    [/\bSD[-\s]?05\b/i, 'SD-05 Design Data'],
-    [/\bSD[-\s]?06\b/i, 'SD-06 Test Reports'],
-    [/\bSD[-\s]?07\b/i, 'SD-07 Certificates'],
-    [/\bSD[-\s]?10\b/i, 'SD-10 Operation and Maintenance Data'],
+const SD_TYPE_LABELS: Record<string, string> = {
+  'SD-01': 'SD-01 Preconstruction Submittal',
+  'SD-02': 'SD-02 Shop Drawings',
+  'SD-03': 'SD-03 Product Data',
+  'SD-04': 'SD-04 Samples',
+  'SD-05': 'SD-05 Design Data',
+  'SD-06': 'SD-06 Test Reports',
+  'SD-07': 'SD-07 Certificates',
+  'SD-08': "SD-08 Manufacturer's Instructions",
+  'SD-09': "SD-09 Manufacturer's Field Reports",
+  'SD-10': 'SD-10 Operation and Maintenance Data',
+  'SD-11': 'SD-11 Closeout Submittals',
+}
+
+function detectSubmittalType(statement: string, sdCode: string | null): string | null {
+  if (sdCode && SD_TYPE_LABELS[sdCode]) return SD_TYPE_LABELS[sdCode]
+
+  // Fallback text patterns when SD code is absent
+  const textChecks: Array<[RegExp, string]> = [
     [/\bshop\s+drawings?\b/i, 'Shop Drawing'],
     [/\bproduct\s+data\b/i, 'Product Data'],
     [/\bsamples?\b/i, 'Sample'],
@@ -808,7 +869,7 @@ function detectSubmittalType(statement: string): string | null {
     [/\bO&M|operation\s+and\s+maintenance\b/i, 'O&M Manual'],
   ]
 
-  return checks.find(([pattern]) => pattern.test(statement))?.[1] ?? null
+  return textChecks.find(([pattern]) => pattern.test(statement))?.[1] ?? null
 }
 
 function detectRequiredAction(statement: string): string | null {
@@ -828,17 +889,40 @@ function detectApprovalRequired(statement: string): boolean | null {
 }
 
 export function extractSdCode(statement: string): string | null {
-  const match = statement.match(/\bSD[-\s]?(0[1-9]|10|11)\b/i)
+  // Permissive match: handles dots (s.d.), OCR letter-O for zero, multi-char separators,
+  // and single-digit codes (SD-8 → SD-08).
+  const match = statement.match(/\b[Ss]\.?[Dd]\.?(?:[-\s]{0,3})([Oo0-9]{1,2})\b/)
   if (!match) return null
-  const num = parseInt(match[1], 10).toString().padStart(2, '0')
-  return `SD-${num}`
+  const rawNum = match[1].replace(/[Oo]/g, '0')
+  const num = parseInt(rawNum, 10)
+  if (isNaN(num) || num < 1 || num > 11) return null
+  return `SD-${num.toString().padStart(2, '0')}`
 }
 
 export function extractApprovalAuthority(statement: string): string | null {
   if (/\b(?:government|contracting\s+officer)\b/i.test(statement)) return 'GOV'
   if (/\bquality\s+control\s+(?:manager|officer)\b|\bCQC\b/i.test(statement)) return 'QC'
   if (/\barchitect[\-\s]?[\-\/]?engineer\b|\bA[\-\/]E\b/i.test(statement)) return 'A-E'
+  if (/\bAOR\b/.test(statement)) return 'AOR'
+  if (/\barchitect\b/i.test(statement)) return 'Architect'
   if (/\bapproval\s+by\s+(?:the\s+)?contractor\b/i.test(statement)) return 'Contractor'
+  return null
+}
+
+function extractConditionalAuthorityCondition(statement: string): string | null {
+  const hasAuthority = /\b(?:government|contracting\s+officer|AOR|architect|owner)\b/i.test(statement)
+  if (!hasAuthority) return null
+
+  const ifMatch = statement.match(/\b(?:if|when|depending\s+on|except\s+when|however[,\s]+if)\b[^.;,]{5,80}/i)
+  if (ifMatch) return ifMatch[0].trim().slice(0, 150)
+
+  if (/\bunless otherwise directed\b/i.test(statement)) return 'unless otherwise directed'
+
+  const asDirected = statement.match(/\bas directed by[^.;,]{3,50}/i)
+  if (asDirected) return asDirected[0].trim().slice(0, 100)
+
+  if (/\bconcurrence required\b/i.test(statement)) return 'concurrent approval required'
+
   return null
 }
 

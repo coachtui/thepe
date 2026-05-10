@@ -54,8 +54,10 @@ const QA_LABEL: Record<string, string> = {
   blocking_risk_no_due_date:          'No due date',
   blocking_risk_missing_work_linkage: 'Missing FOW/activity',
   missing_source_excerpt:             'Missing excerpt',
-  duplicate_submittal:                'Duplicate',
-  spec_section_no_submittals:         'No submittals in section',
+  duplicate_submittal:                    'Duplicate',
+  cross_section_duplicate_submittal:      'Cross-section duplicate',
+  conditional_approval_authority:         'Conditional authority',
+  spec_section_no_submittals:             'No submittals in section',
 }
 
 function str(v: string | number | null | undefined): string {

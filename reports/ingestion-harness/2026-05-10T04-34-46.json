@@ -1,0 +1,39 @@
+{
+  "runAt": "2026-05-10T04:34:46.815Z",
+  "fixtureDir": "/Users/tui/thepe/test-fixtures/specs",
+  "version": "1.0.0",
+  "totalFiles": 1,
+  "totalFilesWithErrors": 1,
+  "totalSubmittals": 0,
+  "avgSdCodeCoverage": 0,
+  "avgApprovalAuthorityCoverage": 0,
+  "avgSourceExcerptCoverage": 0,
+  "avgQaFindingsPerSpec": 0,
+  "totalBlockingRiskCount": 0,
+  "totalDuplicateCount": 0,
+  "avgParseDurationMs": 4,
+  "totalParseDurationMs": 4,
+  "results": [
+    {
+      "fileName": "sample-division-03-concrete.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/sample-division-03-concrete.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 0,
+      "extractedSubmittalCount": 0,
+      "sdCodeCoverage": 0,
+      "approvalAuthorityCoverage": 0,
+      "sourceExcerptCoverage": 0,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 0,
+        "info": 0,
+        "byType": {}
+      },
+      "parseDurationMs": 4,
+      "topSuspiciousRows": [],
+      "error": "Failed to parse PDF: Invalid PDF structure."
+    }
+  ]
+}

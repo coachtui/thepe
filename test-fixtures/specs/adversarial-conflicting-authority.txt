@@ -1,0 +1,67 @@
+SECTION 31 23 00 - EXCAVATION AND FILL
+
+PART 1 - GENERAL
+
+1.1 DESCRIPTION
+This section covers excavation, grading, and engineered fill for the project.
+
+1.2 SUBMITTALS
+
+Note: Some submittal approval authorities differ between the contract documents
+and this specification section. Where conflicts exist, the more restrictive
+requirement governs unless directed otherwise by the Contracting Officer.
+
+A. Geotechnical Report: Submit existing geotechnical investigation report for review.
+   SD-11 Closeout Submittals. (note: SD-11 is not standard — likely SD-01)
+   For Information Only — No Government Approval Required.
+   (CONFLICT: Drawing G-001 General Notes says "Government Approval Required for all geotech")
+
+B. Dewatering Plan: Submit dewatering and drainage plan for excavation.
+   SD-01 Preconstruction Submittals. Government Approval Required.
+   (CONFLICT: Specification Division 01 says "AOR approval only for dewatering")
+
+C. Shoring and Sheeting Design: Submit PE-stamped shoring design.
+   SD-01 Preconstruction Submittals. AOR Approval Required.
+   (consistent with general notes)
+
+D. Compaction Equipment: Submit list of compaction equipment.
+   SD-01 Preconstruction Submittals. No Approval Required.
+
+E. Borrow Material: Submit material certifications and gradation tests for import fill.
+   SD-07 Certificates. Government Approval Required.
+
+F. Compaction Test Reports: Submit field density test reports weekly during fill operations.
+   SD-06 Test/Inspection Reports.
+   (authority not stated — omission)
+
+G. Subgrade Acceptance: Submit subgrade proof-roll documentation and photos.
+   SD-06 Test/Inspection Reports. Contracting Officer approval required before paving.
+
+H. Earthwork Summary: Submit summary of cut/fill quantities.
+   For Information Only.
+
+I. Dewatering Plan: Submit updated dewatering plan if groundwater encountered above anticipated.
+   SD-01. Government.
+   (DUPLICATE of B — same submittal appearing twice with slightly different language)
+
+J. Settlement Monitoring: Submit monitoring plan for structures adjacent to excavation.
+   SD-01 Preconstruction Submittals. AOR Approval Required.
+   However, if excavation exceeds 15 feet depth, Government Approval is required instead.
+   (CONDITIONAL authority — extractor must not blindly assign one value)
+
+
+SECTION 31 60 00 - SPECIAL FOUNDATIONS AND LOAD-BEARING ELEMENTS
+
+1.2 SUBMITTALS
+
+A. Pile Design: Submit drilled pier design calculations. SD-01. AOR Approval. Government concurrence required.
+   (dual approval — both AOR and Government)
+
+B. Pile Installation Plan: Submit installation procedure. SD-01. Government Approval Required.
+
+C. Pile Load Test: Submit pile load test program and results. SD-06. Government Approval.
+
+D. Concrete Mix Design (piles): Submit concrete mix design for drilled piers. SD-03. Government.
+   (Note: This overlaps with Section 03 30 00 submittal B — potential cross-section duplicate)
+
+E. Inspector Qualifications: Submit qualifications for special inspector. SD-01. AOR.

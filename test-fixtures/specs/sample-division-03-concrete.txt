@@ -1,0 +1,44 @@
+SECTION 03 30 00 - CAST-IN-PLACE CONCRETE
+
+PART 1 - GENERAL
+
+1.1 SUMMARY
+This section includes requirements for cast-in-place concrete including formwork, reinforcing steel, concrete materials, mix design, placing, finishing, and curing.
+
+1.2 SUBMITTALS
+A. Product Data: Submit manufacturer data for all concrete admixtures, curing compounds, form release agents, and bonding agents. SD-07 Certificates.
+B. Mix Designs: Submit concrete mix designs for each class of concrete at least 30 days before concrete placement. SD-03 Product Data. Government Approval Required.
+C. Reinforcing Steel: Submit mill certificates for all reinforcing steel. SD-07 Certificates. Government Approval Required.
+D. Formwork: Submit shop drawings for all formwork systems. SD-01 Preconstruction Submittals.
+E. Concrete Placement Plan: Submit concrete placement and sequencing plan. SD-01 Preconstruction Submittals. Government Approval Required.
+F. Pre-Installation Meeting: Conduct pre-installation conference. SD-01 Preconstruction Submittals.
+
+1.3 QUALITY ASSURANCE
+Concrete testing laboratory shall be independent and approved by Government.
+
+PART 2 - PRODUCTS
+
+2.1 MATERIALS
+Portland cement, coarse and fine aggregate, water, admixtures per ASTM standards.
+
+
+SECTION 03 20 00 - CONCRETE REINFORCING
+
+PART 1 - GENERAL
+
+1.1 SUBMITTALS
+A. Shop Drawings: Submit reinforcing steel placement drawings. SD-02 Shop Drawings. Government Approval Required.
+B. Mill Certificates: Submit certified mill test reports. SD-07 Certificates.
+C. Coupler Data: Submit data for mechanical splices where used. SD-03 Product Data. AOR Approval Required.
+
+
+SECTION 05 12 00 - STRUCTURAL STEEL FRAMING
+
+PART 1 - GENERAL
+
+1.1 SUBMITTALS
+A. Shop Drawings: Submit fabrication and erection drawings for all structural steel. SD-02 Shop Drawings. Government Approval Required.
+B. Material Certifications: Submit mill certificates for structural steel. SD-07 Certificates.
+C. Welding Procedures: Submit welding procedure specifications and welder qualifications. SD-07 Certificates. Government Approval Required.
+D. Connection Design: Submit design of connections where delegated to Contractor. SD-01 Preconstruction Submittals. AOR Approval Required.
+E. Fireproofing: Submit product data for spray-applied fireproofing. SD-03 Product Data.

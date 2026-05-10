@@ -1,0 +1,49 @@
+SECTION 07 90 05 - JOINT SEALANTS
+
+PART 1 - GENERAL
+
+1.2 SUBMITTALS
+
+Contractor shall submit the following in accordance with the submittal requirements:
+
+A. Product Data. Submit manufacturer's data sheets for all sealants and primers.
+   (no SD code listed — engineer forgot)
+
+B. Samples. Submit 12-inch samples of each sealant color. s.d.8 Manufacturer's Certificates.
+
+C. Compatibility and Adhesion Testing. Test reports from manufacturer. SD - 06 Test Reports.
+
+D. Sealant Schedule. Submit sealant types cross-referenced to joint types. SD02 Shop Drawings.
+   Architect approval required.
+
+E. Installer Qualifications. Submit documentation of installer experience. SD-1 Preconstruction.
+
+F. Mock-Up Panel. Photograph of completed mock-up joint. sd03. Owner Approval.
+
+G. Warranty. Manufacturer warranty for all sealant systems. SD09 Manufacturer's Certificates.
+   (note: SD-09 is not a standard code — consultant invented this)
+
+H. MSDS Sheets. Material safety data for all sealants and cleaners. sd 07 certs.
+
+
+SECTION 07 60 00 - FLASHING AND SHEET METAL
+
+1.2 SUBMITTALS
+
+A. Shop drawings for all custom flashing, gutters, and downspouts. SD - 02. AOR review.
+
+B. Product Data: Submit manufacturer product data for all sheet metal and coatings.
+   SD03 product data. No approval required.
+
+C. Seam and Joint Samples: Submit 18-inch samples of each seam type.
+   SD-8. Architect. (abbreviated authority — is this "Architect" or "Architectural Engineer of Record"?)
+
+D. Mock-up: Photograph of field mock-up. Submittal-type not specified.
+
+E. Color Samples: Submit color samples for all exposed sheet metal. SD-03.
+   (duplicate of B? different product family)
+
+F. Installer Qualifications. sd 01 preconstruction. Gov approval.
+
+G. Color Samples: Submit color chips and product data for review. SD-03 Product Data.
+   (appears again — likely OCR duplication from reformatted table)

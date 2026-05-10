@@ -1,0 +1,461 @@
+{
+  "runAt": "2026-05-10T04:47:20.246Z",
+  "fixtureDir": "/Users/tui/thepe/test-fixtures/specs",
+  "version": "1.0.0",
+  "totalFiles": 6,
+  "totalFilesWithErrors": 0,
+  "totalSubmittals": 104,
+  "avgSdCodeCoverage": 46.2,
+  "avgApprovalAuthorityCoverage": 19.3,
+  "avgSourceExcerptCoverage": 100,
+  "avgQaFindingsPerSpec": 2,
+  "totalBlockingRiskCount": 0,
+  "totalDuplicateCount": 0,
+  "avgParseDurationMs": 1,
+  "totalParseDurationMs": 7,
+  "results": [
+    {
+      "fileName": "adversarial-conflicting-authority.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-conflicting-authority.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 2,
+      "extractedSubmittalCount": 25,
+      "sdCodeCoverage": 40,
+      "approvalAuthorityCoverage": 24,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "parseDurationMs": 4,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "1.2 SUBMITTALS",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "Note: Some submittal approval authorities differ between the contract documents",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "A. Geotechnical Report: Submit existing geotechnical investigation report for review.",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "B. Dewatering Plan: Submit dewatering and drainage plan for excavation.",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "C. Shoring and Sheeting Design: Submit PE-stamped shoring design.",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        }
+      ]
+    },
+    {
+      "fileName": "adversarial-malformed-sd-refs.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-malformed-sd-refs.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 2,
+      "extractedSubmittalCount": 16,
+      "sdCodeCoverage": 31.3,
+      "approvalAuthorityCoverage": 0,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "parseDurationMs": 0,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "1.2 SUBMITTALS",
+          "specSection": "07 90 05",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "Contractor shall submit the following in accordance with the submittal requirements:",
+          "specSection": "07 90 05",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "A. Product Data. Submit manufacturer's data sheets for all sealants and primers.",
+          "specSection": "07 90 05",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "B. Samples. Submit 12-inch samples of each sealant color. s.d.8 Manufacturer's Certificates.",
+          "specSection": "07 90 05",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "C. Compatibility and Adhesion Testing. Test reports from manufacturer. SD - 06 Test Reports.",
+          "specSection": "07 90 05",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        }
+      ]
+    },
+    {
+      "fileName": "adversarial-narrative-consultant-format.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-narrative-consultant-format.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 0,
+      "extractedSubmittalCount": 18,
+      "sdCodeCoverage": 22.2,
+      "approvalAuthorityCoverage": 5.6,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "parseDurationMs": 0,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "follow standard CSI formatting. Submittal requirements are embedded in narrative prose.",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "herein. The contractor shall submit product data sheets and color samples to the Architect",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "paint products. Prior to beginning work, contractor shall submit a complete color schedule",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "WARRANTY SUBMITTALS: At project closeout, contractor shall submit manufacturer paint",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "All surfaces shall be clean, dry, and free of contaminants. Contractor shall submit a",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        }
+      ]
+    },
+    {
+      "fileName": "adversarial-ocr-garbage.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-ocr-garbage.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 1,
+      "extractedSubmittalCount": 8,
+      "sdCodeCoverage": 37.5,
+      "approvalAuthorityCoverage": 0,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "parseDurationMs": 1,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "l.2 SUBMITTALS",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "A. Product Data: Subm1t 1n accordance with Section Ol33 00 — Admin1strat1ve Requirernents.",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "Subm1t product data for concrete adm1xtures. s.d. 03 Product Data",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "SD-O3 product data. Governrnent approval requlred.",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "H. Chem1ca| Adm1xtures: Product data, br0chures, mix des1gns. S.D. 03.",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        }
+      ]
+    },
+    {
+      "fileName": "adversarial-table-split-pages.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-table-split-pages.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 2,
+      "extractedSubmittalCount": 19,
+      "sdCodeCoverage": 68.4,
+      "approvalAuthorityCoverage": 52.6,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "parseDurationMs": 0,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "1.3 SUBMITTALS",
+          "specSection": "26 05 19",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "are required. Submit all items in accordance with Section 01 33 00.",
+          "specSection": "26 05 19",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "| 4 | Test reports — insulation testing |",
+          "specSection": "26 05 19",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "Additional submittal requirements not included in the table above:",
+          "specSection": "26 05 19",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "1.3 SUBMITTALS",
+          "specSection": "26 05 26",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        }
+      ]
+    },
+    {
+      "fileName": "sample-division-03-concrete.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/sample-division-03-concrete.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 3,
+      "extractedSubmittalCount": 18,
+      "sdCodeCoverage": 77.8,
+      "approvalAuthorityCoverage": 33.3,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "parseDurationMs": 2,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "This section includes requirements for cast-in-place concrete including formwork, reinforcing steel, concrete materials, mix design, placing, finishing, and curing.",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "1.2 SUBMITTALS",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "1.1 SUBMITTALS",
+          "specSection": "03 20 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "1.1 SUBMITTALS",
+          "specSection": "05 12 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "A. Product Data: Submit manufacturer data for all concrete admixtures, curing compounds, form release agents, and bonding agents. SD-07 Certificates.",
+          "specSection": "03 30 00",
+          "sdCode": "SD-07",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        }
+      ]
+    }
+  ]
+}

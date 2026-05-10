@@ -5,6 +5,11 @@ import {
   getSubmittalItemKey,
 } from '../src/lib/chat/submittal-coverage-qa.ts'
 
+import {
+  shouldSuppressSubmittalCandidate,
+  extractSdCode,
+} from '../src/lib/chat/submittal-register.ts'
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -444,6 +449,116 @@ console.log('\n=== QA Submittal Harness ===\n')
   assert('all 3 items visible for context', finding?.affectedItemIds.length === 3)
   console.log()
 }
+
+// ---------------------------------------------------------------------------
+// Suppression filter tests
+// ---------------------------------------------------------------------------
+
+console.log('Test SUPP-1: Section heading suppressed')
+assert('"1.2 SUBMITTALS" suppressed', shouldSuppressSubmittalCandidate('1.2 SUBMITTALS').suppress)
+assert('"l.2 SUBMITTALS" (OCR) suppressed', shouldSuppressSubmittalCandidate('l.2 SUBMITTALS').suppress)
+assert('"1.3 SUBMITTAL PROCEDURES" suppressed', shouldSuppressSubmittalCandidate('1.3 SUBMITTAL PROCEDURES').suppress)
+assert('"SUBMITTALS" bare heading suppressed', shouldSuppressSubmittalCandidate('SUBMITTALS').suppress)
+console.log()
+
+console.log('Test SUPP-2: Preamble / intro text suppressed')
+assert('Note: prefix suppressed', shouldSuppressSubmittalCandidate('Note: Some authorities differ.').suppress)
+assert('"This section includes..." suppressed', shouldSuppressSubmittalCandidate('This section includes requirements for concrete.').suppress)
+assert('"The following submittals are required" suppressed', shouldSuppressSubmittalCandidate('The following submittals are required. Submit per Section 01 33 00.').suppress)
+assert('"Contractor shall submit the following" suppressed', shouldSuppressSubmittalCandidate('Contractor shall submit the following in accordance with Section 01 33 00:').suppress)
+assert('"are required." fragment suppressed', shouldSuppressSubmittalCandidate('are required. Submit all items per Section 01 33 00.').suppress)
+console.log()
+
+console.log('Test SUPP-3: Valid items NOT suppressed')
+assert('Product data item not suppressed', !shouldSuppressSubmittalCandidate('A. Product Data: Submit manufacturer data for concrete admixtures. SD-03.').suppress)
+assert('Shop drawing item not suppressed', !shouldSuppressSubmittalCandidate('B. Shop Drawings: Submit fabrication drawings. SD-02. Government Approval Required.').suppress)
+assert('Mix design not suppressed', !shouldSuppressSubmittalCandidate('C. Mix Designs: Submit concrete mix designs 30 days prior. SD-03. Government.').suppress)
+assert('Certificates not suppressed', !shouldSuppressSubmittalCandidate('D. Mill Certificates: Submit certified mill test reports. SD-07.').suppress)
+console.log()
+
+// ---------------------------------------------------------------------------
+// SD code normalization tests
+// ---------------------------------------------------------------------------
+
+console.log('Test SD-NORM: Malformed SD code normalization')
+assert('SD-03 canonical', extractSdCode('SD-03 Product Data') === 'SD-03')
+assert('SD-O3 (OCR letter O)', extractSdCode('SD-O3 Product Data') === 'SD-03')
+assert('s.d. 03 (dots)', extractSdCode('s.d. 03 Product Data') === 'SD-03')
+assert('SD07 (no separator)', extractSdCode('SD07 Certificates') === 'SD-07')
+assert('SD- 07 (space after dash)', extractSdCode('SD- 07 Certificates') === 'SD-07')
+assert('SD-8 (single digit)', extractSdCode('SD-8 Instructions') === 'SD-08')
+assert('SD - 06 (space-dash-space)', extractSdCode('SD - 06 Test Reports') === 'SD-06')
+assert('SD09 (no dash)', extractSdCode('SD09 Field Reports') === 'SD-09')
+assert('s.d.8 (dots + single digit)', extractSdCode('s.d.8 Instructions') === 'SD-08')
+assert('SD-12 out of range → null', extractSdCode('SD-12 Invalid') === null)
+assert('SD-0 out of range → null', extractSdCode('SD-0 Invalid') === null)
+console.log()
+
+// ---------------------------------------------------------------------------
+// Conditional approval authority QA finding
+// ---------------------------------------------------------------------------
+
+console.log('Test COND-1: Conditional authority flagged')
+{
+  const item = mockItem({
+    approvalAuthorityCondition: 'if excavation exceeds 15 feet depth',
+    approvalAuthority: 'GOV',
+    persistedItemId: 'cond-001',
+  })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const finding = result.findings.find(f => f.type === 'conditional_approval_authority')
+  assert('conditional authority finding exists', !!finding)
+  assert('severity is warning', finding?.severity === 'warning')
+  assert('affected item included', finding?.affectedItemIds.includes('cond-001'))
+}
+console.log()
+
+console.log('Test COND-2: No condition → no finding')
+{
+  const item = mockItem({ approvalAuthority: 'GOV', persistedItemId: 'cond-002' })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const finding = result.findings.find(f => f.type === 'conditional_approval_authority')
+  assert('no conditional finding when clean', !finding)
+}
+console.log()
+
+// ---------------------------------------------------------------------------
+// Cross-section duplicate QA finding
+// ---------------------------------------------------------------------------
+
+console.log('Test XSD-1: Cross-section duplicate flagged')
+{
+  const item1 = mockItem({ submittalItem: 'Concrete Mix Design', specSection: '03 30 00', persistedItemId: 'xsd-001' })
+  const item2 = mockItem({ submittalItem: 'Concrete Mix Design', specSection: '31 60 00', persistedItemId: 'xsd-002' })
+  const result = evaluateSubmittalCoverageQA({ items: [item1, item2] })
+  const finding = result.findings.find(f => f.type === 'cross_section_duplicate_submittal')
+  assert('cross-section duplicate finding exists', !!finding)
+  assert('severity is warning', finding?.severity === 'warning')
+  assert('both items in finding', finding?.affectedItemIds.length === 2)
+  assert('xsd-001 included', finding?.affectedItemIds.includes('xsd-001'))
+  assert('xsd-002 included', finding?.affectedItemIds.includes('xsd-002'))
+}
+console.log()
+
+console.log('Test XSD-2: Same section → not a cross-section duplicate')
+{
+  const item1 = mockItem({ submittalItem: 'Concrete Mix Design', specSection: '03 30 00', persistedItemId: 'xsd-003' })
+  const item2 = mockItem({ submittalItem: 'Concrete Mix Design', specSection: '03 30 00', persistedItemId: 'xsd-004' })
+  const result = evaluateSubmittalCoverageQA({ items: [item1, item2] })
+  const finding = result.findings.find(f => f.type === 'cross_section_duplicate_submittal')
+  assert('no cross-section finding for same-section items', !finding)
+}
+console.log()
+
+console.log('Test XSD-3: Different item names → no cross-section finding')
+{
+  const item1 = mockItem({ submittalItem: 'Concrete Mix Design', specSection: '03 30 00', persistedItemId: 'xsd-005' })
+  const item2 = mockItem({ submittalItem: 'Rebar Shop Drawings', specSection: '31 60 00', persistedItemId: 'xsd-006' })
+  const result = evaluateSubmittalCoverageQA({ items: [item1, item2] })
+  const finding = result.findings.find(f => f.type === 'cross_section_duplicate_submittal')
+  assert('no cross-section finding for different items', !finding)
+}
+console.log()
 
 // ---------------------------------------------------------------------------
 // Summary
