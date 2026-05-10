@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import type { SubmittalRegisterItem } from '@/lib/chat/submittal-register'
 import { getSubmittalItemKey } from '@/lib/chat/submittal-coverage-qa'
 import type { NormalizedExternalRow } from '@/lib/reconciliation/submittal-log-normalizer'
@@ -267,7 +267,53 @@ export function ReconciliationTab({ projectId, generatedItems }: ReconciliationT
   const [isDragging, setIsDragging] = useState(false)
   const [reviewFinding, setReviewFinding] = useState<ReconciliationFinding | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionStatus, setSessionStatus] = useState<'in_progress' | 'complete' | null>(null)
+  const [loadingSession, setLoadingSession] = useState(true)
+  const [completing, setCompleting] = useState(false)
+  const [completeResult, setCompleteResult] = useState<{ updatedCount: number; skippedCount: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Load the most recent persisted session on mount
+  useEffect(() => {
+    let cancelled = false
+    async function loadLatestSession() {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/reconciliation`)
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        if (!data.session || cancelled) return
+
+        const rows = data.session.external_rows as NormalizedExternalRow[]
+        let reconciled = reconcileRegisters(generatedItems, rows, {
+          sourceFileName: data.session.source_file_name,
+        })
+
+        // Replay saved decisions
+        for (const d of data.decisions ?? []) {
+          const finding = reconciled.lowConfidenceMatches.find(
+            f => f.externalRowId === d.external_row_id && f.generatedItemId === d.generated_item_id
+          )
+          if (finding) {
+            reconciled = applyMatchDecision(reconciled, finding.id, d.decision)
+          }
+        }
+
+        if (!cancelled) {
+          setExternalRows(rows)
+          setSessionId(data.session.id)
+          setSessionStatus(data.session.status)
+          setResult(reconciled)
+        }
+      } catch {
+        // Non-fatal — fall through to empty upload state
+      } finally {
+        if (!cancelled) setLoadingSession(false)
+      }
+    }
+    loadLatestSession()
+    return () => { cancelled = true }
+  }, [projectId, generatedItems])
 
   // Lookup maps for modal resolution
   const genItemByKey = useMemo(() => {
@@ -305,12 +351,29 @@ export function ReconciliationTab({ projectId, generatedItems }: ReconciliationT
       setExternalRows(rows)
       const reconciled = reconcileRegisters(generatedItems, rows, { sourceFileName: file.name })
       setResult(reconciled)
+      setCompleteResult(null)
+
+      // Persist session to server (non-fatal if it fails)
+      try {
+        const res = await fetch(`/api/projects/${projectId}/reconciliation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_file_name: file.name, external_rows: rows }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setSessionId(data.session.id)
+          setSessionStatus('in_progress')
+        }
+      } catch {
+        // Session won't persist but UI still works
+      }
     } catch (err) {
       setParseError(err instanceof Error ? err.message : 'Failed to parse the file.')
     } finally {
       setParsing(false)
     }
-  }, [generatedItems])
+  }, [projectId, generatedItems])
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -326,9 +389,46 @@ export function ReconciliationTab({ projectId, generatedItems }: ReconciliationT
   }, [processFile])
 
   const handleDecision = useCallback((findingId: string, decision: 'confirmed' | 'rejected') => {
-    setResult(prev => prev ? applyMatchDecision(prev, findingId, decision) : prev)
+    setResult(prev => {
+      if (!prev) return prev
+      // Fire-and-forget server persist before applying local state change
+      if (sessionId) {
+        const finding = prev.lowConfidenceMatches.find(f => f.id === findingId)
+        if (finding?.externalRowId && finding?.generatedItemId) {
+          fetch(`/api/projects/${projectId}/reconciliation/${sessionId}/decisions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              external_row_id: finding.externalRowId,
+              generated_item_id: finding.generatedItemId,
+              decision,
+            }),
+          }).catch(() => {})
+        }
+      }
+      return applyMatchDecision(prev, findingId, decision)
+    })
     setReviewFinding(null)
-  }, [])
+  }, [projectId, sessionId])
+
+  const handleComplete = useCallback(async () => {
+    if (!sessionId) return
+    setCompleting(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/reconciliation/${sessionId}/complete`, {
+        method: 'POST',
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSessionStatus('complete')
+        setCompleteResult({ updatedCount: data.updatedCount, skippedCount: data.skippedCount })
+      }
+    } catch {
+      // Non-fatal
+    } finally {
+      setCompleting(false)
+    }
+  }, [projectId, sessionId])
 
   const handleExport = useCallback(async () => {
     if (!result) return
@@ -383,6 +483,17 @@ export function ReconciliationTab({ projectId, generatedItems }: ReconciliationT
   // ---------------------------------------------------------------------------
   // Render: empty state
   // ---------------------------------------------------------------------------
+
+  if (loadingSession) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600 mb-3" />
+          <p className="text-sm text-gray-500">Loading session…</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!externalRows && !parsing) {
     return (
@@ -453,19 +564,51 @@ export function ReconciliationTab({ projectId, generatedItems }: ReconciliationT
   return (
     <div className="space-y-6">
       {/* Session notice + controls */}
-      <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 flex items-start justify-between gap-4">
+      <div className={`rounded-md px-4 py-3 flex items-start justify-between gap-4 ${
+        sessionStatus === 'complete'
+          ? 'bg-green-50 border border-green-200'
+          : sessionId
+            ? 'bg-indigo-50 border border-indigo-200'
+            : 'bg-amber-50 border border-amber-200'
+      }`}>
         <div>
-          <p className="text-sm font-medium text-amber-800">
+          <p className={`text-sm font-medium ${
+            sessionStatus === 'complete' ? 'text-green-800' : sessionId ? 'text-indigo-800' : 'text-amber-800'
+          }`}>
             {externalRows.length} rows imported from <span className="font-semibold">{result.sourceFileName}</span>
+            {sessionStatus === 'complete' && ' — review complete'}
           </p>
-          <p className="text-xs text-amber-600 mt-0.5">
-            Imported for this review session only. Data is not saved — re-upload to restore after a page refresh.
+          <p className={`text-xs mt-0.5 ${
+            sessionStatus === 'complete' ? 'text-green-600' : sessionId ? 'text-indigo-600' : 'text-amber-600'
+          }`}>
+            {sessionStatus === 'complete'
+              ? completeResult
+                ? `${completeResult.updatedCount} register item${completeResult.updatedCount !== 1 ? 's' : ''} updated${completeResult.skippedCount > 0 ? `, ${completeResult.skippedCount} skipped` : ''}`
+                : 'Review decisions applied to submittal register.'
+              : sessionId
+                ? 'Session saved — decisions persist across page refreshes.'
+                : 'Session not saved — re-upload to restore after a page refresh.'}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {sessionStatus === 'in_progress' && sessionId && (
+            <button
+              onClick={handleComplete}
+              disabled={completing}
+              className="px-3 py-1.5 text-xs border border-indigo-400 rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 cursor-pointer whitespace-nowrap"
+            >
+              {completing ? 'Applying…' : 'Complete review'}
+            </button>
+          )}
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="px-3 py-1.5 text-xs border border-amber-300 rounded-md text-amber-700 bg-white hover:bg-amber-50 cursor-pointer whitespace-nowrap"
+            className={`px-3 py-1.5 text-xs border rounded-md bg-white cursor-pointer whitespace-nowrap ${
+              sessionStatus === 'complete'
+                ? 'border-green-300 text-green-700 hover:bg-green-50'
+                : sessionId
+                  ? 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'
+                  : 'border-amber-300 text-amber-700 hover:bg-amber-50'
+            }`}
           >
             Replace file
           </button>
