@@ -5,15 +5,28 @@ import type { SubmittalRegisterItem } from '@/lib/chat/submittal-register'
 import { LifecycleSummary } from '../LifecycleSummary'
 import { LifecycleBadge } from '../LifecycleBadge'
 import { CoverageQACard } from '../CoverageQACard'
+import { PublishReadinessBanner } from '../PublishReadinessBanner'
 import { resolveEffectiveStatus, isOverdue } from '@/lib/chat/submittal-lifecycle'
 import type { QAFindingType } from '@/lib/chat/submittal-coverage-qa'
+import { evaluateSubmittalCoverageQA } from '@/lib/chat/submittal-coverage-qa'
+import { evaluateRegisterPublishReadiness } from '@/lib/chat/submittal-publish-readiness'
+import type { IngestionGrade } from '@/lib/eval/ingestion-types'
 
 interface OverviewTabProps {
   items: SubmittalRegisterItem[]
   onSelectFindingType?: (type: QAFindingType) => void
+  ingestionGrade?: IngestionGrade
+  ingestionGradeReasons?: string[]
 }
 
-export function OverviewTab({ items, onSelectFindingType }: OverviewTabProps) {
+export function OverviewTab({ items, onSelectFindingType, ingestionGrade, ingestionGradeReasons }: OverviewTabProps) {
+  const qaResult = useMemo(() => evaluateSubmittalCoverageQA({ items }), [items])
+
+  const readiness = useMemo(
+    () => evaluateRegisterPublishReadiness({ ingestionGrade, ingestionGradeReasons, qaResult }),
+    [ingestionGrade, ingestionGradeReasons, qaResult],
+  )
+
   const priorityItems = useMemo(() => {
     return items
       .filter(i => {
@@ -93,6 +106,8 @@ export function OverviewTab({ items, onSelectFindingType }: OverviewTabProps) {
 
   return (
     <div className="space-y-6">
+      <PublishReadinessBanner readiness={readiness} />
+
       <LifecycleSummary items={items} />
 
       <div className="rounded-md border border-gray-200 p-3">

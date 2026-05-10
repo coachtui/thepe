@@ -10,6 +10,8 @@ import {
   extractSdCode,
 } from '../src/lib/chat/submittal-register.ts'
 
+import { evaluateRegisterPublishReadiness } from '../src/lib/chat/submittal-publish-readiness.ts'
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -559,6 +561,144 @@ console.log('Test XSD-3: Different item names → no cross-section finding')
   assert('no cross-section finding for different items', !finding)
 }
 console.log()
+
+// ---------------------------------------------------------------------------
+// Publish Readiness Tests
+// ---------------------------------------------------------------------------
+
+console.log('\n=== Publish Readiness Tests ===\n')
+
+// PRG-1: good ingestion + no QA findings → ready
+{
+  console.log('PRG-1: good ingestion + no QA findings → ready')
+  const result = evaluateRegisterPublishReadiness({
+    ingestionGrade: 'good',
+    ingestionGradeReasons: [],
+    qaResult: { findings: [], checkedAt: new Date().toISOString(), totalItems: 10 },
+  })
+  assert('status is ready', result.status === 'ready')
+  assert('no reasons', result.reasons.length === 0)
+  assert('no required actions', result.requiredActions.length === 0)
+  console.log()
+}
+
+// PRG-2: needs_review ingestion → needs_review
+{
+  console.log('PRG-2: needs_review ingestion → needs_review')
+  const result = evaluateRegisterPublishReadiness({
+    ingestionGrade: 'needs_review',
+    ingestionGradeReasons: ['SD coverage 55.0% < 70%'],
+  })
+  assert('status is needs_review', result.status === 'needs_review')
+  assert('reason surfaces grade detail', result.reasons.includes('SD coverage 55.0% < 70%'))
+  assert('required action present', result.requiredActions.length > 0)
+  console.log()
+}
+
+// PRG-3: poor_extraction ingestion → blocked
+{
+  console.log('PRG-3: poor_extraction ingestion → blocked')
+  const result = evaluateRegisterPublishReadiness({
+    ingestionGrade: 'poor_extraction',
+    ingestionGradeReasons: ['SD coverage 30.0% < 50%', '3 critical QA findings'],
+  })
+  assert('status is blocked', result.status === 'blocked')
+  assert('reason includes SD coverage detail', result.reasons.includes('SD coverage 30.0% < 50%'))
+  assert('required action present', result.requiredActions.length > 0)
+  console.log()
+}
+
+// PRG-4: critical QA finding → blocked (regardless of ingestion grade)
+{
+  console.log('PRG-4: critical QA finding → blocked')
+  const result = evaluateRegisterPublishReadiness({
+    ingestionGrade: 'good',
+    qaResult: {
+      findings: [
+        {
+          id: 'blocking_risk_no_due_date',
+          severity: 'critical',
+          type: 'blocking_risk_no_due_date',
+          message: '2 high/medium-risk items with no due date',
+          affectedItemIds: ['a', 'b'],
+          suggestedAction: 'Assign due dates.',
+        },
+      ],
+      checkedAt: new Date().toISOString(),
+      totalItems: 5,
+    },
+  })
+  assert('status is blocked', result.status === 'blocked')
+  assert('reason is QA finding message', result.reasons.includes('2 high/medium-risk items with no due date'))
+  assert('required action is QA suggested action', result.requiredActions.includes('Assign due dates.'))
+  console.log()
+}
+
+// PRG-5: warning QA finding → needs_review
+{
+  console.log('PRG-5: warning QA finding → needs_review')
+  const result = evaluateRegisterPublishReadiness({
+    ingestionGrade: 'good',
+    qaResult: {
+      findings: [
+        {
+          id: 'missing_sd_code',
+          severity: 'warning',
+          type: 'missing_sd_code',
+          message: '3 items missing an SD code',
+          affectedItemIds: ['a', 'b', 'c'],
+          suggestedAction: 'Assign SD codes.',
+        },
+      ],
+      checkedAt: new Date().toISOString(),
+      totalItems: 5,
+    },
+  })
+  assert('status is needs_review', result.status === 'needs_review')
+  assert('reason is QA finding message', result.reasons.includes('3 items missing an SD code'))
+  console.log()
+}
+
+// PRG-6: critical + warning → blocked (critical takes precedence)
+{
+  console.log('PRG-6: critical + warning → blocked (critical wins)')
+  const result = evaluateRegisterPublishReadiness({
+    qaResult: {
+      findings: [
+        {
+          id: 'blocking_risk_no_due_date',
+          severity: 'critical',
+          type: 'blocking_risk_no_due_date',
+          message: '1 high-risk item with no due date',
+          affectedItemIds: ['a'],
+          suggestedAction: 'Assign due date.',
+        },
+        {
+          id: 'missing_sd_code',
+          severity: 'warning',
+          type: 'missing_sd_code',
+          message: '2 items missing an SD code',
+          affectedItemIds: ['b', 'c'],
+          suggestedAction: 'Assign SD codes.',
+        },
+      ],
+      checkedAt: new Date().toISOString(),
+      totalItems: 3,
+    },
+  })
+  assert('status is blocked', result.status === 'blocked')
+  assert('both messages in reasons', result.reasons.length === 2)
+  console.log()
+}
+
+// PRG-7: no grade + no QA → ready
+{
+  console.log('PRG-7: no grade, no QA result → ready')
+  const result = evaluateRegisterPublishReadiness({})
+  assert('status is ready', result.status === 'ready')
+  assert('empty reasons', result.reasons.length === 0)
+  console.log()
+}
 
 // ---------------------------------------------------------------------------
 // Summary

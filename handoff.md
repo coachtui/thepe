@@ -1,5 +1,21 @@
 # Handoff
 
+## Completed This Session
+- `evaluateRegisterPublishReadiness` — pure function in `src/lib/chat/submittal-publish-readiness.ts`. Accepts optional `ingestionGrade`, `ingestionGradeReasons`, `qaResult`. Returns `{status, reasons, requiredActions}`.
+- `PublishReadinessBanner` — `src/components/submittal/PublishReadinessBanner.tsx`. Shows green/amber/red status, reason list, Publish Register button. Blocked = disabled button. needs_review = confirmation modal before publishing. Local publish state (publishedAt) + Unpublish.
+- `OverviewTab` updated to compute `qaResult` and `readiness` via `useMemo`, render banner at top. Accepts new optional `ingestionGrade?` / `ingestionGradeReasons?` props.
+- 7 publish readiness harness tests added (PRG-1 through PRG-7). qa:harness: 114/114. typecheck: clean. build: clean.
+
+## In Progress
+Nothing.
+
+## What To Do Next
+- If ingestion grade is ever persisted per workflow run, wire it through `SubmittalsCommandCenter` → `OverviewTab` → banner (the prop interface is already in place).
+- Consider next reliability-first items from S234 strategic pivot: multi-document linkage architecture or real-project ingestion testing against production specs.
+
+## Open Questions / Blockers
+- None.
+
 Last updated: 2026-05-07 21:45 HST (submittal lifecycle engine)
 
 ---

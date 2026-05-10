@@ -1,28 +1,32 @@
 # Latest Build Report
 
-Last updated: 2026-05-07 21:05 HST (artifact review workflow)
+Last updated: 2026-05-09 20:08 HST (Publish Register gate)
 
 ---
 
 ## TypeScript / Build
 
 ```
+npx tsc --noEmit --skipLibCheck
 npm run build
 ```
 **Status: PASS** — 0 errors, clean output
 
-New route in build: `/api/projects/[id]/submittal-register/artifact-review`
-
 ## Harness
 
 ```
-npm run router:harness
+npm run qa:harness
 ```
-**Status: PASS — 12/12**
+**Status: PASS — 114/114** (was 96; +18 for 7 publish readiness test cases)
+
+```
+npm run ingestion:harness
+```
+**Status: PASS** — 6 fixtures, NEEDS REVIEW run grade (adversarial fixtures by design; no regression)
 
 ## Known Issues
 
-None. Artifact cleanup script ready to execute — `--execute` not yet run against production DB.
+None.
 
 ## Environment Notes
 
