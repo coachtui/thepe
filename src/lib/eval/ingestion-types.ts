@@ -47,12 +47,64 @@ export interface NormalizationMetrics {
   warnings: string[]
 }
 
+export interface SourceBreakdownEntry {
+  count: number
+  sdCoverage: number
+  avgConfidence: number
+}
+
+export interface SourceSelectionHarnessResult {
+  selectedSource: 'narrative' | 'dd_form' | 'hybrid'
+  reason: string
+  selectedItemCount: number
+  selectedSdCoverage: number
+  selectedAuthorityCoverage: number
+  ddFormItemCount: number
+  narrativeItemCount: number
+  warnings: string[]
+  sourceBreakdown: {
+    dd_form:     SourceBreakdownEntry
+    narrative:   SourceBreakdownEntry
+    hybrid_fill: SourceBreakdownEntry
+  }
+}
+
+export interface DDFormHarnessResult {
+  detected: boolean
+  pagesDetected: number
+  rowsExtracted: number
+  rowsWithSpecSection: number
+  uniquePairs: number
+  sdCoverage: number            // always 100% since we only create rows when SD code found
+  uniqueSpecSections: number
+  parseWarnings: number
+  recommendedSource: 'dd_form' | 'narrative'
+}
+
+export interface LineReconstructionMetrics {
+  pagesProcessed: number
+  rawTextItemCount: number
+  reconstructedLineCount: number
+  averageLineLength: number
+  maxLineLength: number
+  longLineCount: number
+  beforeMaxLineLength: number
+  beforeLongLineCount: number
+}
+
 export interface NearbySdMetrics {
   sdCodeOnlyLinesDetected: number
   forwardAssociations: number
   backwardAssociations: number
   ambiguousAssociations: number
-  skippedDueToInline: number  // nearby found but inline code already present — inline kept
+  skippedDueToInline: number     // nearby found but inline code already present — inline kept
+  skippedMultiCandidate: number  // window had multiple candidate items — association skipped
+  skippedBoundary: number        // scan terminated by page-break / heading before any candidate
+  // Block association (populated for reconstructed_pdf / ufgs mode)
+  blockHeadersDetected: number
+  blockAssociations: number
+  blockSkippedDueToInline: number
+  blockTerminatedByBoundary: number
 }
 
 export interface IngestionSuspiciousRow {
@@ -108,6 +160,15 @@ export interface IngestionHarnessResult {
 
   // Nearby SD code association metrics (populated for PDF files)
   nearbySd?: NearbySdMetrics
+
+  // Line reconstruction metrics (populated when visual line reconstruction was applied)
+  lineReconstruction?: LineReconstructionMetrics
+
+  // DD-form appendix parse result (populated when UFGS submittal register detected)
+  ddForm?: DDFormHarnessResult
+
+  // Source selection result (populated for PDF files)
+  sourceSelection?: SourceSelectionHarnessResult
 
   // Set when file failed to process
   error?: string

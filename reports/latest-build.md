@@ -1,35 +1,34 @@
 # Latest Build Report
 
-Last updated: 2026-05-09 21:00 HST (Document normalization layer)
+**Date:** 2026-05-10
 
----
+## TypeScript Compile
+`npx tsc --noEmit --skipLibCheck` → CLEAN
 
-## TypeScript / Build
+## QA Harness
+`npm run qa:harness` → 283/283 passed (includes QA-LC-1 through QA-LC-4)
 
-```
-npx tsc --noEmit --skipLibCheck
-npm run build
-```
-**Status: PASS** — 0 errors, clean output
+## Production Build
+`npm run build` → CLEAN
 
-## Harness
+## Ingestion Harness Summary
 
-```
-npm run qa:harness
-```
-**Status: PASS — 139/139** (was 114; +25 for 7 normalization test cases)
+Adversarial TXT fixtures: REVIEW (75.6% SD, 33.3% Auth) — unchanged.
 
-```
-npm run ingestion:harness
-```
-**Status: PASS** — 6 fixtures, NEEDS REVIEW run grade (adversarial fixtures by design; no regression)
+UFGS spec hybrid result:
+  DD-form 279 items (conf 0.92, 100% SD, 100% Auth)
+  Fill    1314 items (conf 0.33, 23% SD, 44% Auth)
+  Total:  1593 hybrid items, 36.3% SD, 22.9% Auth
+
+low_extraction_confidence QA finding: fires on all 1314 fill items (all below 0.80).
+Severity: info for 0.50–0.79 range, warning for <0.50 range.
+
+## New Capabilities (this session)
+- low_extraction_confidence QA finding type (source-aware)
+- Low Confidence filter toggle in register UI
+- Extraction Source / Confidence / Source Reason in XLSX export
 
 ## Known Issues
-
-None.
-
-## Environment Notes
-
-- Vercel Pro required for `maxDuration=300` on `/api/inngest/route.ts`
-- Inngest version: 3.54.2
-- Spec extraction: batched BATCH_SIZE=5
+- UFGS narrative grade POOR (18.9%) — source selection not yet replacing grade
+- Production integration pending
+- low_extraction_confidence finding only fires on items with extractionConfidence set

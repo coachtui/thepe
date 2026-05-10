@@ -1,5 +1,5 @@
 {
-  "runAt": "2026-05-10T18:12:10.786Z",
+  "runAt": "2026-05-10T14:21:10.053Z",
   "fixtureDir": "/Users/tui/thepe/test-fixtures/real-specs",
   "version": "1.0.0",
   "totalFiles": 1,
@@ -12,8 +12,8 @@
   "totalBlockingRiskCount": 5,
   "totalDuplicateCount": 0,
   "totalSuppressedCandidateCount": 203,
-  "avgParseDurationMs": 3779,
-  "totalParseDurationMs": 3779,
+  "avgParseDurationMs": 3794,
+  "totalParseDurationMs": 3794,
   "runGrade": "poor_extraction",
   "runGradeReasons": [
     "SD coverage 18.9% < 50%",
@@ -52,7 +52,7 @@
         "authority coverage 6.4% < 25%",
         "1 critical QA finding"
       ],
-      "parseDurationMs": 3779,
+      "parseDurationMs": 3794,
       "topSuspiciousRows": [
         {
           "submittalItem": "fabrication drawings for approval prior to fabrication. Prepare in",
@@ -158,35 +158,6 @@
         "uniqueSpecSections": 68,
         "parseWarnings": 1,
         "recommendedSource": "dd_form"
-      },
-      "sourceSelection": {
-        "selectedSource": "hybrid",
-        "reason": "DD-form covers 61% of narrative spec sections — hybrid: DD-form primary + narrative fill for 30 missing sections.",
-        "selectedItemCount": 1593,
-        "selectedSdCoverage": 36.3,
-        "selectedAuthorityCoverage": 22.9,
-        "ddFormItemCount": 279,
-        "narrativeItemCount": 3537,
-        "warnings": [
-          "DD-form covers 47/77 narrative spec sections. Hybrid: narrative fills 30 missing sections (01 11 00, 01 14 00, 01 20 00… +27)."
-        ],
-        "sourceBreakdown": {
-          "dd_form": {
-            "count": 279,
-            "sdCoverage": 100,
-            "avgConfidence": 0.92
-          },
-          "narrative": {
-            "count": 0,
-            "sdCoverage": 0,
-            "avgConfidence": 0
-          },
-          "hybrid_fill": {
-            "count": 1314,
-            "sdCoverage": 22.8,
-            "avgConfidence": 0.326
-          }
-        }
       }
     }
   ]

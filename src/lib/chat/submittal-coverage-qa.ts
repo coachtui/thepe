@@ -12,6 +12,7 @@ export type QAFindingType =
   | 'duplicate_submittal'
   | 'cross_section_duplicate_submittal'
   | 'spec_section_no_submittals'
+  | 'low_extraction_confidence'
 
 export interface QAFinding {
   id: string
@@ -223,6 +224,66 @@ export function evaluateSubmittalCoverageQA(input: QAInput): QAResult {
           'These sections may contain submittals not yet extracted. Review manually or re-run extraction.',
       })
     }
+  }
+
+  // 9. Low extraction confidence — triggered when extractionConfidence is set on items.
+  //    Items from the source selector carry this field; legacy items without it are skipped.
+  //    severity: warning for < 0.50, info for 0.50–0.79, no finding for ≥ 0.80.
+  const lowConfEntries = items
+    .map((item, i) => ({ item, key: keys[i] }))
+    .filter(({ item }) => {
+      const conf = item.extractionConfidence
+      return conf !== undefined && conf < 0.80
+    })
+
+  if (lowConfEntries.length > 0) {
+    const veryLow  = lowConfEntries.filter(({ item }) => (item.extractionConfidence ?? 1) < 0.50)
+    const moderate = lowConfEntries.filter(({ item }) => {
+      const c = item.extractionConfidence ?? 1
+      return c >= 0.50 && c < 0.80
+    })
+    const severity: QASeverity = veryLow.length > 0 ? 'warning' : 'info'
+
+    // Count by extractionSource for source-aware messaging
+    const sourceCounts: Record<string, number> = {}
+    for (const { item } of lowConfEntries) {
+      const src = item.extractionSource ?? 'narrative'
+      sourceCounts[src] = (sourceCounts[src] ?? 0) + 1
+    }
+
+    const total = lowConfEntries.length
+    const breakdown = veryLow.length > 0 && moderate.length > 0
+      ? ` (${veryLow.length} very low <50%, ${moderate.length} low 50–79%)`
+      : veryLow.length > 0
+        ? ` (${veryLow.length} very low <50%)`
+        : ` (${moderate.length} low 50–79%)`
+
+    const actionParts: string[] = []
+    if (sourceCounts['ufgs_dd_form']) {
+      actionParts.push(
+        `${sourceCounts['ufgs_dd_form']} item(s): Authoritative DD-form source — low confidence unexpected, check parser.`
+      )
+    }
+    if (sourceCounts['hybrid_fill']) {
+      actionParts.push(
+        `${sourceCounts['hybrid_fill']} item(s): Fallback narrative extraction — review recommended.`
+      )
+    }
+    if (sourceCounts['narrative']) {
+      actionParts.push(
+        `${sourceCounts['narrative']} item(s): Narrative extraction confidence below threshold — verify SD code and authority.`
+      )
+    }
+
+    findings.push({
+      id: 'low_extraction_confidence',
+      severity,
+      type: 'low_extraction_confidence',
+      message: `${total} item${total === 1 ? '' : 's'} with low extraction confidence${breakdown}`,
+      affectedItemIds: lowConfEntries.map(({ key }) => key),
+      suggestedAction: actionParts.join(' ') ||
+        'Review these items — extraction confidence is below acceptable threshold.',
+    })
   }
 
   return { findings, checkedAt, totalItems: items.length }

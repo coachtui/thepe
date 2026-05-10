@@ -1,0 +1,548 @@
+{
+  "runAt": "2026-05-10T18:12:06.699Z",
+  "fixtureDir": "/Users/tui/thepe/test-fixtures/specs",
+  "version": "1.0.0",
+  "totalFiles": 6,
+  "totalFilesWithErrors": 0,
+  "totalSubmittals": 89,
+  "avgSdCodeCoverage": 75.6,
+  "avgApprovalAuthorityCoverage": 33.3,
+  "avgSourceExcerptCoverage": 100,
+  "avgQaFindingsPerSpec": 2,
+  "totalBlockingRiskCount": 0,
+  "totalDuplicateCount": 0,
+  "totalSuppressedCandidateCount": 15,
+  "avgParseDurationMs": 2,
+  "totalParseDurationMs": 9,
+  "runGrade": "needs_review",
+  "runGradeReasons": [],
+  "results": [
+    {
+      "fileName": "adversarial-conflicting-authority.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-conflicting-authority.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 2,
+      "extractedSubmittalCount": 22,
+      "sdCodeCoverage": 68.2,
+      "approvalAuthorityCoverage": 36.4,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 3,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1,
+          "conditional_approval_authority": 1
+        }
+      },
+      "suppressedCandidateCount": 3,
+      "grade": "needs_review",
+      "gradeReasons": [],
+      "parseDurationMs": 7,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "A. Geotechnical Report: Submit existing geotechnical investigation report for review.",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "B. Dewatering Plan: Submit dewatering and drainage plan for excavation.",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "C. Shoring and Sheeting Design: Submit PE-stamped shoring design.",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "H. Earthwork Summary: Submit summary of cut/fill quantities.",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "(DUPLICATE of B — same submittal appearing twice with slightly different language)",
+          "specSection": "31 23 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        }
+      ],
+      "nearbySd": {
+        "sdCodeOnlyLinesDetected": 6,
+        "forwardAssociations": 4,
+        "backwardAssociations": 1,
+        "ambiguousAssociations": 0,
+        "skippedDueToInline": 0,
+        "skippedMultiCandidate": 2,
+        "skippedBoundary": 0,
+        "blockHeadersDetected": 0,
+        "blockAssociations": 0,
+        "blockSkippedDueToInline": 0,
+        "blockTerminatedByBoundary": 0
+      }
+    },
+    {
+      "fileName": "adversarial-malformed-sd-refs.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-malformed-sd-refs.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 2,
+      "extractedSubmittalCount": 13,
+      "sdCodeCoverage": 76.9,
+      "approvalAuthorityCoverage": 7.7,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "suppressedCandidateCount": 3,
+      "grade": "poor_extraction",
+      "gradeReasons": [
+        "authority coverage 7.7% < 25%"
+      ],
+      "parseDurationMs": 1,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "A. Product Data. Submit manufacturer's data sheets for all sealants and primers.",
+          "specSection": "07 90 05",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "B. Product Data: Submit manufacturer product data for all sheet metal and coatings.",
+          "specSection": "07 60 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "D. Mock-up: Photograph of field mock-up. Submittal-type not specified.",
+          "specSection": "07 60 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "B. Samples. Submit 12-inch samples of each sealant color. s.d.8 Manufacturer's Certificates.",
+          "specSection": "07 90 05",
+          "sdCode": "SD-08",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        },
+        {
+          "submittalItem": "C. Compatibility and Adhesion Testing. Test reports from manufacturer. SD - 06 Test Reports.",
+          "specSection": "07 90 05",
+          "sdCode": "SD-06",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        }
+      ],
+      "nearbySd": {
+        "sdCodeOnlyLinesDetected": 1,
+        "forwardAssociations": 1,
+        "backwardAssociations": 0,
+        "ambiguousAssociations": 0,
+        "skippedDueToInline": 0,
+        "skippedMultiCandidate": 0,
+        "skippedBoundary": 0,
+        "blockHeadersDetected": 0,
+        "blockAssociations": 0,
+        "blockSkippedDueToInline": 0,
+        "blockTerminatedByBoundary": 0
+      }
+    },
+    {
+      "fileName": "adversarial-narrative-consultant-format.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-narrative-consultant-format.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 0,
+      "extractedSubmittalCount": 17,
+      "sdCodeCoverage": 41.2,
+      "approvalAuthorityCoverage": 23.5,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "suppressedCandidateCount": 1,
+      "grade": "poor_extraction",
+      "gradeReasons": [
+        "SD coverage 41.2% < 50%",
+        "authority coverage 23.5% < 25%"
+      ],
+      "parseDurationMs": 0,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "follow standard CSI formatting. Submittal requirements are embedded in narrative prose.",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "WARRANTY SUBMITTALS: At project closeout, contractor shall submit manufacturer paint",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "All surfaces shall be clean, dry, and free of contaminants. Contractor shall submit a",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "Similar requirements apply for interior painting. The contractor must submit:",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "- Color selections: 3 physical samples of each proposed color per the color schedule.",
+          "specSection": null,
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        }
+      ],
+      "nearbySd": {
+        "sdCodeOnlyLinesDetected": 3,
+        "forwardAssociations": 1,
+        "backwardAssociations": 2,
+        "ambiguousAssociations": 0,
+        "skippedDueToInline": 0,
+        "skippedMultiCandidate": 0,
+        "skippedBoundary": 0,
+        "blockHeadersDetected": 0,
+        "blockAssociations": 0,
+        "blockSkippedDueToInline": 0,
+        "blockTerminatedByBoundary": 0
+      }
+    },
+    {
+      "fileName": "adversarial-ocr-garbage.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-ocr-garbage.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 1,
+      "extractedSubmittalCount": 7,
+      "sdCodeCoverage": 85.7,
+      "approvalAuthorityCoverage": 0,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "suppressedCandidateCount": 1,
+      "grade": "poor_extraction",
+      "gradeReasons": [
+        "authority coverage 0.0% < 25%"
+      ],
+      "parseDurationMs": 0,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "A. Product Data: Subm1t 1n accordance with Section Ol33 00 — Admin1strat1ve Requirernents.",
+          "specSection": "03 30 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "Subm1t product data for concrete adm1xtures. s.d. 03 Product Data",
+          "specSection": "03 30 00",
+          "sdCode": "SD-03",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        },
+        {
+          "submittalItem": "SD-O3 product data. Governrnent approval requlred.",
+          "specSection": "03 30 00",
+          "sdCode": "SD-03",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        },
+        {
+          "submittalItem": "C. Re1nforc1ng Steel: Certlfied m1ll test reports. SD07 certs. Gov Approval.",
+          "specSection": "03 30 00",
+          "sdCode": "SD-07",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        },
+        {
+          "submittalItem": "F. F1e|d Qua|ity Contr0|: Test reports for concrete cyl1nders. SD-06 test/lnspect1on rep0rts.",
+          "specSection": "03 30 00",
+          "sdCode": "SD-06",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        }
+      ],
+      "nearbySd": {
+        "sdCodeOnlyLinesDetected": 1,
+        "forwardAssociations": 0,
+        "backwardAssociations": 0,
+        "ambiguousAssociations": 0,
+        "skippedDueToInline": 0,
+        "skippedMultiCandidate": 0,
+        "skippedBoundary": 0,
+        "blockHeadersDetected": 0,
+        "blockAssociations": 0,
+        "blockSkippedDueToInline": 0,
+        "blockTerminatedByBoundary": 0
+      }
+    },
+    {
+      "fileName": "adversarial-table-split-pages.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/adversarial-table-split-pages.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 2,
+      "extractedSubmittalCount": 16,
+      "sdCodeCoverage": 81.3,
+      "approvalAuthorityCoverage": 75,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 2,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1
+        }
+      },
+      "suppressedCandidateCount": 3,
+      "grade": "good",
+      "gradeReasons": [],
+      "parseDurationMs": 0,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "| 4 | Test reports — insulation testing |",
+          "specSection": "26 05 19",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "Additional submittal requirements not included in the table above:",
+          "specSection": "26 05 19",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "complete grounding electrode schedule showing type, size, location, and resistance",
+          "specSection": "26 05 26",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority"
+        },
+        {
+          "submittalItem": "D. Special Inspection Reports: Submit all third-party inspection reports. SD-06 Test/Inspection Reports.",
+          "specSection": "26 05 26",
+          "sdCode": "SD-06",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        }
+      ],
+      "nearbySd": {
+        "sdCodeOnlyLinesDetected": 0,
+        "forwardAssociations": 0,
+        "backwardAssociations": 0,
+        "ambiguousAssociations": 0,
+        "skippedDueToInline": 0,
+        "skippedMultiCandidate": 0,
+        "skippedBoundary": 0,
+        "blockHeadersDetected": 0,
+        "blockAssociations": 0,
+        "blockSkippedDueToInline": 0,
+        "blockTerminatedByBoundary": 0
+      }
+    },
+    {
+      "fileName": "sample-division-03-concrete.txt",
+      "filePath": "/Users/tui/thepe/test-fixtures/specs/sample-division-03-concrete.txt",
+      "pagesProcessed": null,
+      "specSectionsDetected": 3,
+      "extractedSubmittalCount": 14,
+      "sdCodeCoverage": 100,
+      "approvalAuthorityCoverage": 57.1,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 0,
+      "qaFindings": {
+        "critical": 0,
+        "warning": 1,
+        "info": 0,
+        "byType": {
+          "missing_approval_authority": 1
+        }
+      },
+      "suppressedCandidateCount": 4,
+      "grade": "poor_extraction",
+      "gradeReasons": [
+        "suppressed rate 22.2% > 20%"
+      ],
+      "parseDurationMs": 1,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "A. Product Data: Submit manufacturer data for all concrete admixtures, curing compounds, form release agents, and bonding agents. SD-07 Certificates.",
+          "specSection": "03 30 00",
+          "sdCode": "SD-07",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        },
+        {
+          "submittalItem": "D. Formwork: Submit shop drawings for all formwork systems. SD-01 Preconstruction Submittals.",
+          "specSection": "03 30 00",
+          "sdCode": "SD-01",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        },
+        {
+          "submittalItem": "F. Pre-Installation Meeting: Conduct pre-installation conference. SD-01 Preconstruction Submittals.",
+          "specSection": "03 30 00",
+          "sdCode": "SD-01",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        },
+        {
+          "submittalItem": "B. Mill Certificates: Submit certified mill test reports. SD-07 Certificates.",
+          "specSection": "03 20 00",
+          "sdCode": "SD-07",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        },
+        {
+          "submittalItem": "B. Material Certifications: Submit mill certificates for structural steel. SD-07 Certificates.",
+          "specSection": "05 12 00",
+          "sdCode": "SD-07",
+          "qaFindingTypes": [
+            "missing_approval_authority"
+          ],
+          "reason": "missing_approval_authority"
+        }
+      ],
+      "nearbySd": {
+        "sdCodeOnlyLinesDetected": 0,
+        "forwardAssociations": 0,
+        "backwardAssociations": 0,
+        "ambiguousAssociations": 0,
+        "skippedDueToInline": 0,
+        "skippedMultiCandidate": 0,
+        "skippedBoundary": 0,
+        "blockHeadersDetected": 0,
+        "blockAssociations": 0,
+        "blockSkippedDueToInline": 0,
+        "blockTerminatedByBoundary": 0
+      }
+    }
+  ]
+}

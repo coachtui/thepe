@@ -69,6 +69,7 @@ const QA_FINDING_LABELS: Record<QAFindingType, string> = {
   cross_section_duplicate_submittal: 'Cross-section duplicate',
   conditional_approval_authority: 'Conditional authority',
   spec_section_no_submittals: 'No submittals in section',
+  low_extraction_confidence: 'Low confidence',
 }
 
 interface DraftState {
@@ -103,6 +104,7 @@ export function SubmittalRegisterReview({
   const [blocksWorkFilter, setBlocksWorkFilter] = useState(false)
   const [missingFOWFilter, setMissingFOWFilter] = useState(false)
   const [needByFilter, setNeedByFilter] = useState(false)
+  const [lowConfidenceFilter, setLowConfidenceFilter] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   useEffect(() => {
@@ -117,6 +119,7 @@ export function SubmittalRegisterReview({
     setBlocksWorkFilter(false)
     setMissingFOWFilter(false)
     setNeedByFilter(false)
+    setLowConfidenceFilter(false)
     setQaFindingFilter('')
   }, [data])
 
@@ -184,6 +187,12 @@ export function SubmittalRegisterReview({
         const d = new Date(item.activityNeedByDate)
         if (d < today || d > in14d) return false
       }
+      if (lowConfidenceFilter) {
+        const conf = item.extractionConfidence !== undefined
+          ? item.extractionConfidence
+          : item.sourceQuality === 'low' ? 0.4 : 1
+        if (conf >= 0.80) return false
+      }
       if (qaFindingFilter && !affectedItemsSet.has(itemKeys.get(item) ?? '')) return false
       return true
     }
@@ -193,9 +202,9 @@ export function SubmittalRegisterReview({
       .filter(s => s.items.length > 0)
     const ungrouped = data.ungrouped.filter(matchItem)
     return { items, groupedSections, ungrouped }
-  }, [data, searchFilter, reviewStatusFilter, specSectionFilter, sdCodeFilter, approvalAuthorityFilter, blockingRiskFilter, blocksWorkFilter, missingFOWFilter, needByFilter, qaFindingFilter, affectedItemsSet, itemKeys])
+  }, [data, searchFilter, reviewStatusFilter, specSectionFilter, sdCodeFilter, approvalAuthorityFilter, blockingRiskFilter, blocksWorkFilter, missingFOWFilter, needByFilter, lowConfidenceFilter, qaFindingFilter, affectedItemsSet, itemKeys])
 
-  const filtersActive = !!(searchFilter || reviewStatusFilter || specSectionFilter || sdCodeFilter || approvalAuthorityFilter || blockingRiskFilter || blocksWorkFilter || missingFOWFilter || needByFilter || qaFindingFilter)
+  const filtersActive = !!(searchFilter || reviewStatusFilter || specSectionFilter || sdCodeFilter || approvalAuthorityFilter || blockingRiskFilter || blocksWorkFilter || missingFOWFilter || needByFilter || lowConfidenceFilter || qaFindingFilter)
 
   const handleSetDraftStatus = (itemId: string, _currentStatus: ReviewStatus, currentNotes: string, status: ReviewStatus) => {
     setDrafts(prev => ({
@@ -418,6 +427,15 @@ export function SubmittalRegisterReview({
                   />
                   <span className="text-xs font-medium text-gray-600">Need-by ≤ 14d</span>
                 </label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none pb-1">
+                  <input
+                    type="checkbox"
+                    checked={lowConfidenceFilter}
+                    onChange={e => setLowConfidenceFilter(e.target.checked)}
+                    className="cursor-pointer"
+                  />
+                  <span className="text-xs font-medium text-gray-600">Low Confidence</span>
+                </label>
               </div>
             )}
           </div>
@@ -498,7 +516,10 @@ function RunSummary({ run }: { run: LatestSubmittalRegisterRun }) {
   const reviewedItems = run.items.filter(i => i.reviewStatus && i.reviewStatus !== 'pending').length
   const pendingItems = totalItems - reviewedItems
   const approvalRequiredItems = run.items.filter(i => i.approvalRequired === true).length
-  const lowConfidenceItems = run.items.filter(i => i.sourceQuality === 'low').length
+  const lowConfidenceItems = run.items.filter(i => {
+    if (i.extractionConfidence !== undefined) return i.extractionConfidence < 0.80
+    return i.sourceQuality === 'low'
+  }).length
   const reviewedPct = totalItems > 0 ? Math.round((reviewedItems / totalItems) * 100) : 0
 
   let statusMessage: string

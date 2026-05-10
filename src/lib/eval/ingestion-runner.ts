@@ -1,4 +1,6 @@
-import { parseDocumentWithPdfJs } from '../parsers/pdfjs-parser.ts'
+import { parseDocumentWithLineReconstruction } from '../parsers/pdf-line-reconstruction.ts'
+import { parseUfgsDDFormAppendix } from '../parsers/ufgs-submittal-register-parser.ts'
+import { chooseSubmittalExtractionSource, computeSourceBreakdown } from '../ingestion/submittal-source-selector.ts'
 import {
   extractSubmittalRegisterItemsFromText,
   isLikelySubmittalRequirement,
@@ -12,7 +14,7 @@ import { associateNearbySdCodes } from '../ingestion/nearby-sd-association.ts'
 import { readFile } from 'fs/promises'
 import path from 'path'
 import { computeIngestionGrade } from './ingestion-types.ts'
-import type { IngestionHarnessResult, IngestionSuspiciousRow, IngestionQABreakdown, NormalizationMetrics, NearbySdMetrics } from './ingestion-types.ts'
+import type { IngestionHarnessResult, IngestionSuspiciousRow, IngestionQABreakdown, NormalizationMetrics, NearbySdMetrics, LineReconstructionMetrics, DDFormHarnessResult, SourceSelectionHarnessResult } from './ingestion-types.ts'
 
 // ---------------------------------------------------------------------------
 // Per-file evaluation — no DB writes, no Supabase dependency
@@ -28,49 +30,84 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
 
     let normalization: NormalizationMetrics | undefined
     let nearbySd: NearbySdMetrics | undefined
+    let lineReconstruction: LineReconstructionMetrics | undefined
+    let ddForm: DDFormHarnessResult | undefined
+    let sourceSelection: SourceSelectionHarnessResult | undefined
+    let ddFormRowsForSelection: import('../parsers/ufgs-submittal-register-parser.ts').DDFormRow[] = []
 
     if (path.extname(filePath).toLowerCase() === '.txt') {
       text = await readFile(filePath, 'utf-8')
       pagesProcessed = null
     } else {
-      // pdfjs-parser emits per-page logs; suppress them during parse
-      const savedLog = console.log
-      console.log = () => {}
-      let parsed
-      try {
-        parsed = await parseDocumentWithPdfJs(filePath, fileName)
-      } finally {
-        console.log = savedLog
-      }
+      // Visual line reconstruction: groups PDF.js text items by Y coordinate
+      // so downstream line-level logic sees individual lines, not page blobs.
+      const parsed = await parseDocumentWithLineReconstruction(filePath, fileName)
       pagesProcessed = parsed.pageCount
+      lineReconstruction = parsed.lineMetrics
 
       // Normalize BEFORE extraction — strip repeated headers/footers/prefixes
       const norm = normalizeDocumentText(parsed.text)
       text = norm.cleanedText
       normalization = {
-        removedLineCount:      norm.removedLineCount,
+        removedLineCount:        norm.removedLineCount,
         prefixStrippedLineCount: norm.prefixStrippedLineCount,
-        patternsDetected:      norm.removedPatterns.length,
-        warnings:              norm.normalizationWarnings,
+        patternsDetected:        norm.removedPatterns.length,
+        warnings:                norm.normalizationWarnings,
       }
     }
 
-    // Nearby SD code association metrics (for harness reporting)
+    // DD-form appendix parser (UFGS only, PDF files only).
+    // Runs on normalized text so headers/footers are stripped first.
+    if (lineReconstruction !== undefined) {
+      const ddResult = parseUfgsDDFormAppendix(text)
+      if (ddResult.isPresent) {
+        ddFormRowsForSelection = ddResult.rows
+        const uniqueSpecs = new Set(ddResult.rows.map(r => r.specSection).filter(Boolean)).size
+        ddForm = {
+          detected:            true,
+          pagesDetected:       ddResult.pagesDetected,
+          rowsExtracted:       ddResult.rows.length,
+          rowsWithSpecSection: ddResult.rows.filter(r => r.specSection).length,
+          uniquePairs:         ddResult.uniquePairs,
+          sdCoverage:          100,
+          uniqueSpecSections:  uniqueSpecs,
+          parseWarnings:       ddResult.parseWarnings.length,
+          recommendedSource:   ddResult.rows.length > 0 ? 'dd_form' : 'narrative',
+        }
+      } else {
+        ddForm = {
+          detected: false, pagesDetected: 0, rowsExtracted: 0,
+          rowsWithSpecSection: 0, uniquePairs: 0, sdCoverage: 0,
+          uniqueSpecSections: 0, parseWarnings: 0, recommendedSource: 'narrative',
+        }
+      }
+    }
+
+    // Nearby SD code association metrics (for harness reporting).
+    // Use wider distance when text came from visual line reconstruction.
     {
       const allLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
-      const { associations, metrics } = associateNearbySdCodes(allLines)
-      // Count lines where nearby association exists but inline extraction would win
+      const nearbyOpts = lineReconstruction !== undefined
+        ? { mode: 'reconstructed_pdf' as const }
+        : undefined
+      const { associations, metrics } = associateNearbySdCodes(allLines, nearbyOpts)
       let skippedDueToInline = 0
       for (const [idx, _code] of associations) {
         const line = allLines[idx]
         if (line && extractSdCode(line) !== null) skippedDueToInline++
       }
       nearbySd = {
-        sdCodeOnlyLinesDetected: metrics.sdCodeOnlyLinesDetected,
-        forwardAssociations:     metrics.forwardAssociations,
-        backwardAssociations:    metrics.backwardAssociations,
-        ambiguousAssociations:   metrics.ambiguousAssociations,
+        sdCodeOnlyLinesDetected:   metrics.sdCodeOnlyLinesDetected,
+        forwardAssociations:       metrics.forwardAssociations,
+        backwardAssociations:      metrics.backwardAssociations,
+        ambiguousAssociations:     metrics.ambiguousAssociations,
         skippedDueToInline,
+        skippedMultiCandidate:     metrics.skippedMultiCandidate,
+        skippedBoundary:           metrics.skippedBoundary,
+        blockHeadersDetected:      metrics.blockHeadersDetected,
+        blockAssociations:         metrics.blockAssociations,
+        blockSkippedDueToInline:   metrics.blockSkippedDueToInline,
+        blockTerminatedByBoundary: metrics.blockTerminatedByBoundary,
       }
     }
 
@@ -85,7 +122,12 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
     const specSections = extractSpecSections(text)
     const specSectionsDetected = specSections.length
 
-    // Extract submittal items — per-section with context if sections found, otherwise full text
+    // Extract submittal items — per-section with context if sections found, otherwise full text.
+    // Use wider nearby-SD window when text came from visual line reconstruction.
+    const extractNearbyOpts = lineReconstruction !== undefined
+      ? { mode: 'reconstructed_pdf' as const }
+      : undefined
+
     let items: ReturnType<typeof extractSubmittalRegisterItemsFromText>
 
     if (specSections.length > 0) {
@@ -97,10 +139,11 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
         const nextStart = specSections[i + 1]?.startIndex ?? text.length
         const sectionText = text.slice(section.startIndex, nextStart)
 
-        const sectionItems = extractSubmittalRegisterItemsFromText(sectionText, {
-          specSection: section.sectionNumber,
-          sectionTitle: section.sectionTitle,
-        })
+        const sectionItems = extractSubmittalRegisterItemsFromText(
+          sectionText,
+          { specSection: section.sectionNumber, sectionTitle: section.sectionTitle },
+          extractNearbyOpts
+        )
 
         for (const item of sectionItems) {
           const key = item.dedupeKey ?? `${item.submittalItem}|${item.specSection ?? ''}`
@@ -112,7 +155,7 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
       }
       items = allItems
     } else {
-      items = extractSubmittalRegisterItemsFromText(text)
+      items = extractSubmittalRegisterItemsFromText(text, {}, extractNearbyOpts)
     }
 
     const extractedSubmittalCount = items.length
@@ -137,6 +180,28 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
 
     const approvalAuthorityCoverage =
       total === 0 ? 0 : (items.filter(i => i.approvalAuthority).length / total) * 100
+
+    // Source selection: choose between narrative and DD-form for PDF files
+    if (lineReconstruction !== undefined) {
+      const selResult = chooseSubmittalExtractionSource({
+        narrativeItems:       items,
+        ddFormRows:           ddFormRowsForSelection,
+        narrativeSdCoverage:  round1(sdCodeCoverage),
+      })
+      const sel = selResult.selectedItems
+      const selTotal = sel.length
+      sourceSelection = {
+        selectedSource:            selResult.selectedSource,
+        reason:                    selResult.reason,
+        selectedItemCount:         selTotal,
+        selectedSdCoverage:        selTotal === 0 ? 0 : round1(sel.filter(i => i.sdCode).length / selTotal * 100),
+        selectedAuthorityCoverage: selTotal === 0 ? 0 : round1(sel.filter(i => i.approvalAuthority).length / selTotal * 100),
+        ddFormItemCount:           ddFormRowsForSelection.length,
+        narrativeItemCount:        items.length,
+        warnings:                  selResult.warnings,
+        sourceBreakdown:           selResult.sourceBreakdown,
+      }
+    }
 
     const sourceExcerptCoverage =
       total === 0 ? 0 : (items.filter(i => i.sourceExcerpt || i.excerpt).length / total) * 100
@@ -199,8 +264,11 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
       }),
       parseDurationMs: Date.now() - t0,
       topSuspiciousRows,
-      ...(normalization !== undefined ? { normalization } : {}),
-      ...(nearbySd !== undefined ? { nearbySd } : {}),
+      ...(normalization      !== undefined ? { normalization }      : {}),
+      ...(nearbySd           !== undefined ? { nearbySd }           : {}),
+      ...(lineReconstruction !== undefined ? { lineReconstruction } : {}),
+      ...(ddForm             !== undefined ? { ddForm }             : {}),
+      ...(sourceSelection    !== undefined ? { sourceSelection }    : {}),
     }
   } catch (err) {
     return {

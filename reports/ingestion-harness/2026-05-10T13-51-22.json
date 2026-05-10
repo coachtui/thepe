@@ -1,22 +1,22 @@
 {
-  "runAt": "2026-05-10T18:12:10.786Z",
+  "runAt": "2026-05-10T13:51:22.970Z",
   "fixtureDir": "/Users/tui/thepe/test-fixtures/real-specs",
   "version": "1.0.0",
   "totalFiles": 1,
   "totalFilesWithErrors": 0,
-  "totalSubmittals": 3537,
-  "avgSdCodeCoverage": 18.9,
+  "totalSubmittals": 3529,
+  "avgSdCodeCoverage": 15.2,
   "avgApprovalAuthorityCoverage": 6.4,
   "avgSourceExcerptCoverage": 100,
   "avgQaFindingsPerSpec": 133,
   "totalBlockingRiskCount": 5,
   "totalDuplicateCount": 0,
   "totalSuppressedCandidateCount": 203,
-  "avgParseDurationMs": 3779,
-  "totalParseDurationMs": 3779,
+  "avgParseDurationMs": 3767,
+  "totalParseDurationMs": 3767,
   "runGrade": "poor_extraction",
   "runGradeReasons": [
-    "SD coverage 18.9% < 50%",
+    "SD coverage 15.2% < 50%",
     "authority coverage 6.4% < 25%",
     "1 critical QA finding"
   ],
@@ -26,8 +26,8 @@
       "filePath": "/Users/tui/thepe/test-fixtures/real-specs/ammunition-storage-wl-specs.pdf",
       "pagesProcessed": 1758,
       "specSectionsDetected": 83,
-      "extractedSubmittalCount": 3537,
-      "sdCodeCoverage": 18.9,
+      "extractedSubmittalCount": 3529,
+      "sdCodeCoverage": 15.2,
       "approvalAuthorityCoverage": 6.4,
       "sourceExcerptCoverage": 100,
       "duplicateCount": 0,
@@ -48,11 +48,11 @@
       "suppressedCandidateCount": 203,
       "grade": "poor_extraction",
       "gradeReasons": [
-        "SD coverage 18.9% < 50%",
+        "SD coverage 15.2% < 50%",
         "authority coverage 6.4% < 25%",
         "1 critical QA finding"
       ],
-      "parseDurationMs": 3779,
+      "parseDurationMs": 3767,
       "topSuspiciousRows": [
         {
           "submittalItem": "fabrication drawings for approval prior to fabrication. Prepare in",
@@ -132,11 +132,7 @@
         "ambiguousAssociations": 0,
         "skippedDueToInline": 0,
         "skippedMultiCandidate": 138,
-        "skippedBoundary": 155,
-        "blockHeadersDetected": 44,
-        "blockAssociations": 131,
-        "blockSkippedDueToInline": 2,
-        "blockTerminatedByBoundary": 183
+        "skippedBoundary": 155
       },
       "lineReconstruction": {
         "pagesProcessed": 1758,
@@ -147,46 +143,6 @@
         "longLineCount": 52,
         "beforeMaxLineLength": 7575,
         "beforeLongLineCount": 1669
-      },
-      "ddForm": {
-        "detected": true,
-        "pagesDetected": 75,
-        "rowsExtracted": 279,
-        "rowsWithSpecSection": 274,
-        "uniquePairs": 279,
-        "sdCoverage": 100,
-        "uniqueSpecSections": 68,
-        "parseWarnings": 1,
-        "recommendedSource": "dd_form"
-      },
-      "sourceSelection": {
-        "selectedSource": "hybrid",
-        "reason": "DD-form covers 61% of narrative spec sections — hybrid: DD-form primary + narrative fill for 30 missing sections.",
-        "selectedItemCount": 1593,
-        "selectedSdCoverage": 36.3,
-        "selectedAuthorityCoverage": 22.9,
-        "ddFormItemCount": 279,
-        "narrativeItemCount": 3537,
-        "warnings": [
-          "DD-form covers 47/77 narrative spec sections. Hybrid: narrative fills 30 missing sections (01 11 00, 01 14 00, 01 20 00… +27)."
-        ],
-        "sourceBreakdown": {
-          "dd_form": {
-            "count": 279,
-            "sdCoverage": 100,
-            "avgConfidence": 0.92
-          },
-          "narrative": {
-            "count": 0,
-            "sdCoverage": 0,
-            "avgConfidence": 0
-          },
-          "hybrid_fill": {
-            "count": 1314,
-            "sdCoverage": 22.8,
-            "avgConfidence": 0.326
-          }
-        }
       }
     }
   ]

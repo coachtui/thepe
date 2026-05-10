@@ -187,15 +187,70 @@ function printTable(report) {
         for (const w of r.normalization.warnings) console.log(`    · ${w}`)
       }
     }
+    if (r.lineReconstruction) {
+      const lr = r.lineReconstruction
+      const beforeMax = lr.beforeMaxLineLength
+      const afterMax  = lr.maxLineLength
+      const delta     = beforeMax - afterMax
+      console.log(
+        `  ↔ lines: ${lr.reconstructedLineCount} reconstructed from ${lr.rawTextItemCount} items` +
+        ` · max ${beforeMax}→${afterMax} chars (−${delta})` +
+        ` · long>300: ${lr.beforeLongLineCount}→${lr.longLineCount}`
+      )
+    }
     if (r.nearbySd) {
-      const { sdCodeOnlyLinesDetected: det, forwardAssociations: fwd, backwardAssociations: bwd, ambiguousAssociations: amb, skippedDueToInline: skip } = r.nearbySd
-      const total = fwd + bwd
+      const { sdCodeOnlyLinesDetected: det, forwardAssociations: fwd, backwardAssociations: bwd,
+              ambiguousAssociations: amb, skippedDueToInline: skip,
+              skippedMultiCandidate: smc, skippedBoundary: sb,
+              blockHeadersDetected: bh, blockAssociations: ba,
+              blockSkippedDueToInline: bsi, blockTerminatedByBoundary: btb } = r.nearbySd
+      const total = fwd + bwd + (ba ?? 0)
       if (det > 0 || total > 0) {
-        console.log(`  ⟳ nearby-SD: ${det} SD-only lines · ${fwd}↓ fwd · ${bwd}↑ bwd · ${amb} ambiguous · ${skip} skipped(inline)`)
+        const skips = [
+          amb  > 0 ? `${amb} ambiguous`    : '',
+          skip > 0 ? `${skip} inline-wins` : '',
+          smc  > 0 ? `${smc} multi-cand`   : '',
+          sb   > 0 ? `${sb} boundary`      : '',
+        ].filter(Boolean).join(' · ')
+        console.log(`  ⟳ nearby-SD: ${det} SD-only · ${fwd}↓fwd · ${bwd}↑bwd${skips ? ' · ' + skips : ''}`)
+        if ((ba ?? 0) > 0) {
+          const bSkips = [
+            bsi > 0 ? `${bsi} inline-wins`  : '',
+            btb > 0 ? `${btb} boundary-end` : '',
+          ].filter(Boolean).join(' · ')
+          console.log(`  ⟫ block-SD: ${bh} headers · ${ba} items${bSkips ? ' · ' + bSkips : ''}`)
+        }
       }
     }
     for (const row of r.topSuspiciousRows.slice(0, 2)) {
       console.log(`  ⚑ ${row.submittalItem.slice(0, 65)} [${row.reason}]`)
+    }
+    if (r.ddForm) {
+      const d = r.ddForm
+      if (d.detected) {
+        console.log(
+          `  ▤ DD-form: ${d.pagesDetected} pages · ${d.rowsExtracted} rows · ` +
+          `${d.uniquePairs} unique (sect+SD) · ${d.uniqueSpecSections} spec sects` +
+          `${d.parseWarnings > 0 ? ` · ${d.parseWarnings} warnings` : ''}`
+        )
+      }
+    }
+    if (r.sourceSelection) {
+      const s = r.sourceSelection
+      const src = s.selectedSource === 'dd_form'  ? '★ DD-form'
+                : s.selectedSource === 'hybrid'   ? '◈ hybrid'
+                : '  narrative'
+      console.log(
+        `  ${src} selected: ${s.selectedItemCount} items · ` +
+        `${s.selectedSdCoverage.toFixed(1)}% SD · ${s.selectedAuthorityCoverage.toFixed(1)}% Auth`
+      )
+      const bd = s.sourceBreakdown
+      const bdParts = []
+      if (bd.dd_form.count     > 0) bdParts.push(`DD-form ${bd.dd_form.count} (conf ${bd.dd_form.avgConfidence.toFixed(2)}, ${bd.dd_form.sdCoverage.toFixed(0)}% SD)`)
+      if (bd.narrative.count   > 0) bdParts.push(`narrative ${bd.narrative.count} (conf ${bd.narrative.avgConfidence.toFixed(2)}, ${bd.narrative.sdCoverage.toFixed(0)}% SD)`)
+      if (bd.hybrid_fill.count > 0) bdParts.push(`fill ${bd.hybrid_fill.count} (conf ${bd.hybrid_fill.avgConfidence.toFixed(2)}, ${bd.hybrid_fill.sdCoverage.toFixed(0)}% SD)`)
+      if (bdParts.length > 0) console.log(`    breakdown: ${bdParts.join(' · ')}`)
+      for (const w of s.warnings) console.log(`    · ${w}`)
     }
   }
 
@@ -247,25 +302,47 @@ function buildCsv(report) {
     'SD Code %', 'Authority %', 'Source Excerpt %',
     'Duplicates', 'Blocking Risks',
     'QA Critical', 'QA Warning', 'QA Info',
+    // Source selection
+    'Selected Source', 'Selected Items', 'Selected SD %', 'Selected Auth %',
+    'DD-form Items', 'DD-form SD %', 'DD-form Avg Conf',
+    'Narrative Items', 'Narrative SD %', 'Narrative Avg Conf',
+    'Fill Items', 'Fill SD %', 'Fill Avg Conf',
     'Duration (ms)', 'Error',
   ]
 
-  const rows = report.results.map(r => [
-    r.fileName,
-    r.pagesProcessed ?? '',
-    r.specSectionsDetected,
-    r.extractedSubmittalCount,
-    r.error ? '' : r.sdCodeCoverage.toFixed(1),
-    r.error ? '' : r.approvalAuthorityCoverage.toFixed(1),
-    r.error ? '' : r.sourceExcerptCoverage.toFixed(1),
-    r.error ? '' : r.duplicateCount,
-    r.error ? '' : r.blockingRiskCount,
-    r.error ? '' : r.qaFindings.critical,
-    r.error ? '' : r.qaFindings.warning,
-    r.error ? '' : r.qaFindings.info,
-    r.parseDurationMs,
-    r.error ?? '',
-  ])
+  const rows = report.results.map(r => {
+    const ss = r.sourceSelection
+    const bd = ss?.sourceBreakdown
+    return [
+      r.fileName,
+      r.pagesProcessed ?? '',
+      r.specSectionsDetected,
+      r.extractedSubmittalCount,
+      r.error ? '' : r.sdCodeCoverage.toFixed(1),
+      r.error ? '' : r.approvalAuthorityCoverage.toFixed(1),
+      r.error ? '' : r.sourceExcerptCoverage.toFixed(1),
+      r.error ? '' : r.duplicateCount,
+      r.error ? '' : r.blockingRiskCount,
+      r.error ? '' : r.qaFindings.critical,
+      r.error ? '' : r.qaFindings.warning,
+      r.error ? '' : r.qaFindings.info,
+      ss?.selectedSource ?? '',
+      ss?.selectedItemCount ?? '',
+      ss ? ss.selectedSdCoverage.toFixed(1) : '',
+      ss ? ss.selectedAuthorityCoverage.toFixed(1) : '',
+      bd?.dd_form.count     ?? '',
+      bd ? bd.dd_form.sdCoverage.toFixed(1)     : '',
+      bd ? bd.dd_form.avgConfidence.toFixed(3)  : '',
+      bd?.narrative.count   ?? '',
+      bd ? bd.narrative.sdCoverage.toFixed(1)   : '',
+      bd ? bd.narrative.avgConfidence.toFixed(3): '',
+      bd?.hybrid_fill.count ?? '',
+      bd ? bd.hybrid_fill.sdCoverage.toFixed(1) : '',
+      bd ? bd.hybrid_fill.avgConfidence.toFixed(3) : '',
+      r.parseDurationMs,
+      r.error ?? '',
+    ]
+  })
 
   const escape = cell => `"${String(cell).replace(/"/g, '""')}"`
   return [headers, ...rows].map(row => row.map(escape).join(',')).join('\n')

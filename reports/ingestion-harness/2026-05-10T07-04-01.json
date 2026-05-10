@@ -1,0 +1,128 @@
+{
+  "runAt": "2026-05-10T07:04:01.378Z",
+  "fixtureDir": "/Users/tui/thepe/test-fixtures/real-specs",
+  "version": "1.0.0",
+  "totalFiles": 1,
+  "totalFilesWithErrors": 0,
+  "totalSubmittals": 912,
+  "avgSdCodeCoverage": 26.6,
+  "avgApprovalAuthorityCoverage": 55.6,
+  "avgSourceExcerptCoverage": 100,
+  "avgQaFindingsPerSpec": 286,
+  "totalBlockingRiskCount": 15,
+  "totalDuplicateCount": 0,
+  "totalSuppressedCandidateCount": 1,
+  "avgParseDurationMs": 3860,
+  "totalParseDurationMs": 3860,
+  "runGrade": "poor_extraction",
+  "runGradeReasons": [
+    "SD coverage 26.6% < 50%",
+    "1 critical QA finding"
+  ],
+  "results": [
+    {
+      "fileName": "ammunition-storage-wl-specs.pdf",
+      "filePath": "/Users/tui/thepe/test-fixtures/real-specs/ammunition-storage-wl-specs.pdf",
+      "pagesProcessed": 1758,
+      "specSectionsDetected": 83,
+      "extractedSubmittalCount": 912,
+      "sdCodeCoverage": 26.6,
+      "approvalAuthorityCoverage": 55.6,
+      "sourceExcerptCoverage": 100,
+      "duplicateCount": 0,
+      "blockingRiskCount": 15,
+      "qaFindings": {
+        "critical": 1,
+        "warning": 285,
+        "info": 0,
+        "byType": {
+          "missing_sd_code": 1,
+          "missing_approval_authority": 1,
+          "conditional_approval_authority": 282,
+          "blocking_risk_no_due_date": 1,
+          "blocking_risk_missing_work_linkage": 1
+        }
+      },
+      "suppressedCandidateCount": 1,
+      "grade": "poor_extraction",
+      "gradeReasons": [
+        "SD coverage 26.6% < 50%",
+        "1 critical QA finding"
+      ],
+      "parseDurationMs": 3860,
+      "topSuspiciousRows": [
+        {
+          "submittalItem": "provided by the approved telecommunications contractor and key personnel. Qualifications shall be provided for: the telecommunications system contractor, the telecommunications system installer, and the supervisor (if different from the installer). A minimum of 30 days prior to installation, submit documentation of the experience of the telecommunications contractor and of the key personnel. 1.6.2.1 Telecommunications Contractor The telecommunications contractor shall be a firm which is regularly and professionally engaged in the business of the applications, installation, and testing of the specified telecommunications systems and equipment. The telecommunications contractor shall demonstrate experience in providing successful telecommunications systems within the past 3 years of similar scope and size. Submit documentation for a minimum of three and a maximum of five successful telecommunication system installations for the telecommunications contractor. 1.6.2.2 Key Personnel Provide key personnel who are regularly and professionally engaged in the business of the application, installation and testing of the specified telecommunications systems and equipment. There may be one key person or more key persons proposed for this solicitation depending upon how many of the key roles each has successfully provided. Each of the key personnel shall demonstrate experience in providing successful telecommunications systems within the past 3 years. Supervisors and installers assigned to the installation of this system or any of its components shall be Building Industry Consulting Services International (BICSI) Registered Cabling Installers, Technician Level. Submit documentation of current BICSI certification for each of the key personnel. In lieu of BICSI certification, supervisors and installers assigned to the installation of this system or any of its components shall have a minimum of 3 years experience in the installation of the specified copper and fiber optic cable and components. They shall have factory or factory approved certification from each equipment manufacturer indicating that they are qualified to install and test the provided products. Submit documentation for a minimum of three and a maximum of five successful telecommunication system installations for each of the key personnel. Documentation for each key person shall include at least two successful system installations provided that are equivalent in system size and in construction complexity to the telecommunications system proposed for this solicitation. Include specific experience in installing and testing telecommunications systems and provide the names and locations of at least two project installations successfully completed using copper telecommunications cabling systems. All of the existing telecommunications system installations offered by the key persons as successful experience shall have been in successful full-time service for at least 18 months prior to the issuance date for this solicitation. Provide the name and role of the key person, the title, location, and completed installation date of the referenced project, the referenced project owner point of contact information including name, organization, title, and telephone number, and generally, the referenced project description including system size and construction complexity. Indicate that all key persons are currently employed by the telecommunications contractor, or have a commitment to the SECTION 27 10 00 Page 7",
+          "specSection": "27 10 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority",
+            "conditional_approval_authority",
+            "blocking_risk_no_due_date",
+            "blocking_risk_missing_work_linkage"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority, conditional_approval_authority, blocking_risk_no_due_date, blocking_risk_missing_work_linkage"
+        },
+        {
+          "submittalItem": "1.5.3 Handling of Members The location of pickup points for handling of the members and details of the pickup devices must be shown in shop drawings. Members must be handled only by means of approved devices at designated locations. Members must be maintained in an upright position at all times and picked up and supported as shown in approved shop drawings. PART 2 PRODUCTS 2.1 SYSTEM DESCRIPTION The work includes the provision of precast non-prestressed concrete herein referred to as precast members. Precast members must be the product of a manufacturer specializing in the production of precast concrete members. 2.1.1 Design Requirements Design precast members in accordance with ACI 318 and the PCI MNL-120. Design precast members (including connections) for the design load conditions and spans indicated, and handling and erection stresses, and for additional loads imposed by openings and supports of the work of other trades. Design precast members for handling without cracking in accordance with the PCI MNL-120. 2.1.1.1 Loads Loadings for members and connections must include all dead load, live load, applicable lateral loads such as wind and earthquake, applicable construction loads such as handling, erection loads, and other applicable loads. 2.1.1.2 Drawing and Design Calculation Information Submit drawings and design calculations indicating complete information for the fabrication, handling, and erection of the precast member. Include a cover page with the design calculations, signed and sealed by the registered design professional who prepared the design. Drawings must not be reproductions of contract drawings. Design calculations, drawings of precast members (including connections) must be made by a registered professional engineer experienced in the design of precast concrete members, and submitted for approval prior to fabrication. The drawings must indicate, as a minimum, the following information: a. Plans, elevations and other drawing views showing the following: (1) Member piece marks locating and defining products furnished by the manufacturer. (2) Headers for openings. (3) Location and size of openings. (4) Relationships to adjacent material. (5) Joints and openings between members and between members and other construction. (6) Location of field installed anchors. SECTION 03 45 33 Page 6",
+          "specSection": "03 45 33",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority",
+            "blocking_risk_no_due_date",
+            "blocking_risk_missing_work_linkage"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority, blocking_risk_no_due_date, blocking_risk_missing_work_linkage"
+        },
+        {
+          "submittalItem": "Steel Bolts, Nuts, and Washers Galvanizing Pins and Rollers AISC Structural Steel Fabricator Quality Certification AISC Structural Steel Erector Quality Certification Welding Procedures and Qualifications Welding Electrodes and Rods Certified Welding Inspector NDT Technician Welding Procedure Specifications (WPS) 1.3 AISC QUALITY CERTIFICATION Work must be fabricated by an AISC Certified Structural Steel Fabricator, in accordance with AISC 207, Category BU. Submit AISC Structural Steel Fabricator quality certification. Work must be erected by an AISC Structural Steel Certified Erector, in accordance with AISC 207, Category CSE. Submit AISC Structural Steel erector quality certification. 1.4 SEISMIC PROVISIONS Provide the structural steel system in accordance with AISC 341, Chapter J as amended by UFC 3-301-01. 1.5 QUALITY ASSURANCE 1.5.1 Preconstruction Submittals 1.5.1.1 Erection and Erection Bracing Drawings Submit for record purposes. Indicate the sequence of erection, temporary shoring and bracing. The erection drawings must conform to ANSI/AISC 303. 1.5.2 Fabrication Drawing Requirements Submit fabrication drawings for approval prior to fabrication. Prepare in accordance with ANSI/AISC 303, AISC 326 and AISC 325. Fabrication drawings must not be reproductions of contract drawings. Include complete information for the fabrication and erection of the structure's components, including the location, type, and size of bolts, welds, member sizes and lengths, connection details, blocks, copes, and cuts. Use AWS A2.4 standard welding symbols. Clearly highlight any deviations from the details shown on the contract drawings highlighted on the fabrication drawings. Explain the reasons for any deviations from the contract drawings. SECTION 05 12 00 Page 5",
+          "specSection": "05 12 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority",
+            "blocking_risk_no_due_date",
+            "blocking_risk_missing_work_linkage"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority, blocking_risk_no_due_date, blocking_risk_missing_work_linkage"
+        },
+        {
+          "submittalItem": "materials from the site. Use materials within their indicated shelf life. PART 2 PRODUCTS 2.1 FIRESTOPPING SYSTEM Submit detail drawings including manufacturer's descriptive data, typical details conforming to UL Fire Resistance or other details certified by another nationally recognized testing laboratory, installation instructions or UL listing details for a firestopping assembly in lieu of fire-test data or report. For those firestop applications for which no UL tested system is available through a manufacturer, a manufacturer's engineering judgment, derived from similar UL system designs or other tests, shall be submitted for review and approval prior to installation. Submittal must indicate the firestopping material to be provided for each type of application. When more than a total of 5 penetrations and/or construction joints are to receive firestopping, provide drawings that indicate location, \"F\" \"T\" and \"L\" ratings, and type of application. Also, submit a written report indicating locations of and types of penetrations and types of firestopping used at each location; record type by UL list printed numbers. 2.2 FIRESTOPPING MATERIALS Provide firestopping materials, supplied from a single domestic manufacturer, consisting of commercially manufactured, asbestos-free, nontoxic products FM APP GUIDE approved, or UL listed, for use with applicable construction and penetrating items, complying with the following minimum requirements: 2.2.1 Fire Hazard Classification Material shall have a flame spread of 25 or less, and a smoke developed rating of 50 or less, when tested in accordance with ASTM E84 or UL 723. Material shall be an approved firestopping material as listed in UL Fire Resistance or by a nationally recognized testing laboratory. 2.2.2 Toxicity Material shall be nontoxic and carcinogen free to humans at all stages of application or during fire conditions and shall not contain hazardous chemicals or require harmful chemicals to clean material or equipment. 2.2.3 Fire Resistance Rating Firestop systems shall be UL Fire Resistance listed or FM APP GUIDE approved with \"F\" rating at least equal to fire-rating of fire wall or floor in which penetrated openings are to be protected. Where required, firestop systems shall also have \"T\" rating at least equal to the fire-rated floor in which the openings are to be protected. 2.2.3.1 Through-Penetrations Firestopping materials for through-penetrations, as described in paragraph SUMMARY, shall provide \"F\", \"T\" and \"L\" fire resistance ratings in accordance with ASTM E814 or UL 1479. Fire resistance ratings shall be as follows: SECTION 07 84 00 Page 4",
+          "specSection": "07 84 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority",
+            "blocking_risk_no_due_date",
+            "blocking_risk_missing_work_linkage"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority, blocking_risk_no_due_date, blocking_risk_missing_work_linkage"
+        },
+        {
+          "submittalItem": "1.3 CERTIFICATES 1.3.1 Indoor Air Quality Submit required indoor air quality certifications and validations in one submittal package. 1.3.1.1 Floor Covering Materials Provide Luxury Vinyl Plank, and wall base products certified to meet indoor air quality requirements by FLOORSCORE, UL 2818 (Greenguard) Gold, SCS Global Services Indoor Advantage Gold or provide certification by other third-party programs. Provide current product certification documentation from certification body. 1.3.1.2 Adhesives, Caulking and Sealants Provide products certified to meet indoor air quality requirements by UL 2818 (Greenguard) Gold, SCS Global Services Indoor Advantage Gold or provide certification or validation by other third-party programs that products meet the requirements of this Section. Provide current product certification documentation from certification body. When product does not have certification, provide validation that product meets the indoor air quality product requirements cited herein. 1.4 DELIVERY, STORAGE, AND HANDLING Deliver materials to the building site in original unopened containers bearing the manufacturer's name, style name, pattern color name and number, production run, project identification, and handling instructions. Store materials in a clean, dry, secure, and well-ventilated area free from strong contaminant sources and residues with ambient air temperature maintained above 68 degrees F and below 85 degrees F, stacked according to manufacturer's recommendations. Remove resilient flooring products from packaging to allow ventilation prior to installation. Protect materials from the direct flow of heat from hot-air registers, radiators and other heating fixtures and appliances. Observe ventilation and safety procedures specified in the MSDS. Do not store rubber surface products with materials that have a high capacity to adsorb volatile organic compound (VOC) emissions. Do not store exposed rubber surface materials in occupied spaces. Do not store near materials that may offgas or emit harmful fumes, such as kerosene heaters, fresh paint, or adhesives. 1.5 ENVIRONMENTAL REQUIREMENTS Maintain areas to receive resilient flooring at a temperature above 68 degrees F and below 85 degrees F for 3 days before application, during application and 2 days after application, unless otherwise directed by the flooring manufacturer for the flooring being installed. Maintain a minimum temperature of 55 degrees F thereafter. Provide adequate ventilation to remove moisture from area and to comply with regulations limiting concentrations of hazardous vapors. 1.6 SCHEDULING Schedule resilient flooring application after the completion of other work which would damage the finished surface of the flooring. SECTION 09 65 00 Page 3",
+          "specSection": "09 65 00",
+          "sdCode": null,
+          "qaFindingTypes": [
+            "missing_sd_code",
+            "missing_approval_authority",
+            "blocking_risk_no_due_date",
+            "blocking_risk_missing_work_linkage"
+          ],
+          "reason": "missing_sd_code, missing_approval_authority, blocking_risk_no_due_date, blocking_risk_missing_work_linkage"
+        }
+      ],
+      "normalization": {
+        "removedLineCount": 0,
+        "prefixStrippedLineCount": 1540,
+        "patternsDetected": 1,
+        "warnings": [
+          "Project identifier prefix in 43.9% of lines (\"FY22 MILCON PROJECT PN 080133 AMMUNITION STORAGE 1644749 WEST LOCH, HAWAII\") — stripping from matching lines",
+          "75 \"SUBMITTAL FORM\" table lines detected — this appendix contains tabular submittal data (not parsed by current extractor)",
+          "Document too short for frequency-based header detection (< 3 pages)"
+        ]
+      }
+    }
+  ]
+}

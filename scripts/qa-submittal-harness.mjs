@@ -16,6 +16,13 @@ import { normalizeDocumentText } from '../src/lib/ingestion/document-normalizati
 
 import { associateNearbySdCodes } from '../src/lib/ingestion/nearby-sd-association.ts'
 
+import { groupPdfTextItemsIntoLines } from '../src/lib/parsers/pdf-line-reconstruction.ts'
+
+import {
+  hasUfgsDDFormAppendix,
+  parseUfgsDDFormAppendix,
+} from '../src/lib/parsers/ufgs-submittal-register-parser.ts'
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -972,20 +979,19 @@ console.log('\n=== Nearby SD Association Tests ===\n')
   console.log()
 }
 
-// NSD-8: no carry across another submittal item line (stops at item boundary)
+// NSD-8: multiple candidate items in window → skip (ambiguous which item gets the code)
 {
-  console.log('NSD-8: SD code carry stops at intervening submittal item')
+  console.log('NSD-8: Multiple candidates in window → skipped (multi-candidate safety)')
   const lines = [
     'SD-03 Product Data',                 // index 0 — SD-only
-    'Submit shop drawings for review',    // index 1 — submittal item (consumes the forward assoc)
-    'Submit product data for approval',   // index 2 — another submittal item (NOT associated)
+    'Submit shop drawings for review',    // index 1 — candidate item 1
+    'Submit product data for approval',   // index 2 — candidate item 2 (also within distance 2)
   ]
-  const { associations } = associateNearbySdCodes(lines)
-  // Forward association should reach index 1 only (max 2 lines but next item is at 1)
-  assert('SD-03 associated to first item', associations.get(1) === 'SD-03')
-  // index 2 is 2 lines away but there's an intervening item at index 1
-  // → the forward loop breaks after finding the first item
-  assert('second item not associated (stopped at first)', !associations.has(2))
+  const { associations, metrics } = associateNearbySdCodes(lines)
+  // Both items are within MAX_DISTANCE=2 → which one gets SD-03 is ambiguous.
+  // Safety rule: skip the association rather than blindly assign to the first.
+  assert('no association when multiple candidates in window', !associations.has(1) && !associations.has(2))
+  assert('skippedMultiCandidate incremented', metrics.skippedMultiCandidate > 0)
   console.log()
 }
 
@@ -1002,6 +1008,763 @@ console.log('\n=== Nearby SD Association Tests ===\n')
   assert('item associated (same code from both directions)', associations.has(1))
   assert('associated code is SD-03', associations.get(1) === 'SD-03')
   assert('not counted as ambiguous', metrics.ambiguousAssociations === 0)
+  console.log()
+}
+
+// ---------------------------------------------------------------------------
+// QA-LC — Low Extraction Confidence QA Finding
+// ---------------------------------------------------------------------------
+
+// QA-LC-1: DD-form item with confidence 0.92 does NOT trigger finding
+{
+  console.log('QA-LC-1: DD-form confidence 0.92 does not trigger low_extraction_confidence')
+  const item = mockItem({
+    extractionSource:       'ufgs_dd_form',
+    extractionConfidence:   0.92,
+    extractionSourceReason: 'Parsed from UFGS DD-form submittal register appendix.',
+    sdCode: 'SD-03',
+    approvalAuthority: 'G',
+  })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const lowConf = result.findings.find(f => f.type === 'low_extraction_confidence')
+  assert('no low_extraction_confidence finding for 0.92', !lowConf)
+  console.log()
+}
+
+// QA-LC-2: hybrid_fill item with confidence 0.33 triggers warning severity
+{
+  console.log('QA-LC-2: hybrid_fill confidence 0.33 → severity warning')
+  const item = mockItem({
+    extractionSource:       'hybrid_fill',
+    extractionConfidence:   0.33,
+    extractionSourceReason: 'Narrative extraction used because DD-form did not cover this spec section.',
+    sdCode: null,
+    approvalAuthority: null,
+  })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const lowConf = result.findings.find(f => f.type === 'low_extraction_confidence')
+  assert('low_extraction_confidence finding exists', !!lowConf)
+  assert('severity is warning (< 0.50)', lowConf?.severity === 'warning')
+  assert('affected item included', lowConf?.affectedItemIds.length === 1)
+  assert('message mentions hybrid_fill source', lowConf?.suggestedAction?.includes('Fallback narrative'))
+  console.log()
+}
+
+// QA-LC-3: narrative item with confidence 0.65 triggers info severity
+{
+  console.log('QA-LC-3: narrative confidence 0.65 → severity info')
+  const item = mockItem({
+    extractionSource:       'narrative',
+    extractionConfidence:   0.65,
+    extractionSourceReason: 'Parsed from specification body text.',
+    sdCode: 'SD-03',
+    approvalAuthority: null,
+  })
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const lowConf = result.findings.find(f => f.type === 'low_extraction_confidence')
+  assert('low_extraction_confidence finding exists', !!lowConf)
+  assert('severity is info (0.50–0.79)', lowConf?.severity === 'info')
+  assert('message mentions narrative source', lowConf?.suggestedAction?.includes('Narrative extraction'))
+  console.log()
+}
+
+// QA-LC-4: item with NO extractionConfidence set does not crash or trigger finding
+{
+  console.log('QA-LC-4: Item without extractionConfidence set → no crash, no finding')
+  const item = mockItem({ sdCode: 'SD-03' })  // no extractionConfidence
+  const result = evaluateSubmittalCoverageQA({ items: [item] })
+  const lowConf = result.findings.find(f => f.type === 'low_extraction_confidence')
+  assert('no crash on missing extractionConfidence', true)
+  assert('no low_extraction_confidence finding when field absent', !lowConf)
+  console.log()
+}
+
+// NSD-10: default mode does not associate when item is 3 lines away
+{
+  console.log('NSD-10: Default mode (distance 2) does not reach item 3 lines away')
+  const lines = [
+    'SD-03 Product Data',            // index 0 — SD-only
+    'See referenced standards.',     // index 1 — non-submittal filler
+    'Refer to appendix A.',          // index 2 — non-submittal filler
+    'Submit product data sheets.',   // index 3 — submittal item (3 lines away)
+  ]
+  const { associations } = associateNearbySdCodes(lines)  // default mode
+  assert('no association at distance 3 with default mode', !associations.has(3))
+  console.log()
+}
+
+// NSD-11: reconstructed_pdf mode (distance 5) reaches item 3 lines away
+{
+  console.log('NSD-11: reconstructed_pdf mode (distance 5) associates item 3 lines away')
+  const lines = [
+    'SD-03 Product Data',            // index 0 — SD-only
+    'See referenced standards.',     // index 1 — non-submittal filler
+    'Refer to appendix A.',          // index 2 — non-submittal filler
+    'Submit product data sheets.',   // index 3 — submittal item (3 lines away)
+  ]
+  const { associations } = associateNearbySdCodes(lines, { mode: 'reconstructed_pdf' })
+  assert('association exists at distance 3 with reconstructed_pdf mode', associations.has(3))
+  assert('associated code is SD-03', associations.get(3) === 'SD-03')
+  console.log()
+}
+
+// NSD-12: page break stops association even with wide window
+{
+  console.log('NSD-12: Page break is a hard boundary even with ufgs mode (distance 5)')
+  const lines = [
+    'SD-07 Certificates',            // index 0 — SD-only
+    '---PAGE-BREAK---',              // index 1 — boundary
+    'Submit mill certificates.',     // index 2 — submittal item (page boundary in between)
+  ]
+  const { associations, metrics } = associateNearbySdCodes(lines, { mode: 'ufgs' })
+  assert('no association across page break', !associations.has(2))
+  assert('skippedBoundary counted', metrics.skippedBoundary > 0)
+  console.log()
+}
+
+// NSD-13: CSI section heading stops association even with wide window
+{
+  console.log('NSD-13: CSI heading is a hard boundary even with ufgs mode (distance 5)')
+  const lines = [
+    'SD-07 Certificates',            // index 0 — SD-only
+    '1.4 SUBMITTALS',                // index 1 — clause heading (boundary)
+    'Submit mill certificates.',     // index 2 — submittal item
+  ]
+  const { associations } = associateNearbySdCodes(lines, { mode: 'ufgs' })
+  assert('no association across CSI heading with ufgs mode', !associations.has(2))
+  console.log()
+}
+
+// NSD-14: explicit maxDistance override works independently of mode
+{
+  console.log('NSD-14: Explicit maxDistance=4 override reaches item 4 lines away')
+  const lines = [
+    'SD-01 Shop Drawings',           // index 0 — SD-only
+    'See section 1.1 for scope.',    // index 1 — non-submittal filler
+    'Reference standard ASTM A36.', // index 2 — non-submittal filler
+    'Applicable codes listed above.',// index 3 — non-submittal filler
+    'Submit structural shop drawings for review.', // index 4 — submittal item (4 lines away)
+  ]
+  // Default mode (distance 2) should NOT reach index 4
+  const defaultResult = associateNearbySdCodes(lines)
+  assert('default mode misses item at distance 4', !defaultResult.associations.has(4))
+  // maxDistance=4 should reach it
+  const wideResult = associateNearbySdCodes(lines, { maxDistance: 4 })
+  assert('maxDistance=4 reaches item at distance 4', wideResult.associations.has(4))
+  assert('associated code is SD-01', wideResult.associations.get(4) === 'SD-01')
+  console.log()
+}
+
+// NSD-15: block pass applies SD code to all items in a following block
+{
+  console.log('NSD-15: Block pass assigns SD code to all items in forward block (ufgs mode)')
+  const lines = [
+    'SD-03 Product Data',               // index 0 — SD-only header
+    'Submit concrete mix design.',      // index 1 — item 1
+    'Submit aggregate gradation data.', // index 2 — item 2
+    'Submit admixture manufacturer data.', // index 3 — item 3
+  ]
+  const { associations, metrics } = associateNearbySdCodes(lines, { mode: 'ufgs' })
+  assert('item 1 gets SD-03 via block', associations.get(1) === 'SD-03')
+  assert('item 2 gets SD-03 via block', associations.get(2) === 'SD-03')
+  assert('item 3 gets SD-03 via block', associations.get(3) === 'SD-03')
+  assert('blockAssociations = 3', metrics.blockAssociations === 3)
+  assert('blockHeadersDetected = 1', metrics.blockHeadersDetected === 1)
+  console.log()
+}
+
+// NSD-16: block scan stops at the next SD header
+{
+  console.log('NSD-16: Block scan stops at next SD header (ufgs mode)')
+  const lines = [
+    'SD-03 Product Data',               // index 0 — SD-only header
+    'Submit concrete mix design.',      // index 1 — item in SD-03 block
+    'SD-07 Certificates',               // index 2 — next SD header, terminates block
+    'Submit mill certificates.',        // index 3 — item in SD-07 block
+  ]
+  const { associations } = associateNearbySdCodes(lines, { mode: 'ufgs' })
+  assert('item 1 gets SD-03', associations.get(1) === 'SD-03')
+  assert('item 3 does not get SD-03', associations.get(3) !== 'SD-03')
+  assert('item 3 gets SD-07', associations.get(3) === 'SD-07')
+  console.log()
+}
+
+// NSD-17: block scan stops at page break
+{
+  console.log('NSD-17: Block scan stops at page break (ufgs mode)')
+  const lines = [
+    'SD-07 Certificates',              // index 0 — SD-only header
+    'Submit mill certificates.',       // index 1 — item
+    '---PAGE-BREAK---',                // index 2 — hard boundary
+    'Submit welding certifications.',  // index 3 — item on next page — NOT in block
+  ]
+  const { associations, metrics } = associateNearbySdCodes(lines, { mode: 'ufgs' })
+  assert('item 1 gets SD-07', associations.get(1) === 'SD-07')
+  assert('item 3 not associated via block', !associations.has(3))
+  assert('blockTerminatedByBoundary > 0', metrics.blockTerminatedByBoundary > 0)
+  console.log()
+}
+
+// NSD-18: block scan stops at CSI section heading
+{
+  console.log('NSD-18: Block scan stops at CSI section heading (ufgs mode)')
+  const lines = [
+    'SD-06 Test Reports',              // index 0 — SD-only header
+    '1.4 SUBMITTALS',                  // index 1 — numbered clause heading (boundary)
+    'Submit test reports.',            // index 2 — item below heading
+  ]
+  const { associations } = associateNearbySdCodes(lines, { mode: 'ufgs' })
+  assert('item 2 not reached through heading', !associations.has(2))
+  console.log()
+}
+
+// NSD-19: block pass does not overwrite inline SD code
+{
+  console.log('NSD-19: Block pass does not overwrite item with inline SD code')
+  // Line at index 1 is long enough (> 60 chars) that extractSdOnlyCode returns null,
+  // so it is NOT treated as an SD-only header — it is a submittal item with an inline code.
+  const lines = [
+    'SD-03 Product Data',
+    'Submit concrete mix design per ASTM C94 and related testing data. SD-06 Test Reports.',
+    'Submit aggregate gradation data.',
+  ]
+  const { associations, metrics } = associateNearbySdCodes(lines, { mode: 'ufgs' })
+  // index 1 has inline SD-06; block pass should skip it (blockSkippedDueToInline++)
+  // and should NOT set associations[1] = 'SD-03'
+  const idx1Code = associations.get(1)
+  assert('inline SD-06 not overwritten by block SD-03', idx1Code !== 'SD-03')
+  assert('blockSkippedDueToInline > 0', metrics.blockSkippedDueToInline > 0)
+  // index 2 has no inline code — block pass should reach it
+  assert('item at index 2 gets SD-03 from block', associations.get(2) === 'SD-03')
+  console.log()
+}
+
+// NSD-20: default mode does not run block association
+{
+  console.log('NSD-20: Default mode does not run block pass')
+  const lines = [
+    'SD-03 Product Data',               // index 0 — SD-only header
+    'Submit concrete mix design.',      // index 1 — item 1
+    'Submit aggregate gradation data.', // index 2 — item 2 (multiple candidates → skipped by fwd)
+  ]
+  const { metrics } = associateNearbySdCodes(lines)  // default mode
+  assert('blockHeadersDetected is 0 in default mode', metrics.blockHeadersDetected === 0)
+  assert('blockAssociations is 0 in default mode', metrics.blockAssociations === 0)
+  console.log()
+}
+
+// ---------------------------------------------------------------------------
+// DDFP — UFGS DD-Form Submittal Register Parser
+// ---------------------------------------------------------------------------
+
+// Minimal DD-form page fixture. Each page ends with "SUBMITTAL FORM,Jan 96".
+function makeDdFormPage({ specSect, sdBlob, items = 'Concrete Mix Design', pageNum = 1 }) {
+  return [
+    'C L A S S I F I C A T I O N',
+    'G',
+    '#',
+    'P A R A G R A P H (e)',
+    '1.4.2',
+    'SUBMITTAL REGISTER',
+    '(d)',
+    'DESCRIPTION',
+    'ITEM SUBMITTED',
+    items,
+    sdBlob,
+    'S P E C S E C T (c)',
+    specSect,
+    'T R A N S M I T T A L N O (b)',
+    'A C T I V I T Y N O (a)',
+    `TITLE AND LOCATIONMY PROJECT SUBMITTAL FORM,Jan 96`,
+    '---PAGE-BREAK---',
+  ].join('\n')
+}
+
+// DDFP-1: detects DD-form marker
+{
+  console.log('DDFP-1: hasUfgsDDFormAppendix detects marker')
+  assert('detects marker', hasUfgsDDFormAppendix('SUBMITTAL FORM,Jan 96'))
+  assert('detects with spaces', hasUfgsDDFormAppendix('SUBMITTAL FORM, Jan 96'))
+  assert('case insensitive', hasUfgsDDFormAppendix('submittal form,jan 96'))
+  assert('does not trigger on normal text', !hasUfgsDDFormAppendix('This is a normal spec section.'))
+  console.log()
+}
+
+// DDFP-2: parses single row with spec section + SD code
+{
+  console.log('DDFP-2: Parses single spec section + SD code row')
+  const text = makeDdFormPage({
+    specSect: '03 30 00',
+    sdBlob: 'SD-03 Product Data',
+  })
+  const result = parseUfgsDDFormAppendix(text)
+  assert('detected as present', result.isPresent)
+  assert('1 page detected', result.pagesDetected === 1)
+  assert('rows extracted', result.rows.length >= 1)
+  const row = result.rows.find(r => r.sdCode === 'SD-03')
+  assert('SD-03 row exists', !!row)
+  assert('spec section is 03 30 00', row?.specSection === '03 30 00')
+  assert('parserSource is ufgs_dd_form', row?.parserSource === 'ufgs_dd_form')
+  assert('sourceExcerpt contains spec section', row?.sourceExcerpt?.includes('03 30 00'))
+  console.log()
+}
+
+// DDFP-3: parses multiple SD codes on same page (block of items under one spec section)
+{
+  console.log('DDFP-3: Multiple SD codes on same page')
+  const text = makeDdFormPage({
+    specSect: '05 12 00',
+    sdBlob: 'SD-02 Shop DrawingsSD-06 Test ReportsSD-07 Certificates',
+  })
+  const result = parseUfgsDDFormAppendix(text)
+  assert('3 rows extracted', result.rows.length === 3)
+  assert('SD-02 row present', result.rows.some(r => r.sdCode === 'SD-02'))
+  assert('SD-06 row present', result.rows.some(r => r.sdCode === 'SD-06'))
+  assert('SD-07 row present', result.rows.some(r => r.sdCode === 'SD-07'))
+  assert('all rows have spec section 05 12 00', result.rows.every(r => r.specSection === '05 12 00'))
+  console.log()
+}
+
+// DDFP-4: ignores repeated table header pages (right-side tracking columns)
+{
+  console.log('DDFP-4: Repeated header pages ignored — no S P E C S E C T = skip')
+  // A page block with only tracking column headers (no "S P E C S E C T")
+  const headerOnlyPage = [
+    '(r)',
+    'REMARKS',
+    'PAGE 2 OF 75 PAGES',
+    'TO (q)',
+    'AUTH',
+    'MAILEDCONTR/',
+    'DATE RCDFRM APPR',
+    'A C T I O N C O D E (o)',
+  ].join('\n')
+  const dataPage = makeDdFormPage({
+    specSect: '07 84 00',
+    sdBlob: 'SD-03 Product Data',
+    pageNum: 2,
+  })
+  const result = parseUfgsDDFormAppendix(headerOnlyPage + '\n' + dataPage)
+  // Should still find the data page rows, not crash on the header-only page
+  assert('data page rows found despite header-only page', result.rows.length >= 1)
+  assert('no crash on header-only page', true)
+  console.log()
+}
+
+// DDFP-5: sourceExcerpt preserves spec section and SD code for provenance
+{
+  console.log('DDFP-5: sourceExcerpt provides parseable provenance')
+  const text = makeDdFormPage({
+    specSect: '09 97 13',
+    sdBlob: 'SD-03 Product DataSD-04 Samples',
+  })
+  const result = parseUfgsDDFormAppendix(text)
+  for (const row of result.rows) {
+    assert(`sourceExcerpt non-empty for ${row.sdCode}`, row.sourceExcerpt.length > 0)
+    assert(`sourceExcerpt contains sd code for ${row.sdCode}`, row.sourceExcerpt.includes(row.sdCode))
+  }
+  console.log()
+}
+
+// DDFP-6: does not trigger on normal CSI narrative text (no DD-form marker)
+{
+  console.log('DDFP-6: Does not trigger on normal spec body text')
+  const normalSpec = [
+    'SECTION 03 30 00',
+    '1.4 SUBMITTALS',
+    'SD-03 Product Data',
+    'Submit concrete mix design for approval.',
+    'SD-06 Test Reports',
+    'Submit aggregate gradation test results.',
+  ].join('\n')
+  const result = parseUfgsDDFormAppendix(normalSpec)
+  assert('not detected in normal spec text', !result.isPresent)
+  assert('no rows from normal spec', result.rows.length === 0)
+  console.log()
+}
+
+// DDFP-7: inline spec+SD pair in spec blob (e.g. "03 30 00 SD-03 Product Data")
+{
+  console.log('DDFP-7: Inline spec+SD pair extracted directly from spec blob')
+  const text = makeDdFormPage({
+    specSect: '03 30 00 SD-03 Product Data',
+    sdBlob: '',  // no separate SD blob — data is inline in spec line
+    items: 'Concrete Mix Design',
+  })
+  const result = parseUfgsDDFormAppendix(text)
+  const row = result.rows.find(r => r.sdCode === 'SD-03')
+  assert('inline pair extracted', !!row)
+  assert('spec section correct', row?.specSection === '03 30 00')
+  console.log()
+}
+
+// ---------------------------------------------------------------------------
+// SRC — Submittal Source Selector
+// ---------------------------------------------------------------------------
+
+import {
+  chooseSubmittalExtractionSource,
+  mapDDFormRowToSubmittalItem,
+} from '../src/lib/ingestion/submittal-source-selector.ts'
+
+// Helper: minimal SubmittalRegisterItem for testing
+function mkNarrativeItem(overrides = {}) {
+  return {
+    specSection: '03 30 00',
+    sectionTitle: null,
+    submittalItem: 'Concrete Mix Design',
+    submittalType: 'SD-03 Product Data',
+    requiredAction: null,
+    approvalRequired: null,
+    sourceReference: { sourceType: 'specification' },
+    excerpt: 'Submit concrete mix design.',
+    confidence: 0.72,
+    notes: null,
+    sdCode: 'SD-03',
+    approvalAuthority: null,
+    blockingRisk: 'none',
+    ...overrides,
+  }
+}
+
+// Helper: minimal DDFormRow for testing
+function mkDDFormRow(overrides = {}) {
+  return {
+    specSection: '03 30 00',
+    sectionTitle: null,
+    submittalItem: 'Product Data',
+    sdCode: 'SD-03',
+    approvalAuthority: 'G',
+    actionCode: null,
+    sourcePage: 10,
+    sourceExcerpt: '03 30 00 SD-03 Product Data',
+    parserSource: 'ufgs_dd_form',
+    ...overrides,
+  }
+}
+
+// SRC-1: no DD-form rows → narrative selected
+{
+  console.log('SRC-1: No DD-form rows → narrative selected')
+  const narrative = [mkNarrativeItem()]
+  const result = chooseSubmittalExtractionSource({
+    narrativeItems:      narrative,
+    ddFormRows:          [],
+    narrativeSdCoverage: 75,
+  })
+  assert('narrative selected', result.selectedSource === 'narrative')
+  assert('selectedItems = narrative', result.selectedItems.length === 1)
+  assert('no fallbackItems', result.fallbackItems.length === 0)
+  console.log()
+}
+
+// SRC-2: DD-form 100% SD, narrative 18.9% → dd_form selected
+{
+  console.log('SRC-2: DD-form 100% SD >> narrative → dd_form selected')
+  const narrative = [
+    mkNarrativeItem({ sdCode: 'SD-03' }),
+    mkNarrativeItem({ submittalItem: 'Shop Drawings', sdCode: null }),
+    mkNarrativeItem({ submittalItem: 'Certificates', sdCode: null }),
+  ]
+  const ddRows = [
+    mkDDFormRow({ sdCode: 'SD-03' }),
+    mkDDFormRow({ submittalItem: 'Shop Drawings', sdCode: 'SD-02' }),
+  ]
+  const result = chooseSubmittalExtractionSource({
+    narrativeItems:      narrative,
+    ddFormRows:          ddRows,
+    narrativeSdCoverage: 33.3,  // 1 of 3 items have SD code
+  })
+  assert('dd_form selected', result.selectedSource === 'dd_form')
+  assert('selectedItems come from DD-form', result.selectedItems.length === 2)
+  assert('fallbackItems = narrative', result.fallbackItems.length === 3)
+  assert('parserSource is ufgs_dd_form', result.selectedItems[0].sourceReference.extractionSource === 'ufgs_dd_form')
+  console.log()
+}
+
+// SRC-3: DD-form below 80% threshold → narrative selected
+// (This can't happen in practice since DD-form always has 100% SD coverage,
+//  but the threshold logic should be correct if the input were different.)
+// Instead, test narrative SD >= DD-form SD → narrative selected
+{
+  console.log('SRC-3: Narrative SD coverage >= DD-form → narrative selected')
+  const narrative = [mkNarrativeItem({ sdCode: 'SD-03' })]
+  const ddRows    = [mkDDFormRow({ sdCode: 'SD-03' })]
+  const result = chooseSubmittalExtractionSource({
+    narrativeItems:      narrative,
+    ddFormRows:          ddRows,
+    narrativeSdCoverage: 100,  // narrative is already perfect
+  })
+  assert('narrative selected (already 100%)', result.selectedSource === 'narrative')
+  console.log()
+}
+
+// SRC-4: hybrid selected when DD-form covers < 70% of narrative spec sections
+{
+  console.log('SRC-4: Hybrid selected when DD-form misses many narrative spec sections')
+  // DD-form covers only 03 30 00; narrative has 03 30 00 + 05 12 00 + 07 84 00 + 09 97 13
+  const narrative = [
+    mkNarrativeItem({ specSection: '03 30 00', sdCode: 'SD-03' }),
+    mkNarrativeItem({ specSection: '05 12 00', sdCode: null, submittalItem: 'Shop Drawings' }),
+    mkNarrativeItem({ specSection: '07 84 00', sdCode: null, submittalItem: 'Fire Stopping' }),
+    mkNarrativeItem({ specSection: '09 97 13', sdCode: null, submittalItem: 'Paint' }),
+  ]  // narrative SD coverage = 1/4 = 25%
+  const ddRows = [
+    mkDDFormRow({ specSection: '03 30 00', sdCode: 'SD-03' }),
+  ]  // DD-form covers 1/4 narrative sections = 25% < 70% threshold
+  const result = chooseSubmittalExtractionSource({
+    narrativeItems:      narrative,
+    ddFormRows:          ddRows,
+    narrativeSdCoverage: 25,
+  })
+  assert('hybrid selected', result.selectedSource === 'hybrid')
+  // hybrid should include DD-form item + narrative items for missing sections
+  assert('hybrid has DD-form item', result.selectedItems.some(i => i.sdCode === 'SD-03' && i.sourceReference.extractionSource === 'ufgs_dd_form'))
+  assert('hybrid includes narrative fill items', result.selectedItems.some(i => i.specSection === '05 12 00'))
+  assert('hybrid includes 09 97 13 item', result.selectedItems.some(i => i.specSection === '09 97 13'))
+  assert('warning about missing sections', result.warnings.length > 0)
+  console.log()
+}
+
+// SRC-5: duplicate rows suppressed in hybrid
+{
+  console.log('SRC-5: Duplicate rows suppressed in hybrid merge')
+  // Both narrative and DD-form have SD-03 for 03 30 00
+  const narrative = [
+    mkNarrativeItem({ specSection: '03 30 00', sdCode: 'SD-03', submittalItem: 'Product Data' }),
+    mkNarrativeItem({ specSection: '05 12 00', sdCode: null, submittalItem: 'Shop Drawings' }),
+    mkNarrativeItem({ specSection: '07 84 00', sdCode: null, submittalItem: 'Samples' }),
+  ]
+  const ddRows = [
+    // Same spec+SD as narrative item 1 → should deduplicate
+    mkDDFormRow({ specSection: '03 30 00', sdCode: 'SD-03', submittalItem: 'Product Data' }),
+  ]
+  // 03 30 00 covered by DD-form, 05 12 00 and 07 84 00 missing → hybrid
+  const result = chooseSubmittalExtractionSource({
+    narrativeItems:      narrative,
+    ddFormRows:          ddRows,
+    narrativeSdCoverage: 33.3,
+  })
+  assert('hybrid selected', result.selectedSource === 'hybrid')
+  // DD-form item + 2 fill items = 3 items, not 4 (no duplicate)
+  const sdItems = result.selectedItems.filter(i => i.specSection === '03 30 00')
+  assert('only one 03 30 00 item (deduplication)', sdItems.length === 1)
+  assert('total items = 3 (no duplicate)', result.selectedItems.length === 3)
+  console.log()
+}
+
+// SRC-6: mapDDFormRowToSubmittalItem produces correct shape
+{
+  console.log('SRC-6: mapDDFormRowToSubmittalItem produces correct SubmittalRegisterItem shape')
+  const row = mkDDFormRow({ sdCode: 'SD-07', submittalItem: 'Mill Certificates', approvalAuthority: 'G' })
+  const item = mapDDFormRowToSubmittalItem(row)
+  assert('specSection preserved', item.specSection === '03 30 00')
+  assert('sdCode preserved', item.sdCode === 'SD-07')
+  assert('submittalItem preserved', item.submittalItem === 'Mill Certificates')
+  assert('approvalAuthority preserved', item.approvalAuthority === 'G')
+  assert('approvalRequired true for G', item.approvalRequired === true)
+  assert('parserSource in sourceReference', item.sourceReference.extractionSource === 'ufgs_dd_form')
+  assert('confidence is 0.92', item.confidence === 0.92)
+  assert('submittalType is Certificates', item.submittalType === 'Certificates')
+  console.log()
+}
+
+import { computeSourceBreakdown } from '../src/lib/ingestion/submittal-source-selector.ts'
+
+// SRC-7: DD-form rows get authoritative extraction labels
+{
+  console.log('SRC-7: DD-form rows carry extractionSource=ufgs_dd_form')
+  const row  = mkDDFormRow({ sdCode: 'SD-03', approvalAuthority: 'G' })
+  const item = mapDDFormRowToSubmittalItem(row)
+  assert('extractionSource is ufgs_dd_form',    item.extractionSource === 'ufgs_dd_form')
+  assert('extractionConfidence is 0.92',         item.extractionConfidence === 0.92)
+  assert('extractionSourceReason contains DD-form', item.extractionSourceReason?.includes('DD-form'))
+  console.log()
+}
+
+// SRC-8: Hybrid fill rows carry fallback labels with potentially lowered confidence
+{
+  console.log('SRC-8: Hybrid fill rows carry extractionSource=hybrid_fill + adjusted confidence')
+  const narrative = [
+    mkNarrativeItem({ specSection: '03 30 00', sdCode: 'SD-03',  confidence: 0.72 }),
+    // 05 12 00: missing sdCode but HAS authority — only one deduction
+    mkNarrativeItem({ specSection: '05 12 00', sdCode: null, confidence: 0.72, submittalItem: 'Shop Drawings', approvalAuthority: 'G' }),
+    // 07 84 00: missing BOTH sdCode and authority — two deductions → lower than 05 12 00
+    mkNarrativeItem({ specSection: '07 84 00', sdCode: null, confidence: 0.72, submittalItem: 'Fire Stop', approvalAuthority: null }),
+    mkNarrativeItem({ specSection: '09 97 13', sdCode: null, confidence: 0.72, submittalItem: 'Paint', approvalAuthority: 'G' }),
+  ]
+  const ddRows = [ mkDDFormRow({ specSection: '03 30 00' }) ]
+  const result = chooseSubmittalExtractionSource({
+    narrativeItems:      narrative,
+    ddFormRows:          ddRows,
+    narrativeSdCoverage: 25,
+  })
+  // Fill items (05 12 00, 07 84 00, 09 97 13) should be hybrid_fill
+  const fillItems = result.selectedItems.filter(i => i.extractionSource === 'hybrid_fill')
+  assert('fill items labeled hybrid_fill', fillItems.length === 3)
+  // Item missing sdCode but has authority: one deduction (−0.10)
+  const noSdItem = fillItems.find(i => i.specSection === '05 12 00')
+  assert('no-SD item confidence lowered', (noSdItem?.extractionConfidence ?? 0) < 0.72)
+  // Item missing both sdCode and authority: two deductions (−0.10 −0.05) → even lower
+  const missingBoth = fillItems.find(i => i.specSection === '07 84 00')
+  assert('missing both: confidence lowered further', (missingBoth?.extractionConfidence ?? 0) < (noSdItem?.extractionConfidence ?? 0))
+  assert('extractionSourceReason mentions DD-form', fillItems[0].extractionSourceReason?.includes('DD-form'))
+  console.log()
+}
+
+// SRC-9: Narrative-only mode labels all items as 'narrative'
+{
+  console.log('SRC-9: Narrative-only mode labels all items extractionSource=narrative')
+  const narrative = [
+    mkNarrativeItem({ sdCode: 'SD-03', confidence: 0.72 }),
+    mkNarrativeItem({ sdCode: null,    confidence: 0.60, submittalItem: 'Shop Drawings' }),
+  ]
+  const result = chooseSubmittalExtractionSource({
+    narrativeItems:      narrative,
+    ddFormRows:          [],
+    narrativeSdCoverage: 50,
+  })
+  assert('source is narrative',    result.selectedSource === 'narrative')
+  assert('all items labeled narrative', result.selectedItems.every(i => i.extractionSource === 'narrative'))
+  assert('extractionConfidence set', result.selectedItems.every(i => i.extractionConfidence !== undefined))
+  assert('reason references body text', result.selectedItems[0].extractionSourceReason?.includes('body text'))
+  console.log()
+}
+
+// SRC-10: sourceBreakdown computed correctly from labeled items
+{
+  console.log('SRC-10: computeSourceBreakdown groups items by extractionSource')
+  const items = [
+    { ...mkNarrativeItem(), extractionSource: 'ufgs_dd_form', extractionConfidence: 0.92, sdCode: 'SD-03' },
+    { ...mkNarrativeItem(), extractionSource: 'ufgs_dd_form', extractionConfidence: 0.92, sdCode: 'SD-07' },
+    { ...mkNarrativeItem(), extractionSource: 'hybrid_fill',  extractionConfidence: 0.62, sdCode: null     },
+    { ...mkNarrativeItem(), extractionSource: 'narrative',    extractionConfidence: 0.72, sdCode: 'SD-03'  },
+  ]
+  const bd = computeSourceBreakdown(items)
+  assert('dd_form count = 2',     bd.dd_form.count === 2)
+  assert('hybrid_fill count = 1', bd.hybrid_fill.count === 1)
+  assert('narrative count = 1',   bd.narrative.count === 1)
+  assert('dd_form SD 100%',       bd.dd_form.sdCoverage === 100)
+  assert('hybrid_fill SD 0%',     bd.hybrid_fill.sdCoverage === 0)
+  assert('dd_form avgConf 0.92',  bd.dd_form.avgConfidence === 0.92)
+  console.log()
+}
+
+// SRC-11: sourceBreakdown included on SourceSelectionResult
+{
+  console.log('SRC-11: sourceBreakdown is included on SourceSelectionResult and reflects reality')
+  const narrative = [
+    mkNarrativeItem({ specSection: '03 30 00', sdCode: 'SD-03' }),
+    mkNarrativeItem({ specSection: '05 12 00', sdCode: null, submittalItem: 'Shop Drawings' }),
+    mkNarrativeItem({ specSection: '07 84 00', sdCode: null, submittalItem: 'Fire Stop' }),
+    mkNarrativeItem({ specSection: '09 97 13', sdCode: null, submittalItem: 'Paint' }),
+  ]
+  const ddRows = [ mkDDFormRow({ specSection: '03 30 00', sdCode: 'SD-03' }) ]
+  const result = chooseSubmittalExtractionSource({
+    narrativeItems:      narrative,
+    ddFormRows:          ddRows,
+    narrativeSdCoverage: 25,  // hybrid expected
+  })
+  assert('has sourceBreakdown',           !!result.sourceBreakdown)
+  assert('dd_form count > 0',             result.sourceBreakdown.dd_form.count > 0)
+  assert('hybrid_fill count > 0',         result.sourceBreakdown.hybrid_fill.count > 0)
+  assert('dd_form SD coverage is 100',    result.sourceBreakdown.dd_form.sdCoverage === 100)
+  assert('dd_form avgConf >= 0.9',        result.sourceBreakdown.dd_form.avgConfidence >= 0.9)
+  console.log()
+}
+
+// ---------------------------------------------------------------------------
+// PLR — PDF Line Reconstruction
+// ---------------------------------------------------------------------------
+
+// Helper: build a mock PDF.js text item
+function mkItem(str, x, y, width = str.length * 6) {
+  return { str, transform: [1, 0, 0, 1, x, y], width, height: 10, fontName: 'f1', dir: 'ltr' }
+}
+
+// PLR-1: Items with the same Y coordinate combine into one line
+{
+  console.log('PLR-1: Same-Y items combine into one line')
+  const items = [
+    mkItem('Submit',  10, 100),
+    mkItem('shop',    80, 100),
+    mkItem('drawings', 130, 100),
+  ]
+  const { lines, rawItemCount } = groupPdfTextItemsIntoLines(items)
+  assert('single line produced', lines.length === 1)
+  assert('all words present', lines[0].includes('Submit') && lines[0].includes('drawings'))
+  assert('rawItemCount correct', rawItemCount === 3)
+  console.log()
+}
+
+// PLR-2: Items with different Y coordinates become separate lines
+{
+  console.log('PLR-2: Different-Y items become separate lines')
+  const items = [
+    mkItem('SD-03 Product Data',         10, 200),
+    mkItem('Submit product data sheets', 10, 180),
+  ]
+  const { lines } = groupPdfTextItemsIntoLines(items)
+  assert('two lines produced', lines.length === 2)
+  assert('first line is SD code line', lines[0] === 'SD-03 Product Data')
+  assert('second line is submittal line', lines[1].startsWith('Submit product data'))
+  console.log()
+}
+
+// PLR-3: X sorting preserves reading order (items given in reverse X order)
+{
+  console.log('PLR-3: X sorting preserves reading order')
+  const items = [
+    mkItem('drawings', 140, 100),
+    mkItem('shop',     70, 100),
+    mkItem('Submit',   10, 100),
+  ]
+  const { lines } = groupPdfTextItemsIntoLines(items)
+  assert('single line produced', lines.length === 1)
+  const words = lines[0].split(/\s+/)
+  assert('Submit is first', words[0] === 'Submit')
+  assert('drawings is last', words[words.length - 1] === 'drawings')
+  console.log()
+}
+
+// PLR-4: Items within yTolerance on same line; items outside are on different lines
+{
+  console.log('PLR-4: Y-tolerance grouping works at boundary')
+  const items = [
+    mkItem('word-A', 10, 100),
+    mkItem('word-B', 80, 102),  // 2 units diff — within default tolerance of 3
+    mkItem('word-C', 10,  95),  // 5 units diff — new line
+  ]
+  const { lines } = groupPdfTextItemsIntoLines(items, { yTolerance: 3 })
+  assert('word-A and word-B on same line', lines.some(l => l.includes('word-A') && l.includes('word-B')))
+  assert('word-C on its own line', lines.some(l => l === 'word-C'))
+  console.log()
+}
+
+// PLR-5: Page-blob input (1 page of many items) produces many short lines
+{
+  console.log('PLR-5: Reconstructing a page blob improves line count and max length')
+  // Simulate a page with 10 visual lines at Y 200, 190, 180, ..., 110
+  // Each line has 5 items (4 words each)
+  const items = []
+  const y_positions = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110]
+  for (const y of y_positions) {
+    for (let x = 0; x < 4; x++) {
+      items.push(mkItem(`word-${y}-${x}`, x * 40, y))
+    }
+  }
+
+  // Old-style joined text (blob per page): all items joined with space
+  const blobLine = items.map(i => i.str).join(' ')
+  const blobMaxLength = blobLine.length
+
+  const { lines } = groupPdfTextItemsIntoLines(items)
+  const reconstructedMaxLength = Math.max(...lines.map(l => l.length))
+
+  assert('reconstruction produces 10 lines (one per Y)', lines.length === 10)
+  assert('reconstructed max length < blob max length', reconstructedMaxLength < blobMaxLength)
+  assert('blob would have been > 300 chars', blobMaxLength > 300)
+  assert('reconstructed lines are all short (< 150 chars)', lines.every(l => l.length < 150))
   console.log()
 }
 

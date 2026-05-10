@@ -1,6 +1,6 @@
 import type { SourceReference } from './source-references'
 import type { SubmittalLifecycleStatus, LifecycleHistoryEntry } from './submittal-lifecycle'
-import { associateNearbySdCodes } from '../ingestion/nearby-sd-association.ts'
+import { associateNearbySdCodes, type NearbysdOptions } from '../ingestion/nearby-sd-association.ts'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = any
@@ -60,6 +60,11 @@ export interface SubmittalRegisterItem {
   activityNeedByDate?: string | null   // ISO date YYYY-MM-DD
   blocksWork?: boolean
   blockingRisk?: 'none' | 'low' | 'medium' | 'high' | null
+  // Extraction provenance — which pipeline produced this item and how confident.
+  // Set by the source selector; undefined on legacy items (treat as 'narrative').
+  extractionSource?: 'narrative' | 'ufgs_dd_form' | 'hybrid_fill'
+  extractionConfidence?: number
+  extractionSourceReason?: string
   // QA acknowledgements — stored in item_payload JSONB, no migration required.
   // Only for findings that represent intentional acceptance, not fixable metadata gaps.
   qaAcknowledgements?: {
@@ -178,7 +183,8 @@ export async function buildSubmittalRegisterFromSpecs(
 
 export function extractSubmittalRegisterItemsFromText(
   text: string,
-  sourceReference: SourceReference = {}
+  sourceReference: SourceReference = {},
+  nearbyOptions?: NearbysdOptions
 ): SubmittalRegisterItem[] {
   const section = sourceReference.specSection ?? null
   const sectionTitle = sourceReference.sectionTitle ?? null
@@ -188,7 +194,7 @@ export function extractSubmittalRegisterItemsFromText(
     .filter(Boolean)
 
   // Build nearby SD code associations before filtering so original indices are preserved.
-  const { associations: nearbySdMap } = associateNearbySdCodes(lines)
+  const { associations: nearbySdMap } = associateNearbySdCodes(lines, nearbyOptions)
 
   return lines
     .map((line, i) => ({ line, i }))

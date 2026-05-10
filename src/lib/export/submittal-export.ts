@@ -46,6 +46,10 @@ export const EXPORT_COLUMNS: { key: string; width: number }[] = [
   { key: 'Confidence',          width: 10 },
   { key: 'Source Quality',      width: 13 },
   { key: 'Notes',               width: 32 },
+  // G — Extraction Provenance
+  { key: 'Extraction Source',        width: 16 },
+  { key: 'Extraction Confidence',    width: 18 },
+  { key: 'Extraction Source Reason', width: 52 },
 ]
 
 const QA_LABEL: Record<string, string> = {
@@ -58,6 +62,7 @@ const QA_LABEL: Record<string, string> = {
   cross_section_duplicate_submittal:      'Cross-section duplicate',
   conditional_approval_authority:         'Conditional authority',
   spec_section_no_submittals:             'No submittals in section',
+  low_extraction_confidence:              'Low extraction confidence',
 }
 
 function str(v: string | number | null | undefined): string {
@@ -133,6 +138,16 @@ export function buildExportRows(items: SubmittalRegisterItem[]): ExportRow[] {
       'Confidence':    item.confidence != null ? `${Math.round(item.confidence * 100)}%` : '',
       'Source Quality': str(item.sourceQuality),
       'Notes':          str(item.notes),
+
+      // G — Extraction Provenance
+      'Extraction Source':
+        item.extractionSource ?? '',
+      'Extraction Confidence':
+        item.extractionConfidence != null
+          ? `${Math.round(item.extractionConfidence * 100)}%`
+          : '',
+      'Extraction Source Reason':
+        item.extractionSourceReason ?? '',
     }
   })
 }

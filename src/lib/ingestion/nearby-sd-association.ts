@@ -11,6 +11,10 @@
  * This module detects those patterns and returns an association map
  * (original-line-index → sdCode) used as fallback enrichment during
  * extraction. Inline SD codes always take priority.
+ *
+ * Use mode: 'reconstructed_pdf' or 'ufgs' (or maxDistance: 5) when processing
+ * visually reconstructed PDF text — UFGS table formatting separates SD codes
+ * from item descriptions by more than 2 visual lines.
  */
 
 import { extractSdCode, isLikelySubmittalRequirement } from '../chat/submittal-register.ts'
@@ -19,11 +23,33 @@ import { extractSdCode, isLikelySubmittalRequirement } from '../chat/submittal-r
 // Types
 // ---------------------------------------------------------------------------
 
+export interface NearbysdOptions {
+  /**
+   * Max lines to search forward or backward from an SD-only line.
+   * Explicit value overrides the mode default.
+   */
+  maxDistance?: number
+  /**
+   * Preset mode that controls default maxDistance:
+   *   'default'          → 2  (standard CSI spec text)
+   *   'reconstructed_pdf' → 5  (visually reconstructed PDF lines)
+   *   'ufgs'             → 5  (UFGS table-column format)
+   */
+  mode?: 'default' | 'reconstructed_pdf' | 'ufgs'
+}
+
 export interface NearbySdAssociationMetrics {
   sdCodeOnlyLinesDetected: number
-  forwardAssociations: number   // SD-only line before an item
-  backwardAssociations: number  // SD-only line after an item
-  ambiguousAssociations: number // both forward and backward found — skipped
+  forwardAssociations: number    // SD-only line before a single item
+  backwardAssociations: number   // SD-only line after a single item
+  ambiguousAssociations: number  // both forward and backward found different codes — skipped
+  skippedMultiCandidate: number  // window contained multiple candidate items — skipped
+  skippedBoundary: number        // boundary (page-break / heading) terminated scan before any candidate
+  // Block association (reconstructed_pdf / ufgs mode only)
+  blockHeadersDetected: number     // SD-only headers that triggered a block scan with ≥1 new assignment
+  blockAssociations: number        // items assigned SD code via block pass
+  blockSkippedDueToInline: number  // items in block skipped — had inline SD code already
+  blockTerminatedByBoundary: number // block scans terminated by a hard boundary
 }
 
 export interface NearbySdAssociationResult {
@@ -36,8 +62,9 @@ export interface NearbySdAssociationResult {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Max distance (in non-empty lines) to search forward or backward. */
-const MAX_DISTANCE = 2
+/** Default max distance (in non-empty lines) to search forward or backward. */
+const MAX_DISTANCE_DEFAULT = 2
+const MAX_DISTANCE_WIDE    = 5  // for reconstructed_pdf / ufgs mode
 
 /** SD-only lines are short — they carry a category header, not a full statement. */
 const SD_ONLY_MAX_LENGTH = 60
@@ -82,13 +109,35 @@ function isBoundaryLine(line: string): boolean {
  * original index when filtering or mapping over the same lines array.
  *
  * Priority: inline extractSdCode() always wins. This map is fallback-only.
+ *
+ * Association safety rule: if the search window contains multiple candidate
+ * items the association is skipped (ambiguous which item the SD code labels).
+ * This prevents false assignments when an SD category header covers several
+ * items. Ambiguous cases are counted in metrics.skippedMultiCandidate.
  */
-export function associateNearbySdCodes(lines: string[]): NearbySdAssociationResult {
+export function associateNearbySdCodes(
+  lines: string[],
+  options?: NearbysdOptions
+): NearbySdAssociationResult {
+  const mode = options?.mode ?? 'default'
+  const maxDist =
+    options?.maxDistance !== undefined
+      ? options.maxDistance
+      : mode === 'reconstructed_pdf' || mode === 'ufgs'
+        ? MAX_DISTANCE_WIDE
+        : MAX_DISTANCE_DEFAULT
+
   const metrics: NearbySdAssociationMetrics = {
-    sdCodeOnlyLinesDetected: 0,
-    forwardAssociations:     0,
-    backwardAssociations:    0,
-    ambiguousAssociations:   0,
+    sdCodeOnlyLinesDetected:   0,
+    forwardAssociations:       0,
+    backwardAssociations:      0,
+    ambiguousAssociations:     0,
+    skippedMultiCandidate:     0,
+    skippedBoundary:           0,
+    blockHeadersDetected:      0,
+    blockAssociations:         0,
+    blockSkippedDueToInline:   0,
+    blockTerminatedByBoundary: 0,
   }
 
   // ── Pass 1: locate SD-only lines ─────────────────────────────────────────
@@ -105,8 +154,10 @@ export function associateNearbySdCodes(lines: string[]): NearbySdAssociationResu
   }
 
   // ── Pass 2: forward associations ─────────────────────────────────────────
-  // SD-only at i → look ahead for an item without an inline SD code.
-  // Covers: "SD-03 Product Data\nConcrete mix design" (SD code before item).
+  // SD-only at i → scan ahead up to maxDist lines for candidate items.
+  // Exactly 1 candidate in window → associate.
+  // 0 candidates + hit boundary → count skippedBoundary.
+  // >1 candidates in window → count skippedMultiCandidate (ambiguous which gets the code).
 
   const forwardMap = new Map<number, string>()   // item index → sdCode
   const sdOnlyUsedForward = new Set<number>()    // SD-only indices consumed by fwd pass
@@ -115,40 +166,65 @@ export function associateNearbySdCodes(lines: string[]): NearbySdAssociationResu
     const code = sdOnlyAt[i]
     if (code === null) continue
 
-    for (let j = i + 1; j <= Math.min(i + MAX_DISTANCE, lines.length - 1); j++) {
-      if (isBoundaryLine(lines[j])) break
-      if (sdOnlyAt[j] !== null) break          // another SD-only cancels carry
+    const candidates: number[] = []
+    let hitBoundary = false
+
+    for (let j = i + 1; j <= Math.min(i + maxDist, lines.length - 1); j++) {
+      if (isBoundaryLine(lines[j])) { hitBoundary = true; break }
+      if (sdOnlyAt[j] !== null) break                          // another SD-only stops scan
       if (!isLikelySubmittalRequirement(lines[j])) continue
-      if (extractSdCode(lines[j]) !== null) break  // item already has inline code
-      forwardMap.set(j, code)
-      sdOnlyUsedForward.add(i)
-      metrics.forwardAssociations++
-      break
+      if (extractSdCode(lines[j]) !== null) break              // item already has inline code
+      candidates.push(j)
     }
+
+    if (candidates.length === 0) {
+      if (hitBoundary) metrics.skippedBoundary++
+      continue
+    }
+    if (candidates.length > 1) {
+      metrics.skippedMultiCandidate++
+      continue
+    }
+
+    forwardMap.set(candidates[0], code)
+    sdOnlyUsedForward.add(i)
+    metrics.forwardAssociations++
   }
 
   // ── Pass 3: backward associations ────────────────────────────────────────
-  // SD-only at i → look back for an item without an inline SD code.
-  // Covers: "Concrete mix design\nSD-03 Product Data" (SD code after item).
-  // Only runs for SD-only lines NOT already consumed by forward pass.
+  // SD-only at i → scan back up to maxDist lines for candidate items.
+  // Same single-candidate safety rule as the forward pass.
 
   const backwardMap = new Map<number, string>()  // item index → sdCode
 
   for (let i = 0; i < lines.length; i++) {
     const code = sdOnlyAt[i]
     if (code === null) continue
-    if (sdOnlyUsedForward.has(i)) continue      // already used in a forward association
+    if (sdOnlyUsedForward.has(i)) continue      // already consumed by forward pass
 
-    for (let j = i - 1; j >= Math.max(i - MAX_DISTANCE, 0); j--) {
-      if (isBoundaryLine(lines[j])) break
-      if (sdOnlyAt[j] !== null) break           // another SD-only line — stop
+    const candidates: number[] = []
+    let hitBoundary = false
+
+    for (let j = i - 1; j >= Math.max(i - maxDist, 0); j--) {
+      if (isBoundaryLine(lines[j])) { hitBoundary = true; break }
+      if (sdOnlyAt[j] !== null) break                          // another SD-only stops scan
       if (!isLikelySubmittalRequirement(lines[j])) continue
-      if (extractSdCode(lines[j]) !== null) break  // item already has inline code
-      if (forwardMap.has(j)) break              // item already covered by forward pass
-      backwardMap.set(j, code)
-      metrics.backwardAssociations++
-      break
+      if (extractSdCode(lines[j]) !== null) break              // item already has inline code
+      if (forwardMap.has(j)) break                             // already covered forward
+      candidates.push(j)
     }
+
+    if (candidates.length === 0) {
+      if (hitBoundary) metrics.skippedBoundary++
+      continue
+    }
+    if (candidates.length > 1) {
+      metrics.skippedMultiCandidate++
+      continue
+    }
+
+    backwardMap.set(candidates[0], code)
+    metrics.backwardAssociations++
   }
 
   // ── Pass 4: merge and detect ambiguity ────────────────────────────────────
@@ -163,13 +239,56 @@ export function associateNearbySdCodes(lines: string[]): NearbySdAssociationResu
     if (fwd && bwd && fwd !== bwd) {
       // Different codes from each direction — ambiguous, skip both
       metrics.ambiguousAssociations++
-      // Adjust counters (these were incremented optimistically)
       metrics.forwardAssociations--
       metrics.backwardAssociations--
       continue
     }
 
     associations.set(idx, fwd ?? bwd!)
+  }
+
+  // ── Pass 5: block association (reconstructed_pdf / ufgs mode only) ────────
+  // When a single SD category header line applies to a contiguous forward block
+  // of submittal items (UFGS table-column format), assign that SD code to ALL
+  // items in the block.
+  //
+  // Termination conditions: another SD header, boundary line, or end of lines.
+  // Non-item lines within the block are skipped (not assigned) but do not stop
+  // the scan — filler text between block items is tolerated.
+  //
+  // Never overwrites inline SD codes or associations already made in passes 2–4.
+
+  if (mode === 'reconstructed_pdf' || mode === 'ufgs') {
+    for (let i = 0; i < lines.length; i++) {
+      const code = sdOnlyAt[i]
+      if (code === null) continue
+
+      let newAssignments = 0
+      let terminatedByBoundary = false
+
+      for (let j = i + 1; j < lines.length; j++) {
+        if (isBoundaryLine(lines[j])) {
+          terminatedByBoundary = true
+          break
+        }
+        if (sdOnlyAt[j] !== null) break  // next SD header ends this block
+
+        if (!isLikelySubmittalRequirement(lines[j])) continue  // non-item filler — skip over
+
+        if (extractSdCode(lines[j]) !== null) {
+          metrics.blockSkippedDueToInline++
+          continue  // item has inline code — don't overwrite, but don't stop the block
+        }
+        if (associations.has(j)) continue  // already covered by forward/backward pass
+
+        associations.set(j, code)
+        newAssignments++
+        metrics.blockAssociations++
+      }
+
+      if (terminatedByBoundary) metrics.blockTerminatedByBoundary++
+      if (newAssignments > 0)   metrics.blockHeadersDetected++
+    }
   }
 
   return { associations, metrics }
