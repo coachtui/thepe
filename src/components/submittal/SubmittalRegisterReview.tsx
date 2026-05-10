@@ -62,6 +62,7 @@ const QA_FINDING_LABELS: Record<QAFindingType, string> = {
   missing_sd_code: 'Missing SD code',
   missing_approval_authority: 'Missing authority',
   blocking_risk_no_due_date: 'Blocking: no due date',
+  blocking_risk_missing_work_linkage: 'Missing FOW/activity',
   missing_source_excerpt: 'Missing excerpt',
   duplicate_submittal: 'Duplicate',
   spec_section_no_submittals: 'No submittals in section',
@@ -90,18 +91,29 @@ export function SubmittalRegisterReview({
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({})
   const [rowSave, setRowSave] = useState<Record<string, RowSaveState>>({})
   const [selectedSourceItem, setSelectedSourceItem] = useState<SubmittalRegisterItem | null>(null)
+  const [searchFilter, setSearchFilter] = useState('')
+  const [reviewStatusFilter, setReviewStatusFilter] = useState('')
   const [specSectionFilter, setSpecSectionFilter] = useState('')
   const [sdCodeFilter, setSdCodeFilter] = useState('')
   const [approvalAuthorityFilter, setApprovalAuthorityFilter] = useState('')
   const [blockingRiskFilter, setBlockingRiskFilter] = useState('')
+  const [blocksWorkFilter, setBlocksWorkFilter] = useState(false)
+  const [missingFOWFilter, setMissingFOWFilter] = useState(false)
+  const [needByFilter, setNeedByFilter] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   useEffect(() => {
     setDrafts({})
     setRowSave({})
+    setSearchFilter('')
+    setReviewStatusFilter('')
     setSpecSectionFilter('')
     setSdCodeFilter('')
     setApprovalAuthorityFilter('')
     setBlockingRiskFilter('')
+    setBlocksWorkFilter(false)
+    setMissingFOWFilter(false)
+    setNeedByFilter(false)
     setQaFindingFilter('')
   }, [data])
 
@@ -140,11 +152,35 @@ export function SubmittalRegisterReview({
   }, [qaFindingFilter, qaFindings])
 
   const filteredData = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const in14d = new Date(today)
+    in14d.setDate(in14d.getDate() + 14)
+
     const matchItem = (item: SubmittalRegisterItem): boolean => {
+      if (searchFilter) {
+        const q = searchFilter.toLowerCase()
+        if (!item.submittalItem.toLowerCase().includes(q) && !(item.submittalType ?? '').toLowerCase().includes(q)) return false
+      }
+      if (reviewStatusFilter && (item.reviewStatus ?? 'pending') !== reviewStatusFilter) return false
       if (specSectionFilter && !(item.specSection ?? '').toLowerCase().startsWith(specSectionFilter.toLowerCase())) return false
       if (sdCodeFilter && item.sdCode !== sdCodeFilter) return false
       if (approvalAuthorityFilter && item.approvalAuthority !== approvalAuthorityFilter) return false
       if (blockingRiskFilter && (item.blockingRisk ?? 'none') !== blockingRiskFilter) return false
+      if (blocksWorkFilter) {
+        const effectiveBlocks =
+          item.blocksWork === true || (item.blockingRisk === 'high' && !!item.activityNeedByDate)
+        if (!effectiveBlocks) return false
+      }
+      if (missingFOWFilter) {
+        const isRisky = item.blockingRisk === 'high' || item.blockingRisk === 'medium'
+        if (!isRisky || item.relatedFOW || item.scheduleActivity) return false
+      }
+      if (needByFilter) {
+        if (!item.activityNeedByDate) return false
+        const d = new Date(item.activityNeedByDate)
+        if (d < today || d > in14d) return false
+      }
       if (qaFindingFilter && !affectedItemsSet.has(itemKeys.get(item) ?? '')) return false
       return true
     }
@@ -154,9 +190,9 @@ export function SubmittalRegisterReview({
       .filter(s => s.items.length > 0)
     const ungrouped = data.ungrouped.filter(matchItem)
     return { items, groupedSections, ungrouped }
-  }, [data, specSectionFilter, sdCodeFilter, approvalAuthorityFilter, blockingRiskFilter, qaFindingFilter, affectedItemsSet, itemKeys])
+  }, [data, searchFilter, reviewStatusFilter, specSectionFilter, sdCodeFilter, approvalAuthorityFilter, blockingRiskFilter, blocksWorkFilter, missingFOWFilter, needByFilter, qaFindingFilter, affectedItemsSet, itemKeys])
 
-  const filtersActive = !!(specSectionFilter || sdCodeFilter || approvalAuthorityFilter || blockingRiskFilter || qaFindingFilter)
+  const filtersActive = !!(searchFilter || reviewStatusFilter || specSectionFilter || sdCodeFilter || approvalAuthorityFilter || blockingRiskFilter || blocksWorkFilter || missingFOWFilter || needByFilter || qaFindingFilter)
 
   const handleSetDraftStatus = (itemId: string, _currentStatus: ReviewStatus, currentNotes: string, status: ReviewStatus) => {
     setDrafts(prev => ({
@@ -239,81 +275,141 @@ export function SubmittalRegisterReview({
         <>
           <RunSummary run={data} />
 
-          <div className="flex flex-wrap items-end gap-3 p-3 bg-gray-50 rounded-md border border-gray-200">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Spec section</label>
+          <div className="space-y-1.5">
+            {/* Primary filters */}
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-gray-50 rounded-md border border-gray-200">
               <input
                 type="text"
-                value={specSectionFilter}
-                onChange={e => setSpecSectionFilter(e.target.value)}
-                placeholder="e.g. 03 30"
-                className="rounded border border-gray-300 px-2 py-1.5 text-sm w-28"
+                value={searchFilter}
+                onChange={e => setSearchFilter(e.target.value)}
+                placeholder="Search submittals…"
+                className="rounded border border-gray-300 px-2 py-1.5 text-sm flex-1 min-w-40"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">SD code</label>
               <select
-                value={sdCodeFilter}
-                onChange={e => setSdCodeFilter(e.target.value)}
+                value={reviewStatusFilter}
+                onChange={e => setReviewStatusFilter(e.target.value)}
                 className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
               >
-                <option value="">All</option>
-                {uniqueSdCodes.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="">All statuses</option>
+                {REVIEW_STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
               </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Approval authority</label>
-              <select
-                value={approvalAuthorityFilter}
-                onChange={e => setApprovalAuthorityFilter(e.target.value)}
-                className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
-              >
-                <option value="">All</option>
-                {uniqueAuthorities.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Blocking risk</label>
-              <select
-                value={blockingRiskFilter}
-                onChange={e => setBlockingRiskFilter(e.target.value)}
-                className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
-              >
-                <option value="">All</option>
-                {(['none', 'low', 'medium', 'high'] as const).map(r => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
-            </div>
-            {uniqueQaFindingTypes.length > 0 && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">QA issue</label>
+              {uniqueQaFindingTypes.length > 0 && (
                 <select
                   value={qaFindingFilter}
                   onChange={e => setQaFindingFilter(e.target.value as QAFindingType | '')}
                   className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
                 >
-                  <option value="">All</option>
+                  <option value="">All QA</option>
                   {uniqueQaFindingTypes.map(t => (
                     <option key={t} value={t}>{QA_FINDING_LABELS[t]}</option>
                   ))}
                 </select>
-              </div>
-            )}
-            {filtersActive && (
+              )}
+              <label className="flex items-center gap-1.5 cursor-pointer select-none whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={blocksWorkFilter}
+                  onChange={e => setBlocksWorkFilter(e.target.checked)}
+                  className="cursor-pointer"
+                />
+                <span className="text-xs font-medium text-gray-600">Blocks Work</span>
+              </label>
               <button
                 type="button"
-                onClick={() => {
-                  setSpecSectionFilter('')
-                  setSdCodeFilter('')
-                  setApprovalAuthorityFilter('')
-                  setBlockingRiskFilter('')
-                  setQaFindingFilter('')
-                }}
-                className="text-sm text-blue-600 hover:underline cursor-pointer"
+                onClick={() => setAdvancedOpen(o => !o)}
+                className="ml-auto text-xs text-gray-500 hover:text-gray-700 cursor-pointer flex items-center gap-1 whitespace-nowrap"
               >
-                Clear filters
+                Advanced {advancedOpen ? '▴' : '▾'}
               </button>
+              {filtersActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchFilter('')
+                    setReviewStatusFilter('')
+                    setSpecSectionFilter('')
+                    setSdCodeFilter('')
+                    setApprovalAuthorityFilter('')
+                    setBlockingRiskFilter('')
+                    setBlocksWorkFilter(false)
+                    setMissingFOWFilter(false)
+                    setNeedByFilter(false)
+                    setQaFindingFilter('')
+                  }}
+                  className="text-xs text-blue-600 hover:underline cursor-pointer whitespace-nowrap"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* Advanced filters */}
+            {advancedOpen && (
+              <div className="flex flex-wrap items-end gap-3 px-3 py-2 bg-gray-50 rounded-md border border-gray-200">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Spec section</label>
+                  <input
+                    type="text"
+                    value={specSectionFilter}
+                    onChange={e => setSpecSectionFilter(e.target.value)}
+                    placeholder="e.g. 03 30"
+                    className="rounded border border-gray-300 px-2 py-1.5 text-sm w-28"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">SD code</label>
+                  <select
+                    value={sdCodeFilter}
+                    onChange={e => setSdCodeFilter(e.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
+                  >
+                    <option value="">All</option>
+                    {uniqueSdCodes.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Approval authority</label>
+                  <select
+                    value={approvalAuthorityFilter}
+                    onChange={e => setApprovalAuthorityFilter(e.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
+                  >
+                    <option value="">All</option>
+                    {uniqueAuthorities.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Blocking risk</label>
+                  <select
+                    value={blockingRiskFilter}
+                    onChange={e => setBlockingRiskFilter(e.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
+                  >
+                    <option value="">All</option>
+                    {(['none', 'low', 'medium', 'high'] as const).map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none pb-1">
+                  <input
+                    type="checkbox"
+                    checked={missingFOWFilter}
+                    onChange={e => setMissingFOWFilter(e.target.checked)}
+                    className="cursor-pointer"
+                  />
+                  <span className="text-xs font-medium text-gray-600">Missing FOW</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none pb-1">
+                  <input
+                    type="checkbox"
+                    checked={needByFilter}
+                    onChange={e => setNeedByFilter(e.target.checked)}
+                    className="cursor-pointer"
+                  />
+                  <span className="text-xs font-medium text-gray-600">Need-by ≤ 14d</span>
+                </label>
+              </div>
             )}
           </div>
 
@@ -758,11 +854,19 @@ function ItemRow({
           onTransitioned={updates => onLifecycleTransitioned(itemId, updates)}
         />
       )}
-      {itemId && activeQaFilter && activeQaFilter !== 'spec_section_no_submittals' && (
+      {itemId && activeQaFilter && activeQaFilter !== 'spec_section_no_submittals' && activeQaFilter !== 'blocking_risk_missing_work_linkage' && (
         <QAInlineEditor
           item={item}
           projectId={projectId}
           activeQaFilter={activeQaFilter}
+          onPatched={updates => onLifecycleTransitioned(itemId, updates)}
+        />
+      )}
+      {itemId && (activeQaFilter === 'blocking_risk_missing_work_linkage' || item.blockingRisk === 'high' || item.blockingRisk === 'medium') && (
+        <QAInlineEditor
+          item={item}
+          projectId={projectId}
+          activeQaFilter="blocking_risk_missing_work_linkage"
           onPatched={updates => onLifecycleTransitioned(itemId, updates)}
         />
       )}
