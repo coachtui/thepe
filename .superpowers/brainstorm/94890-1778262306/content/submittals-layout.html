@@ -1,0 +1,182 @@
+<h2>Submittals Command Center — Layout Proposal</h2>
+<p class="subtitle">How the 5 tabs organize the existing components. Click a tab to see its contents.</p>
+
+<style>
+  .cc-shell { border: 1px solid #2a2a2a; border-radius: 10px; overflow: hidden; background: #111; font-family: inherit; margin-top: 16px; }
+  .tab-bar { display: flex; gap: 0; background: #1a1a1a; border-bottom: 1px solid #2a2a2a; padding: 0 16px; }
+  .tab { padding: 10px 18px; font-size: 13px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; white-space: nowrap; }
+  .tab:hover { color: #aaa; }
+  .tab.active { color: #e2e8f0; border-bottom-color: #6366f1; }
+  .tab-content { display: none; padding: 20px; }
+  .tab-content.active { display: block; }
+
+  .panel { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
+  .panel-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #666; margin-bottom: 10px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat-card { background: #222; border-radius: 6px; padding: 12px; text-align: center; }
+  .stat-num { font-size: 22px; font-weight: 700; }
+  .stat-label { font-size: 11px; color: #666; margin-top: 2px; }
+  .red { color: #f87171; } .amber { color: #fbbf24; } .green { color: #4ade80; } .purple { color: #a78bfa; } .blue { color: #60a5fa; }
+
+  .action-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #1e1e1e; font-size: 13px; }
+  .action-row:last-child { border-bottom: none; }
+  .badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge.red { background: #3f1e1e; color: #f87171; }
+  .badge.amber { background: #3f2d00; color: #fbbf24; }
+  .badge.purple { background: #2d1a4f; color: #a78bfa; }
+  .badge.blue { background: #1a2a3f; color: #60a5fa; }
+
+  .table-mock { background: #0f0f0f; border-radius: 6px; overflow: hidden; }
+  .table-header { display: grid; grid-template-columns: 60px 1fr 120px 120px 100px; gap: 12px; padding: 8px 12px; background: #1a1a1a; font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+  .table-row { display: grid; grid-template-columns: 60px 1fr 120px 120px 100px; gap: 12px; padding: 8px 12px; border-top: 1px solid #1a1a1a; font-size: 12px; color: #aaa; }
+
+  .note { font-size: 12px; color: #555; margin-top: 12px; font-style: italic; }
+
+  .artifact-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px; background: #2a1a00; border: 1px solid #3f2800; border-radius: 6px; margin-bottom: 8px; font-size: 12px; }
+  .artifact-tag { padding: 2px 6px; background: #fbbf2420; color: #fbbf24; border-radius: 3px; font-size: 10px; white-space: nowrap; }
+
+  .approval-row { display: grid; grid-template-columns: 1fr 120px 100px 120px; gap: 12px; padding: 8px 12px; border-top: 1px solid #1a1a1a; font-size: 12px; color: #aaa; align-items: center; }
+  .approval-header { display: grid; grid-template-columns: 1fr 120px 100px 120px; gap: 12px; padding: 8px 12px; background: #1a1a1a; font-size: 11px; color: #555; text-transform: uppercase; }
+
+  .ll-row { display: grid; grid-template-columns: 1fr 80px 100px 100px 120px; gap: 12px; padding: 8px 12px; border-top: 1px solid #1a1a1a; font-size: 12px; color: #aaa; align-items: center; }
+  .ll-header { display: grid; grid-template-columns: 1fr 80px 100px 100px 120px; gap: 12px; padding: 8px 12px; background: #1a1a1a; font-size: 11px; color: #555; text-transform: uppercase; }
+
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+  .chip.pending { background: #1a2640; color: #60a5fa; }
+  .chip.approved { background: #0f2a1a; color: #4ade80; }
+  .chip.revise { background: #3f1a00; color: #fb923c; }
+  .chip.overdue { background: #3f1e1e; color: #f87171; }
+</style>
+
+<div class="cc-shell">
+  <div class="tab-bar">
+    <div class="tab active" onclick="switchTab('overview')">Overview</div>
+    <div class="tab" onclick="switchTab('register')">Register</div>
+    <div class="tab" onclick="switchTab('queue')">Review Queue</div>
+    <div class="tab" onclick="switchTab('approvals')">Approvals</div>
+    <div class="tab" onclick="switchTab('longlead')">Long Lead</div>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div id="tab-overview" class="tab-content active">
+    <div class="panel">
+      <div class="panel-title">Lifecycle Summary (reuses LifecycleSummary component)</div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-num amber">14</div><div class="stat-label">Pending Review</div></div>
+        <div class="stat-card"><div class="stat-num red">3</div><div class="stat-label">Revision Required</div></div>
+        <div class="stat-card"><div class="stat-num purple">7</div><div class="stat-label">Long Lead</div></div>
+        <div class="stat-card"><div class="stat-num green">22</div><div class="stat-label">Approved</div></div>
+        <div class="stat-card"><div class="stat-num red">2</div><div class="stat-label">Overdue</div></div>
+        <div class="stat-card"><div class="stat-num blue">48</div><div class="stat-label">Total Items</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">High-Priority Action Queue</div>
+      <div class="action-row"><span class="badge red">OVERDUE</span><span style="flex:1;color:#e2e8f0">03-16 Structural Steel Connections</span><span style="color:#555;font-size:11px">Due 05-01</span></div>
+      <div class="action-row"><span class="badge red">REVISE</span><span style="flex:1;color:#e2e8f0">06-50 Roofing System</span><span style="color:#555;font-size:11px">Rev 2 pending</span></div>
+      <div class="action-row"><span class="badge amber">REVIEW</span><span style="flex:1;color:#e2e8f0">08-11 Hollow Metal Doors</span><span style="color:#555;font-size:11px">4 items</span></div>
+      <div class="action-row"><span class="badge red">OVERDUE</span><span style="flex:1;color:#e2e8f0">15-20 Plumbing Fixtures</span><span style="color:#555;font-size:11px">Due 04-28</span></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="panel">
+        <div class="panel-title">Recently Approved</div>
+        <div class="action-row"><span class="badge" style="background:#0f2a1a;color:#4ade80">APPROVED</span><span style="color:#aaa;font-size:12px">02-01 Concrete Mix</span></div>
+        <div class="action-row"><span class="badge" style="background:#0f2a1a;color:#4ade80">APPROVED</span><span style="color:#aaa;font-size:12px">05-50 Metal Fabrications</span></div>
+        <div class="action-row"><span class="badge" style="background:#1a2640;color:#93c5fd">NOTED</span><span style="color:#aaa;font-size:12px">07-20 Insulation</span></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Long-Lead Risks</div>
+        <div class="action-row"><span class="badge purple">26wk</span><span style="color:#aaa;font-size:12px">16-50 Electrical Switchgear</span></div>
+        <div class="action-row"><span class="badge purple">20wk</span><span style="color:#aaa;font-size:12px">15-30 HVAC Equipment</span></div>
+        <div class="action-row"><span class="badge purple">18wk</span><span style="color:#aaa;font-size:12px">11-40 Food Service Equip</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REGISTER -->
+  <div id="tab-register" class="tab-content">
+    <div class="panel">
+      <div class="panel-title">Full Register — current SubmittalRegisterReview table (unchanged)</div>
+      <div class="table-mock">
+        <div class="table-header"><span>#</span><span>Description</span><span>Section</span><span>Status</span><span>Due</span></div>
+        <div class="table-row"><span style="color:#555">001</span><span>Concrete Mix Design</span><span>03-30</span><span><span class="chip approved">Approved</span></span><span>—</span></div>
+        <div class="table-row"><span style="color:#555">002</span><span>Rebar Shop Drawings</span><span>03-20</span><span><span class="chip pending">Submitted</span></span><span>05-12</span></div>
+        <div class="table-row"><span style="color:#555">003</span><span>Structural Steel Connections</span><span>03-16</span><span><span class="chip overdue">Overdue</span></span><span>05-01</span></div>
+        <div class="table-row"><span style="color:#555">004</span><span>Hollow Metal Doors</span><span>08-11</span><span><span class="chip pending">Pending Review</span></span><span>05-20</span></div>
+      </div>
+      <p class="note">All existing section grouping, inline edit, LifecycleControls, and ArtifactReviewQueue remain here.</p>
+    </div>
+  </div>
+
+  <!-- REVIEW QUEUE -->
+  <div id="tab-queue" class="tab-content">
+    <div class="panel">
+      <div class="panel-title">Extraction Artifact Review — ArtifactReviewQueue component (moved here)</div>
+      <div class="artifact-row">
+        <span class="artifact-tag">PAGE BREAK</span>
+        <div style="flex:1">
+          <div style="color:#e2e8f0;font-size:12px;margin-bottom:4px">Suggested: "Metal Deck Shop Drawings" — Section 05-31</div>
+          <div style="color:#555;font-size:11px">Extracted fragment spans pages 4–5; may be split from parent item</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button style="padding:4px 10px;background:#1a2640;color:#60a5fa;border:1px solid #2a3f60;border-radius:4px;font-size:11px;cursor:pointer">Accept</button>
+          <button style="padding:4px 10px;background:#1a1a1a;color:#666;border:1px solid #2a2a2a;border-radius:4px;font-size:11px;cursor:pointer">Ignore</button>
+        </div>
+      </div>
+      <div class="artifact-row">
+        <span class="artifact-tag">PAGE BREAK</span>
+        <div style="flex:1">
+          <div style="color:#e2e8f0;font-size:12px;margin-bottom:4px">Suggested: "Anchor Bolt Layout" — Section 03-16</div>
+          <div style="color:#555;font-size:11px">Likely continuation of item 003; review title and merge</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button style="padding:4px 10px;background:#1a2640;color:#60a5fa;border:1px solid #2a3f60;border-radius:4px;font-size:11px;cursor:pointer">Accept</button>
+          <button style="padding:4px 10px;background:#1a1a1a;color:#666;border:1px solid #2a2a2a;border-radius:4px;font-size:11px;cursor:pointer">Ignore</button>
+        </div>
+      </div>
+      <p class="note">Badge on tab shows pending count. Empty state shown when queue is clear.</p>
+    </div>
+  </div>
+
+  <!-- APPROVALS -->
+  <div id="tab-approvals" class="tab-content">
+    <div class="panel">
+      <div class="panel-title">Approval Workflow — items in pending_review, submitted, approved_as_noted, revise_resubmit, rejected</div>
+      <div class="table-mock">
+        <div class="approval-header"><span>Item</span><span>Status</span><span>Due</span><span>Action</span></div>
+        <div class="approval-row"><span>Rebar Shop Drawings</span><span><span class="chip pending">Submitted</span></span><span>05-12</span><span style="color:#4ade80;font-size:11px">→ Approve</span></div>
+        <div class="approval-row"><span>Hollow Metal Doors</span><span><span class="chip pending">Pending Review</span></span><span>05-20</span><span style="color:#4ade80;font-size:11px">→ Approve</span></div>
+        <div class="approval-row"><span>Roofing System</span><span><span class="chip revise">Revise & Resubmit</span></span><span>—</span><span style="color:#fb923c;font-size:11px">Awaiting Rev</span></div>
+        <div class="approval-row"><span>Curtain Wall System</span><span><span class="chip pending">Pending Review</span></span><span>05-25</span><span style="color:#4ade80;font-size:11px">→ Approve</span></div>
+      </div>
+      <p class="note">Uses LifecycleControls for per-item transitions. Filtered to approval-relevant statuses only.</p>
+    </div>
+  </div>
+
+  <!-- LONG LEAD -->
+  <div id="tab-longlead" class="tab-content">
+    <div class="panel">
+      <div class="panel-title">Long Lead Items — flagged items + items with leadTimeDays</div>
+      <div class="table-mock">
+        <div class="ll-header"><span>Item</span><span>Lead Time</span><span>Status</span><span>Due Date</span><span>Risk</span></div>
+        <div class="ll-row"><span>Electrical Switchgear</span><span style="color:#a78bfa">26 wks</span><span><span class="chip pending">Submitted</span></span><span>06-01</span><span style="color:#f87171;font-size:11px">Critical</span></div>
+        <div class="ll-row"><span>HVAC Equipment</span><span style="color:#a78bfa">20 wks</span><span><span class="chip pending">Pending Review</span></span><span>05-30</span><span style="color:#fbbf24;font-size:11px">High</span></div>
+        <div class="ll-row"><span>Food Service Equipment</span><span style="color:#a78bfa">18 wks</span><span><span class="chip approved">Approved</span></span><span>—</span><span style="color:#4ade80;font-size:11px">Ordered</span></div>
+        <div class="ll-row"><span>Elevator Equipment</span><span style="color:#a78bfa">24 wks</span><span><span class="chip pending">Submitted</span></span><span>06-15</span><span style="color:#fbbf24;font-size:11px">High</span></div>
+      </div>
+      <p class="note">Sorted by lead time descending. Risk level derived from lead time + lifecycle status + due date proximity.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    const tabs = ['overview','register','queue','approvals','longlead'];
+    t.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => {
+    c.classList.toggle('active', c.id === 'tab-' + name);
+  });
+}
+</script>

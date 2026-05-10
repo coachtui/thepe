@@ -9,6 +9,7 @@ import type {
 import { LifecycleControls } from './LifecycleControls'
 import { SourceDetailDrawer } from './SourceDetailDrawer'
 import { QAInlineEditor } from './QAInlineEditor'
+import { ExportDropdown } from './ExportDropdown'
 import {
   evaluateSubmittalCoverageQA,
   getSubmittalItemKey,
@@ -314,6 +315,12 @@ export function SubmittalRegisterReview({
                 />
                 <span className="text-xs font-medium text-gray-600">Blocks Work</span>
               </label>
+              <ExportDropdown
+                projectId={projectId}
+                allItems={data.items}
+                filteredItems={filteredData.items}
+                filtersActive={filtersActive}
+              />
               <button
                 type="button"
                 onClick={() => setAdvancedOpen(o => !o)}
