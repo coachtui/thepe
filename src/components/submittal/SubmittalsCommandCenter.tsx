@@ -11,9 +11,10 @@ import { ArtifactReviewQueue } from './ArtifactReviewQueue'
 import { OverviewTab } from './tabs/OverviewTab'
 import { ApprovalsTab } from './tabs/ApprovalsTab'
 import { LongLeadTab } from './tabs/LongLeadTab'
+import { ReconciliationTab } from './tabs/ReconciliationTab'
 import { resolveEffectiveStatus } from '@/lib/chat/submittal-lifecycle'
 
-type Tab = 'overview' | 'register' | 'queue' | 'approvals' | 'longlead'
+type Tab = 'overview' | 'register' | 'queue' | 'approvals' | 'longlead' | 'reconciliation'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -21,6 +22,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'queue', label: 'Review Queue' },
   { id: 'approvals', label: 'Approvals' },
   { id: 'longlead', label: 'Long Lead' },
+  { id: 'reconciliation', label: 'Reconciliation' },
 ]
 
 function patchItemFields(
@@ -227,6 +229,12 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
                 projectId={projectId}
                 items={data.items}
                 onPatchItem={patchItem}
+              />
+            )}
+            {activeTab === 'reconciliation' && (
+              <ReconciliationTab
+                projectId={projectId}
+                generatedItems={data.items}
               />
             )}
           </>
