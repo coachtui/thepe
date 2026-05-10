@@ -3,14 +3,16 @@ import {
   extractSubmittalRegisterItemsFromText,
   isLikelySubmittalRequirement,
   shouldSuppressSubmittalCandidate,
+  extractSdCode,
 } from '../chat/submittal-register.ts'
 import { extractSpecSections } from '../vision/spec-extractor.ts'
 import { evaluateSubmittalCoverageQA, getSubmittalItemKey } from '../chat/submittal-coverage-qa.ts'
 import { normalizeDocumentText } from '../ingestion/document-normalization.ts'
+import { associateNearbySdCodes } from '../ingestion/nearby-sd-association.ts'
 import { readFile } from 'fs/promises'
 import path from 'path'
 import { computeIngestionGrade } from './ingestion-types.ts'
-import type { IngestionHarnessResult, IngestionSuspiciousRow, IngestionQABreakdown, NormalizationMetrics } from './ingestion-types.ts'
+import type { IngestionHarnessResult, IngestionSuspiciousRow, IngestionQABreakdown, NormalizationMetrics, NearbySdMetrics } from './ingestion-types.ts'
 
 // ---------------------------------------------------------------------------
 // Per-file evaluation — no DB writes, no Supabase dependency
@@ -25,6 +27,7 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
     let pagesProcessed: number | null
 
     let normalization: NormalizationMetrics | undefined
+    let nearbySd: NearbySdMetrics | undefined
 
     if (path.extname(filePath).toLowerCase() === '.txt') {
       text = await readFile(filePath, 'utf-8')
@@ -49,6 +52,25 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
         prefixStrippedLineCount: norm.prefixStrippedLineCount,
         patternsDetected:      norm.removedPatterns.length,
         warnings:              norm.normalizationWarnings,
+      }
+    }
+
+    // Nearby SD code association metrics (for harness reporting)
+    {
+      const allLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+      const { associations, metrics } = associateNearbySdCodes(allLines)
+      // Count lines where nearby association exists but inline extraction would win
+      let skippedDueToInline = 0
+      for (const [idx, _code] of associations) {
+        const line = allLines[idx]
+        if (line && extractSdCode(line) !== null) skippedDueToInline++
+      }
+      nearbySd = {
+        sdCodeOnlyLinesDetected: metrics.sdCodeOnlyLinesDetected,
+        forwardAssociations:     metrics.forwardAssociations,
+        backwardAssociations:    metrics.backwardAssociations,
+        ambiguousAssociations:   metrics.ambiguousAssociations,
+        skippedDueToInline,
       }
     }
 
@@ -178,6 +200,7 @@ export async function evaluateIngestionFile(filePath: string): Promise<Ingestion
       parseDurationMs: Date.now() - t0,
       topSuspiciousRows,
       ...(normalization !== undefined ? { normalization } : {}),
+      ...(nearbySd !== undefined ? { nearbySd } : {}),
     }
   } catch (err) {
     return {

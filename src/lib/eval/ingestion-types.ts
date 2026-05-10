@@ -47,6 +47,14 @@ export interface NormalizationMetrics {
   warnings: string[]
 }
 
+export interface NearbySdMetrics {
+  sdCodeOnlyLinesDetected: number
+  forwardAssociations: number
+  backwardAssociations: number
+  ambiguousAssociations: number
+  skippedDueToInline: number  // nearby found but inline code already present — inline kept
+}
+
 export interface IngestionSuspiciousRow {
   submittalItem: string
   specSection: string | null
@@ -97,6 +105,9 @@ export interface IngestionHarnessResult {
 
   // Normalization metrics (populated when normalization was applied)
   normalization?: NormalizationMetrics
+
+  // Nearby SD code association metrics (populated for PDF files)
+  nearbySd?: NearbySdMetrics
 
   // Set when file failed to process
   error?: string

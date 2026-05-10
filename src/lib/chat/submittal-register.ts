@@ -1,5 +1,6 @@
 import type { SourceReference } from './source-references'
 import type { SubmittalLifecycleStatus, LifecycleHistoryEntry } from './submittal-lifecycle'
+import { associateNearbySdCodes } from '../ingestion/nearby-sd-association.ts'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = any
@@ -186,10 +187,14 @@ export function extractSubmittalRegisterItemsFromText(
     .map(line => line.trim())
     .filter(Boolean)
 
+  // Build nearby SD code associations before filtering so original indices are preserved.
+  const { associations: nearbySdMap } = associateNearbySdCodes(lines)
+
   return lines
-    .filter(isLikelySubmittalRequirement)
-    .filter(line => !shouldSuppressSubmittalCandidate(line).suppress)
-    .map(line => buildItemFromStatement(line, {
+    .map((line, i) => ({ line, i }))
+    .filter(({ line }) => isLikelySubmittalRequirement(line))
+    .filter(({ line }) => !shouldSuppressSubmittalCandidate(line).suppress)
+    .map(({ line, i }) => buildItemFromStatement(line, {
       specSection: section,
       sectionTitle,
       sourceReference,
@@ -198,6 +203,7 @@ export function extractSubmittalRegisterItemsFromText(
       extractionMethod: 'sample_text',
       isExplicitFinding: false,
       notes: 'Parsed from sample/spec-like text; not live project retrieval.',
+      sdCodeNearbyFallback: nearbySdMap.get(i) ?? null,
     }))
     .reduce<SubmittalRegisterItem[]>(dedupeReducer, [])
 }
@@ -731,6 +737,11 @@ function buildItemFromStatement(
     sourceExcerptText?: string | null
     /** SD code from finding.metadata when the entity graph already knows it. */
     sdCodeOverride?: string | null
+    /**
+     * SD code from nearby-line association (UFGS multi-line pattern).
+     * Lowest priority: only used when sdCodeOverride and inline extraction both return null.
+     */
+    sdCodeNearbyFallback?: string | null
     baseConfidence: number
     extractionMethod: 'spec_entity_graph' | 'sample_text'
     isExplicitFinding: boolean
@@ -738,7 +749,8 @@ function buildItemFromStatement(
   }
 ): SubmittalRegisterItem {
   const submittalItem = cleanSubmittalItem(statement)
-  const sdCode = context.sdCodeOverride ?? extractSdCode(statement)
+  // Priority: entity-graph override → inline extraction → nearby-line fallback
+  const sdCode = context.sdCodeOverride ?? extractSdCode(statement) ?? context.sdCodeNearbyFallback ?? null
   const submittalType = detectSubmittalType(statement, sdCode)
   const approvalAuthority = extractApprovalAuthority(statement)
   const approvalAuthorityCondition = extractConditionalAuthorityCondition(statement)

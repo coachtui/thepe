@@ -187,6 +187,13 @@ function printTable(report) {
         for (const w of r.normalization.warnings) console.log(`    · ${w}`)
       }
     }
+    if (r.nearbySd) {
+      const { sdCodeOnlyLinesDetected: det, forwardAssociations: fwd, backwardAssociations: bwd, ambiguousAssociations: amb, skippedDueToInline: skip } = r.nearbySd
+      const total = fwd + bwd
+      if (det > 0 || total > 0) {
+        console.log(`  ⟳ nearby-SD: ${det} SD-only lines · ${fwd}↓ fwd · ${bwd}↑ bwd · ${amb} ambiguous · ${skip} skipped(inline)`)
+      }
+    }
     for (const row of r.topSuspiciousRows.slice(0, 2)) {
       console.log(`  ⚑ ${row.submittalItem.slice(0, 65)} [${row.reason}]`)
     }
