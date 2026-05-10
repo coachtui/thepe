@@ -81,17 +81,17 @@ export function DocumentList({ documents, projectId, onDelete }: DocumentListPro
   const getStatusBadge = (status: string | null) => {
     if (!status) return null
 
-    const styles = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      processing: 'bg-blue-100 text-blue-800',
-      completed: 'bg-green-100 text-green-800',
-      failed: 'bg-red-100 text-red-800',
+    const styles: Record<string, string> = {
+      pending: 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20',
+      processing: 'bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20',
+      completed: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20',
+      failed: 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20',
     }
 
     return (
       <span
-        className={`px-2 py-1 text-xs font-medium rounded-full ${
-          styles[status as keyof typeof styles] || 'bg-gray-100 text-gray-800'
+        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+          styles[status] ?? 'bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-500/20'
         }`}
       >
         {status.charAt(0).toUpperCase() + status.slice(1)}

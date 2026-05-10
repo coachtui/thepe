@@ -35,7 +35,6 @@ export default function SettingsPage() {
 
       if (!user) return
 
-      // Get user profile to find organization
       const { data: profile } = await supabase
         .from('users')
         .select('organization_id')
@@ -45,7 +44,6 @@ export default function SettingsPage() {
       const userProfile = profile as UserProfile | null
 
       if (userProfile?.organization_id) {
-        // Get organization
         const { data: org } = await supabase
           .from('organizations')
           .select('*')
@@ -54,7 +52,6 @@ export default function SettingsPage() {
 
         setOrganization(org)
 
-        // Get organization members
         const { data: orgMembers } = await supabase
           .from('users')
           .select('id, email, full_name, created_at')
@@ -73,101 +70,108 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading settings...</div>
+        <p className="text-sm text-slate-400">Loading settings...</p>
       </div>
     )
   }
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-2xl space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-        <p className="mt-2 text-gray-600">
-          Manage your organization settings and members
-        </p>
+        <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+        <p className="mt-1 text-sm text-slate-500">Manage your organization and team</p>
       </div>
 
-      {/* Organization Details */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
-          Organization
-        </h2>
+      {/* Organization */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6">
+        <h2 className="text-sm font-semibold text-slate-900 mb-4">Organization</h2>
         {organization ? (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-500">
-                Organization Name
-              </label>
-              <p className="mt-1 text-lg text-gray-900">{organization.name}</p>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Name</p>
+              <p className="text-sm text-slate-900">{organization.name}</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-500">
-                Created
-              </label>
-              <p className="mt-1 text-gray-900">
-                {organization.created_at ? new Date(organization.created_at).toLocaleDateString() : 'N/A'}
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Created</p>
+              <p className="text-sm text-slate-900">
+                {organization.created_at
+                  ? new Date(organization.created_at).toLocaleDateString()
+                  : 'N/A'}
               </p>
             </div>
           </div>
         ) : (
-          <p className="text-gray-500">No organization found</p>
+          <p className="text-sm text-slate-400">No organization found</p>
         )}
       </div>
 
-      {/* Organization Members */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-gray-900">
-            Members ({members.length})
+      {/* Members */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-sm font-semibold text-slate-900">
+            Team Members
+            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+              {members.length}
+            </span>
           </h2>
           <button
             disabled
-            className="px-4 py-2 bg-gray-300 text-gray-500 rounded-md cursor-not-allowed"
-            title="Coming in Phase 1.5"
+            className="px-3 py-1.5 text-sm border border-slate-200 text-slate-400 rounded-lg cursor-not-allowed"
+            title="Coming soon"
           >
             Invite Member
           </button>
         </div>
 
         {members.length > 0 ? (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {members.map((member) => (
               <div
                 key={member.id}
-                className="flex items-center justify-between p-4 border border-gray-200 rounded-lg"
+                className="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors duration-150"
               >
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
                     {(member.full_name || member.email)[0].toUpperCase()}
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">
+                    <p className="text-sm font-medium text-slate-900">
                       {member.full_name || 'No name'}
                     </p>
-                    <p className="text-sm text-gray-500">{member.email}</p>
+                    <p className="text-xs text-slate-400">{member.email}</p>
                   </div>
                 </div>
-                <div className="text-sm text-gray-500">
+                <p className="text-xs text-slate-400">
                   Joined {member.created_at ? new Date(member.created_at).toLocaleDateString() : 'N/A'}
-                </div>
+                </p>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-gray-500">No members found</p>
+          <p className="text-sm text-slate-400">No members found</p>
         )}
       </div>
 
-      {/* Future Features */}
-      <div className="bg-gray-50 rounded-lg p-6 border-2 border-dashed border-gray-300">
-        <h3 className="text-lg font-medium text-gray-700 mb-2">
-          Coming Soon
-        </h3>
-        <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
-          <li>Invite team members via email</li>
-          <li>Manage member roles and permissions</li>
-          <li>Edit organization details</li>
-          <li>Organization billing settings</li>
+      {/* Coming soon */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Coming Soon</h3>
+        <ul className="space-y-1.5 text-sm text-slate-500">
+          <li className="flex items-center gap-2">
+            <div className="w-1 h-1 rounded-full bg-slate-300" />
+            Invite team members via email
+          </li>
+          <li className="flex items-center gap-2">
+            <div className="w-1 h-1 rounded-full bg-slate-300" />
+            Manage member roles and permissions
+          </li>
+          <li className="flex items-center gap-2">
+            <div className="w-1 h-1 rounded-full bg-slate-300" />
+            Edit organization details
+          </li>
+          <li className="flex items-center gap-2">
+            <div className="w-1 h-1 rounded-full bg-slate-300" />
+            Billing and subscription management
+          </li>
         </ul>
       </div>
     </div>
