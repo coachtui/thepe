@@ -5,6 +5,7 @@ import type {
   LatestSubmittalRegisterRun,
   SubmittalRegisterItem,
 } from '@/lib/chat/submittal-register'
+import type { QAFindingType } from '@/lib/chat/submittal-coverage-qa'
 import { SubmittalRegisterReview } from './SubmittalRegisterReview'
 import { ArtifactReviewQueue } from './ArtifactReviewQueue'
 import { OverviewTab } from './tabs/OverviewTab'
@@ -48,6 +49,12 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('overview')
+  const [qaFindingFilter, setQaFindingFilter] = useState<QAFindingType | ''>('')
+
+  const handleSelectFindingType = useCallback((type: QAFindingType) => {
+    setActiveTab('register')
+    setQaFindingFilter(type)
+  }, [])
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh') => {
@@ -179,12 +186,19 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
       <div className="p-6">
         {data && (
           <>
-            {activeTab === 'overview' && <OverviewTab items={data.items} />}
+            {activeTab === 'overview' && (
+              <OverviewTab
+                items={data.items}
+                onSelectFindingType={handleSelectFindingType}
+              />
+            )}
             {activeTab === 'register' && (
               <SubmittalRegisterReview
                 projectId={projectId}
                 data={data}
                 onPatchItem={patchItem}
+                qaFindingFilter={qaFindingFilter}
+                onQaFindingFilterChange={setQaFindingFilter}
               />
             )}
             {activeTab === 'queue' && (

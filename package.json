@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "router:harness": "node --no-warnings scripts/task-router-harness.mjs",
-    "lint": "next lint"
+    "lint": "next lint",
+    "qa:harness": "node --no-warnings scripts/qa-submittal-harness.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.28",

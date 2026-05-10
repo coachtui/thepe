@@ -4,13 +4,16 @@ import { useMemo } from 'react'
 import type { SubmittalRegisterItem } from '@/lib/chat/submittal-register'
 import { LifecycleSummary } from '../LifecycleSummary'
 import { LifecycleBadge } from '../LifecycleBadge'
+import { CoverageQACard } from '../CoverageQACard'
 import { resolveEffectiveStatus, isOverdue } from '@/lib/chat/submittal-lifecycle'
+import type { QAFindingType } from '@/lib/chat/submittal-coverage-qa'
 
 interface OverviewTabProps {
   items: SubmittalRegisterItem[]
+  onSelectFindingType?: (type: QAFindingType) => void
 }
 
-export function OverviewTab({ items }: OverviewTabProps) {
+export function OverviewTab({ items, onSelectFindingType }: OverviewTabProps) {
   const priorityItems = useMemo(() => {
     return items
       .filter(i => {
@@ -87,6 +90,8 @@ export function OverviewTab({ items }: OverviewTabProps) {
           ))}
         </div>
       </div>
+
+      <CoverageQACard items={items} onSelectFindingType={onSelectFindingType} />
 
       {/* High-Priority Action Queue */}
       <section>

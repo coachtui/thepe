@@ -55,6 +55,20 @@ export interface SubmittalRegisterItem {
   relatedFOW?: string | null
   scheduleActivity?: string | null
   blockingRisk?: 'none' | 'low' | 'medium' | 'high' | null
+  // QA acknowledgements — stored in item_payload JSONB, no migration required.
+  // Only for findings that represent intentional acceptance, not fixable metadata gaps.
+  qaAcknowledgements?: {
+    duplicate_submittal?: {
+      acknowledgedAt: string
+      acknowledgedBy?: string
+      note?: string
+    }
+    missing_source_excerpt?: {
+      acknowledgedAt: string
+      acknowledgedBy?: string
+      note?: string
+    }
+  }
 }
 
 export interface SubmittalRegisterResult {

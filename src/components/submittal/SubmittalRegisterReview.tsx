@@ -8,11 +8,19 @@ import type {
 } from '@/lib/chat/submittal-register'
 import { LifecycleControls } from './LifecycleControls'
 import { SourceDetailDrawer } from './SourceDetailDrawer'
+import { QAInlineEditor } from './QAInlineEditor'
+import {
+  evaluateSubmittalCoverageQA,
+  getSubmittalItemKey,
+  type QAFindingType,
+} from '@/lib/chat/submittal-coverage-qa'
 
 interface SubmittalRegisterReviewProps {
   projectId: string
   data: LatestSubmittalRegisterRun
   onPatchItem: (itemId: string, updates: Partial<SubmittalRegisterItem>) => void
+  qaFindingFilter?: QAFindingType | ''
+  onQaFindingFilterChange?: (v: QAFindingType | '') => void
 }
 
 const REVIEW_STATUSES = [
@@ -50,6 +58,15 @@ const SOURCE_QUALITY_PILL: Record<'high' | 'medium' | 'low', string> = {
   low: 'bg-red-50 text-red-700 border border-red-200',
 }
 
+const QA_FINDING_LABELS: Record<QAFindingType, string> = {
+  missing_sd_code: 'Missing SD code',
+  missing_approval_authority: 'Missing authority',
+  blocking_risk_no_due_date: 'Blocking: no due date',
+  missing_source_excerpt: 'Missing excerpt',
+  duplicate_submittal: 'Duplicate',
+  spec_section_no_submittals: 'No submittals in section',
+}
+
 interface DraftState {
   status: ReviewStatus
   notes: string
@@ -64,7 +81,12 @@ export function SubmittalRegisterReview({
   projectId,
   data,
   onPatchItem,
+  qaFindingFilter: qaFindingFilterProp,
+  onQaFindingFilterChange,
 }: SubmittalRegisterReviewProps) {
+  const qaFindingFilter = qaFindingFilterProp ?? ''
+  const setQaFindingFilter = onQaFindingFilterChange ?? (() => {})
+
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({})
   const [rowSave, setRowSave] = useState<Record<string, RowSaveState>>({})
   const [selectedSourceItem, setSelectedSourceItem] = useState<SubmittalRegisterItem | null>(null)
@@ -80,6 +102,7 @@ export function SubmittalRegisterReview({
     setSdCodeFilter('')
     setApprovalAuthorityFilter('')
     setBlockingRiskFilter('')
+    setQaFindingFilter('')
   }, [data])
 
   const uniqueSdCodes = useMemo(() => {
@@ -92,12 +115,37 @@ export function SubmittalRegisterReview({
     return [...auths].sort()
   }, [data.items])
 
+  const itemKeys = useMemo(
+    () => new Map(data.items.map((item, i) => [item, getSubmittalItemKey(item, i)])),
+    [data.items],
+  )
+
+  const qaFindings = useMemo(
+    () => evaluateSubmittalCoverageQA({ items: data.items }).findings,
+    [data.items],
+  )
+
+  const uniqueQaFindingTypes = useMemo(
+    () =>
+      qaFindings
+        .filter(f => f.type !== 'spec_section_no_submittals' && f.affectedItemIds.length > 0)
+        .map(f => f.type),
+    [qaFindings],
+  )
+
+  const affectedItemsSet = useMemo<Set<string>>(() => {
+    if (!qaFindingFilter) return new Set()
+    const finding = qaFindings.find(f => f.type === qaFindingFilter)
+    return new Set(finding?.affectedItemIds ?? [])
+  }, [qaFindingFilter, qaFindings])
+
   const filteredData = useMemo(() => {
     const matchItem = (item: SubmittalRegisterItem): boolean => {
       if (specSectionFilter && !(item.specSection ?? '').toLowerCase().startsWith(specSectionFilter.toLowerCase())) return false
       if (sdCodeFilter && item.sdCode !== sdCodeFilter) return false
       if (approvalAuthorityFilter && item.approvalAuthority !== approvalAuthorityFilter) return false
       if (blockingRiskFilter && (item.blockingRisk ?? 'none') !== blockingRiskFilter) return false
+      if (qaFindingFilter && !affectedItemsSet.has(itemKeys.get(item) ?? '')) return false
       return true
     }
     const items = data.items.filter(matchItem)
@@ -106,9 +154,9 @@ export function SubmittalRegisterReview({
       .filter(s => s.items.length > 0)
     const ungrouped = data.ungrouped.filter(matchItem)
     return { items, groupedSections, ungrouped }
-  }, [data, specSectionFilter, sdCodeFilter, approvalAuthorityFilter, blockingRiskFilter])
+  }, [data, specSectionFilter, sdCodeFilter, approvalAuthorityFilter, blockingRiskFilter, qaFindingFilter, affectedItemsSet, itemKeys])
 
-  const filtersActive = !!(specSectionFilter || sdCodeFilter || approvalAuthorityFilter || blockingRiskFilter)
+  const filtersActive = !!(specSectionFilter || sdCodeFilter || approvalAuthorityFilter || blockingRiskFilter || qaFindingFilter)
 
   const handleSetDraftStatus = (itemId: string, _currentStatus: ReviewStatus, currentNotes: string, status: ReviewStatus) => {
     setDrafts(prev => ({
@@ -237,6 +285,21 @@ export function SubmittalRegisterReview({
                 ))}
               </select>
             </div>
+            {uniqueQaFindingTypes.length > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">QA issue</label>
+                <select
+                  value={qaFindingFilter}
+                  onChange={e => setQaFindingFilter(e.target.value as QAFindingType | '')}
+                  className="rounded border border-gray-300 px-2 py-1.5 text-sm bg-white cursor-pointer"
+                >
+                  <option value="">All</option>
+                  {uniqueQaFindingTypes.map(t => (
+                    <option key={t} value={t}>{QA_FINDING_LABELS[t]}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {filtersActive && (
               <button
                 type="button"
@@ -245,6 +308,7 @@ export function SubmittalRegisterReview({
                   setSdCodeFilter('')
                   setApprovalAuthorityFilter('')
                   setBlockingRiskFilter('')
+                  setQaFindingFilter('')
                 }}
                 className="text-sm text-blue-600 hover:underline cursor-pointer"
               >
@@ -252,6 +316,23 @@ export function SubmittalRegisterReview({
               </button>
             )}
           </div>
+
+          {qaFindingFilter && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-md text-xs text-indigo-800">
+              <span className="font-medium">QA filter:</span>
+              <span>{QA_FINDING_LABELS[qaFindingFilter]}</span>
+              <span className="text-indigo-500">·</span>
+              <span>{filteredData.items.length} item{filteredData.items.length === 1 ? '' : 's'}</span>
+              <button
+                type="button"
+                onClick={() => setQaFindingFilter('')}
+                className="ml-auto text-indigo-600 hover:text-indigo-900 cursor-pointer font-medium"
+                aria-label="Clear QA filter"
+              >
+                ✕ Clear
+              </button>
+            </div>
+          )}
 
           <div className="space-y-4">
             {filtersActive && filteredData.items.length === 0 && (
@@ -270,6 +351,7 @@ export function SubmittalRegisterReview({
                 onReset={handleResetDraft}
                 onLifecycleTransitioned={onPatchItem}
                 onViewSource={setSelectedSourceItem}
+                activeQaFilter={qaFindingFilter}
               />
             ))}
             {filteredData.ungrouped.length > 0 && (
@@ -284,6 +366,7 @@ export function SubmittalRegisterReview({
                 onReset={handleResetDraft}
                 onLifecycleTransitioned={onPatchItem}
                 onViewSource={setSelectedSourceItem}
+                activeQaFilter={qaFindingFilter}
               />
             )}
           </div>
@@ -398,6 +481,7 @@ interface SectionRenderProps {
   onReset: (itemId: string) => void
   onLifecycleTransitioned: (itemId: string, updates: Partial<SubmittalRegisterItem>) => void
   onViewSource: (item: SubmittalRegisterItem) => void
+  activeQaFilter?: QAFindingType | ''
 }
 
 function SectionCard({
@@ -411,6 +495,7 @@ function SectionCard({
   onReset,
   onLifecycleTransitioned,
   onViewSource,
+  activeQaFilter,
 }: SectionRenderProps & { section: SubmittalRegisterGroup }) {
   const [open, setOpen] = useState(false)
 
@@ -468,6 +553,7 @@ function SectionCard({
               onReset={onReset}
               onLifecycleTransitioned={onLifecycleTransitioned}
               onViewSource={onViewSource}
+              activeQaFilter={activeQaFilter}
             />
           ))}
         </ul>
@@ -487,6 +573,7 @@ function UngroupedCard({
   onReset,
   onLifecycleTransitioned,
   onViewSource,
+  activeQaFilter,
 }: SectionRenderProps & { items: SubmittalRegisterItem[] }) {
   return (
     <div className="rounded-md border border-gray-200">
@@ -510,6 +597,7 @@ function UngroupedCard({
             onReset={onReset}
             onLifecycleTransitioned={onLifecycleTransitioned}
             onViewSource={onViewSource}
+            activeQaFilter={activeQaFilter}
           />
         ))}
       </ul>
@@ -528,6 +616,7 @@ function ItemRow({
   onReset,
   onLifecycleTransitioned,
   onViewSource,
+  activeQaFilter,
 }: SectionRenderProps & { item: SubmittalRegisterItem }) {
   const itemId = item.persistedItemId
   const currentStatus: ReviewStatus = isReviewStatus(item.reviewStatus) ? item.reviewStatus : 'pending'
@@ -667,6 +756,14 @@ function ItemRow({
           item={item}
           projectId={projectId}
           onTransitioned={updates => onLifecycleTransitioned(itemId, updates)}
+        />
+      )}
+      {itemId && activeQaFilter && activeQaFilter !== 'spec_section_no_submittals' && (
+        <QAInlineEditor
+          item={item}
+          projectId={projectId}
+          activeQaFilter={activeQaFilter}
+          onPatched={updates => onLifecycleTransitioned(itemId, updates)}
         />
       )}
     </li>
