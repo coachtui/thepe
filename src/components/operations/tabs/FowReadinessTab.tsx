@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import type { SubmittalRegisterItem } from '@/lib/chat/submittal-register'
 import type { FowReadiness } from '@/lib/graph/fow-readiness'
-import { LifecycleBadge } from '../LifecycleBadge'
+import { LifecycleBadge } from '../../submittal/LifecycleBadge'
 
 interface FowReadinessTabProps {
   projectId: string

@@ -12,10 +12,9 @@ import { OverviewTab } from './tabs/OverviewTab'
 import { ApprovalsTab } from './tabs/ApprovalsTab'
 import { LongLeadTab } from './tabs/LongLeadTab'
 import { ReconciliationTab } from './tabs/ReconciliationTab'
-import { FowReadinessTab } from './tabs/FowReadinessTab'
 import { resolveEffectiveStatus } from '@/lib/chat/submittal-lifecycle'
 
-type Tab = 'overview' | 'register' | 'queue' | 'approvals' | 'longlead' | 'fow' | 'reconciliation'
+type Tab = 'overview' | 'register' | 'queue' | 'approvals' | 'longlead' | 'reconciliation'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -23,7 +22,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'queue', label: 'Review Queue' },
   { id: 'approvals', label: 'Approvals' },
   { id: 'longlead', label: 'Long Lead' },
-  { id: 'fow', label: 'Features of Work' },
   { id: 'reconciliation', label: 'Reconciliation' },
 ]
 
@@ -232,9 +230,6 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
                 items={data.items}
                 onPatchItem={patchItem}
               />
-            )}
-            {activeTab === 'fow' && (
-              <FowReadinessTab projectId={projectId} />
             )}
             {activeTab === 'reconciliation' && (
               <ReconciliationTab

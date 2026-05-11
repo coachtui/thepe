@@ -10,6 +10,7 @@ import { DocumentList } from '@/components/documents/DocumentList'
 import { DocumentSearch } from '@/components/documents/DocumentSearch'
 import { ChatInterface } from '@/components/chat/ChatInterface'
 import { SubmittalsCommandCenter } from '@/components/submittal/SubmittalsCommandCenter'
+import { OperationsCommandCenter } from '@/components/operations/OperationsCommandCenter'
 import type { Database } from '@/lib/db/supabase/types'
 
 type Document = Database['public']['Tables']['documents']['Row']
@@ -27,13 +28,14 @@ interface Project {
   project_members: Array<{ role: string; user_id: string }>
 }
 
-type TabId = 'overview' | 'documents' | 'chat' | 'submittals'
+type TabId = 'overview' | 'documents' | 'chat' | 'submittals' | 'operations'
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'documents', label: 'Documents' },
   { id: 'chat', label: 'AI Chat' },
   { id: 'submittals', label: 'Submittals' },
+  { id: 'operations', label: 'Operations' },
 ]
 
 const STATUS_STYLES: Record<string, string> = {
@@ -588,6 +590,11 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
       {/* Submittals Tab */}
       {activeTab === 'submittals' && (
         <SubmittalsCommandCenter projectId={params.id} />
+      )}
+
+      {/* Operations Tab */}
+      {activeTab === 'operations' && (
+        <OperationsCommandCenter projectId={params.id} />
       )}
     </div>
   )
