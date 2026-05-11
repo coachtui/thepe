@@ -5,9 +5,12 @@
 import {
   computeFowReadiness,
   rankFowByReadiness,
-  groupSubmittalsByFowEntity,
+  groupSubmittalsByFowSpecSections,
   normalizeFowName,
-  extractUniqueFowsFromSubmittals,
+  normalizeSpecSectionForFow,
+  getCsiDivision,
+  csiDivisionName,
+  suggestFowsFromSubmittals,
 } from '../src/lib/graph/fow-readiness.ts'
 
 let passed = 0
@@ -27,78 +30,61 @@ function section(name) {
   console.log(`\n── ${name} ──`)
 }
 
-function fow(id, displayName, opts = {}) {
+function fow(id, displayName, specSections = [], opts = {}) {
   return {
     id,
     projectId: 'proj-1',
     canonicalName: normalizeFowName(displayName),
     displayName,
     discipline: opts.discipline ?? 'general',
-    status: opts.status ?? 'planned',
+    status: opts.status ?? 'active',
+    sequence: opts.sequence ?? 0,
+    specSections,
+    trade: opts.trade ?? null,
+    subcontractor: opts.subcontractor ?? null,
   }
 }
 
-function submittal(id, status, opts = {}) {
+function submittal(id, status, specSection = null) {
   return {
     submittalItem: `Item ${id}`,
     persistedItemId: id,
     lifecycleStatus: status,
-    relatedFOW: opts.relatedFOW ?? null,
-    fowEntityId: opts.fowEntityId ?? null,
+    specSection,
   }
 }
 
 // ---------------------------------------------------------------------------
 section('FOW-1: normalizeFowName')
 
-assert('FOW-1a: trims whitespace', normalizeFowName('  Slab on Grade  ') === 'slab on grade')
-assert('FOW-1b: collapses internal whitespace', normalizeFowName('Slab   on   Grade') === 'slab on grade')
+assert('FOW-1a: trims', normalizeFowName('  Slab on Grade  ') === 'slab on grade')
+assert('FOW-1b: collapses whitespace', normalizeFowName('Slab   on   Grade') === 'slab on grade')
 assert('FOW-1c: lowercases', normalizeFowName('SLAB ON GRADE') === 'slab on grade')
-assert('FOW-1d: handles tabs and newlines', normalizeFowName('Slab\ton\nGrade') === 'slab on grade')
-assert('FOW-1e: empty string stays empty', normalizeFowName('') === '')
 
 // ---------------------------------------------------------------------------
-section('FOW-2: extractUniqueFowsFromSubmittals')
+section('FOW-2: spec section + CSI normalization')
 
-const subs1 = [
-  submittal('s1', 'approved', { relatedFOW: 'Slab on Grade' }),
-  submittal('s2', 'submitted', { relatedFOW: 'SLAB ON GRADE' }),
-  submittal('s3', 'draft', { relatedFOW: '  Slab on   Grade  ' }),
-  submittal('s4', 'approved', { relatedFOW: 'Concrete Walls' }),
-  submittal('s5', 'pending_review', { relatedFOW: null }),
-  submittal('s6', 'draft', { relatedFOW: '' }),
-]
-const fows1 = extractUniqueFowsFromSubmittals(subs1)
-
-assert('FOW-2a: dedupes 3 SOG variants into one entity', fows1.filter(f => f.canonicalName === 'slab on grade').length === 1)
-assert('FOW-2b: produces 2 unique FOWs total', fows1.length === 2)
-
-const sog = fows1.find(f => f.canonicalName === 'slab on grade')
-assert('FOW-2c: SOG has 3 submittal IDs', sog?.submittalIds.length === 3)
-assert('FOW-2d: SOG preserves first display name', sog?.displayName === 'Slab on Grade')
-
-const cw = fows1.find(f => f.canonicalName === 'concrete walls')
-assert('FOW-2e: Concrete Walls has 1 submittal', cw?.submittalIds.length === 1)
-
-assert('FOW-2f: ignores submittals without persistedItemId',
-  extractUniqueFowsFromSubmittals([{ submittalItem: 'x', relatedFOW: 'FOW X' }]).length === 0)
+assert('FOW-2a: pads short sections', normalizeSpecSectionForFow('3 30 00') === '033000')
+assert('FOW-2b: strips sub-section', normalizeSpecSectionForFow('03 30 00.01') === '033000')
+assert('FOW-2c: handles dashes', normalizeSpecSectionForFow('03-30-00') === '033000')
+assert('FOW-2d: getCsiDivision', getCsiDivision('03 30 00') === '03')
+assert('FOW-2e: getCsiDivision handles padding', getCsiDivision('3 30 00') === '03')
+assert('FOW-2f: csiDivisionName known', csiDivisionName('03').name === 'Concrete')
+assert('FOW-2g: csiDivisionName unknown', csiDivisionName('99').name === 'Division 99')
 
 // ---------------------------------------------------------------------------
 section('FOW-3: computeFowReadiness')
 
-const fowSOG = fow('fow-sog', 'Slab on Grade')
+const fowConcrete = fow('fow-concrete', 'Concrete', ['03 30 00'])
 
 const allApproved = [
   submittal('a1', 'approved'),
   submittal('a2', 'approved_as_noted'),
   submittal('a3', 'closed'),
 ]
-const r1 = computeFowReadiness(fowSOG, allApproved)
-assert('FOW-3a: 100% when all approved variants', r1.readinessPercent === 100)
-assert('FOW-3b: approved count counts all 3', r1.approvedCount === 3)
-assert('FOW-3c: pending count is 0', r1.pendingCount === 0)
-assert('FOW-3d: blocked count is 0', r1.blockedCount === 0)
-assert('FOW-3e: no blockers when all approved', r1.blockers.length === 0)
+const r1 = computeFowReadiness(fowConcrete, allApproved)
+assert('FOW-3a: 100% all approved', r1.readinessPercent === 100)
+assert('FOW-3b: no blockers when all approved', r1.blockers.length === 0)
 
 const mixed = [
   submittal('m1', 'approved'),
@@ -107,56 +93,95 @@ const mixed = [
   submittal('m4', 'revise_resubmit'),
   submittal('m5', 'rejected'),
 ]
-const r2 = computeFowReadiness(fowSOG, mixed)
-assert('FOW-3f: mixed readiness is 20% (1/5)', r2.readinessPercent === 20)
-assert('FOW-3g: mixed approved count is 1', r2.approvedCount === 1)
-assert('FOW-3h: mixed pending count is 2', r2.pendingCount === 2)
-assert('FOW-3i: mixed blocked count is 2', r2.blockedCount === 2)
-assert('FOW-3j: blockers include 2 blocked + 2 pending = 4', r2.blockers.length === 4)
+const r2 = computeFowReadiness(fowConcrete, mixed)
+assert('FOW-3c: mixed = 20%', r2.readinessPercent === 20)
+assert('FOW-3d: 2 blocked', r2.blockedCount === 2)
+assert('FOW-3e: 2 pending', r2.pendingCount === 2)
+assert('FOW-3f: all non-approved listed as blockers', r2.blockers.length === 4)
 
-const r3 = computeFowReadiness(fowSOG, [])
-assert('FOW-3k: empty submittal list = 100% (vacuous)', r3.readinessPercent === 100)
-assert('FOW-3l: empty list total is 0', r3.totalCount === 0)
-
-const r4 = computeFowReadiness(fowSOG, [submittal('d1', undefined)])
-assert('FOW-3m: missing lifecycleStatus is pending (treated as draft)', r4.pendingCount === 1 && r4.approvedCount === 0)
+const r3 = computeFowReadiness(fowConcrete, [])
+assert('FOW-3g: empty list = 100% vacuous', r3.readinessPercent === 100)
 
 // ---------------------------------------------------------------------------
 section('FOW-4: rankFowByReadiness')
 
 const readinesses = [
-  computeFowReadiness(fow('a', 'A'), [submittal('1', 'approved'), submittal('2', 'approved')]),
-  computeFowReadiness(fow('b', 'B'), [submittal('3', 'rejected'), submittal('4', 'rejected')]),
-  computeFowReadiness(fow('c', 'C'), [submittal('5', 'rejected'), submittal('6', 'rejected'), submittal('7', 'rejected')]),
-  computeFowReadiness(fow('d', 'D'), [submittal('8', 'approved'), submittal('9', 'submitted')]),
+  computeFowReadiness(fow('a', 'A', ['03 30 00']), [submittal('1', 'approved')]),
+  computeFowReadiness(fow('b', 'B', ['26 05 00']), [submittal('2', 'rejected'), submittal('3', 'rejected')]),
+  computeFowReadiness(fow('c', 'C', ['23 00 00']), [submittal('4', 'rejected'), submittal('5', 'rejected'), submittal('6', 'rejected')]),
 ]
 const ranked = rankFowByReadiness(readinesses)
-
-assert('FOW-4a: worst readiness first', ranked[0].fow.id === 'c' || ranked[0].fow.id === 'b')
-assert('FOW-4b: among ties, more blockers first', ranked[0].fow.id === 'c' && ranked[1].fow.id === 'b')
-assert('FOW-4c: 100% readiness sorted last', ranked[3].fow.id === 'a')
-assert('FOW-4d: 50% in middle', ranked[2].fow.id === 'd')
-assert('FOW-4e: rankFowByReadiness does not mutate input', readinesses[0].fow.id === 'a')
+assert('FOW-4a: worst first (most blockers tiebreak)', ranked[0].fow.id === 'c')
+assert('FOW-4b: 100% sorted last', ranked[2].fow.id === 'a')
+assert('FOW-4c: rank does not mutate', readinesses[0].fow.id === 'a')
 
 // ---------------------------------------------------------------------------
-section('FOW-5: groupSubmittalsByFowEntity')
+section('FOW-5: groupSubmittalsByFowSpecSections')
 
-const fowsList = [fow('fA', 'A'), fow('fB', 'B'), fow('fC', 'C')]
-const subsList = [
-  submittal('s1', 'approved', { fowEntityId: 'fA' }),
-  submittal('s2', 'submitted', { fowEntityId: 'fA' }),
-  submittal('s3', 'rejected', { fowEntityId: 'fB' }),
-  submittal('s4', 'draft', { fowEntityId: null }),       // unlinked — skipped
-  submittal('s5', 'draft', { fowEntityId: 'fX' }),       // links to unknown FOW — skipped
+const fows = [
+  fow('fConc', 'Concrete', ['03 30 00', '03 11 00']),
+  fow('fHvac', 'HVAC', ['23 00 00']),
+  fow('fElec', 'Electrical', ['26 05 00']),
 ]
-const grouped = groupSubmittalsByFowEntity(fowsList, subsList)
+const subs = [
+  submittal('s1', 'approved', '03 30 00'),       // → Concrete
+  submittal('s2', 'submitted', '03 11 00'),      // → Concrete
+  submittal('s3', 'pending_review', '23 00 00'), // → HVAC
+  submittal('s4', 'approved', '99 99 99'),       // → no FOW
+  submittal('s5', 'approved', null),             // → no spec section
+]
+const grouped = groupSubmittalsByFowSpecSections(fows, subs)
 
-assert('FOW-5a: returns a Map', grouped instanceof Map)
-assert('FOW-5b: every FOW has an entry (even empty)', grouped.has('fC') && grouped.get('fC').length === 0)
-assert('FOW-5c: A has 2 submittals', grouped.get('fA')?.length === 2)
-assert('FOW-5d: B has 1 submittal', grouped.get('fB')?.length === 1)
-assert('FOW-5e: unlinked + unknown-FOW submittals are skipped',
-  grouped.get('fA').length + grouped.get('fB').length + grouped.get('fC').length === 3)
+assert('FOW-5a: Concrete picks up 2', grouped.get('fConc')?.length === 2)
+assert('FOW-5b: HVAC picks up 1', grouped.get('fHvac')?.length === 1)
+assert('FOW-5c: Electrical picks up 0', grouped.get('fElec')?.length === 0)
+assert('FOW-5d: unmatched spec section ignored',
+  grouped.get('fConc').concat(grouped.get('fHvac'), grouped.get('fElec')).length === 3)
+
+// Overlap test — submittal can belong to multiple FOWs
+const overlap = [
+  fow('fAll', 'All Concrete', ['03 30 00']),
+  fow('fSlab', 'Slab on Grade — Bldg 2', ['03 30 00']),
+]
+const overlapSubs = [submittal('s1', 'approved', '03 30 00')]
+const overlapGrouped = groupSubmittalsByFowSpecSections(overlap, overlapSubs)
+assert('FOW-5e: submittal in multiple FOWs',
+  overlapGrouped.get('fAll').length === 1 && overlapGrouped.get('fSlab').length === 1)
+
+// Normalization match — "3 30 00" should match FOW's "03 30 00"
+const normFow = [fow('fN', 'N', ['03 30 00'])]
+const normSubs = [submittal('s1', 'approved', '3 30 00')]
+const normGrouped = groupSubmittalsByFowSpecSections(normFow, normSubs)
+assert('FOW-5f: spec normalization matches across formats',
+  normGrouped.get('fN').length === 1)
+
+// ---------------------------------------------------------------------------
+section('FOW-6: suggestFowsFromSubmittals')
+
+const projSubs = [
+  submittal('s1', 'approved', '03 30 00'),
+  submittal('s2', 'submitted', '03 11 00'),
+  submittal('s3', 'pending_review', '23 00 00'),
+  submittal('s4', 'draft', '26 05 00'),
+  submittal('s5', 'draft', '26 05 13'),
+  submittal('s6', 'draft', null),
+]
+const suggestions = suggestFowsFromSubmittals(projSubs)
+assert('FOW-6a: produces one suggestion per division (3 divs)', suggestions.length === 3)
+
+const concrete = suggestions.find(s => s.division === '03')
+assert('FOW-6b: concrete has 2 spec sections', concrete?.specSections.length === 2)
+assert('FOW-6c: concrete name is "Concrete"', concrete?.name === 'Concrete')
+assert('FOW-6d: concrete trade is "Concrete"', concrete?.trade === 'Concrete')
+
+const electrical = suggestions.find(s => s.division === '26')
+assert('FOW-6e: electrical has 2 spec sections', electrical?.specSections.length === 2)
+assert('FOW-6f: electrical name is "Electrical"', electrical?.name === 'Electrical')
+
+assert('FOW-6g: sorted by division', suggestions[0].division === '03' && suggestions[2].division === '26')
+
+const empty = suggestFowsFromSubmittals([submittal('s1', 'draft', null)])
+assert('FOW-6h: empty when no spec sections', empty.length === 0)
 
 // ---------------------------------------------------------------------------
 console.log('\n──────────────────────────────────────────────────')

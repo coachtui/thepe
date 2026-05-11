@@ -1,11 +1,10 @@
 /**
- * GET /api/projects/[id]/features-of-work
+ * GET  /api/projects/[id]/features-of-work
+ *   Returns every FOW for the project plus its readiness state. Sorted worst-first.
  *
- * Returns every FOW for the project plus its readiness state — required
- * submittals, blocker counts, and readiness percentage. Sorted worst-first.
- *
- * FOWs live in `project_entities` with `entity_type='feature_of_work'`.
- * Submittals link via `item_payload.fowEntityId`.
+ * POST /api/projects/[id]/features-of-work
+ *   Body: { name, specSections?, trade?, subcontractor?, sequence?, status? }
+ *   Creates (or returns existing by canonical name) a FOW entity.
  */
 
 import { NextResponse } from 'next/server'
@@ -15,10 +14,43 @@ import { loadLatestSubmittalRegisterRun } from '@/lib/chat/submittal-register-re
 import {
   computeFowReadiness,
   rankFowByReadiness,
-  groupSubmittalsByFowEntity,
+  groupSubmittalsByFowSpecSections,
   normalizeFowName,
   type FowEntity,
+  type FowReviewStatus,
 } from '@/lib/graph/fow-readiness'
+
+interface FowMetadata {
+  specSections?: string[]
+  trade?: string | null
+  subcontractor?: string | null
+  sequence?: number
+}
+
+function rowToFowEntity(row: {
+  id: string
+  project_id: string
+  canonical_name: string
+  display_name: string | null
+  discipline: string
+  status: string | null
+  metadata: unknown
+}): FowEntity {
+  const meta = (row.metadata ?? {}) as FowMetadata
+  const status = (row.status as FowReviewStatus) ?? 'active'
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    canonicalName: row.canonical_name,
+    displayName: row.display_name ?? row.canonical_name,
+    discipline: row.discipline,
+    status,
+    sequence: typeof meta.sequence === 'number' ? meta.sequence : 0,
+    specSections: Array.isArray(meta.specSections) ? meta.specSections : [],
+    trade: meta.trade ?? null,
+    subcontractor: meta.subcontractor ?? null,
+  }
+}
 
 export async function GET(
   _request: Request,
@@ -40,61 +72,42 @@ export async function GET(
 
   const svc = createServiceRoleClient()
 
-  // Load FOW entities
   const { data: fowRows, error: fowErr } = await svc
     .from('project_entities')
-    .select('id, project_id, canonical_name, display_name, discipline, status')
+    .select('id, project_id, canonical_name, display_name, discipline, status, metadata')
     .eq('project_id', projectId)
     .eq('entity_type', 'feature_of_work')
 
   if (fowErr) return NextResponse.json({ error: fowErr.message }, { status: 500 })
 
-  const fows: FowEntity[] = (fowRows ?? []).map(r => ({
-    id: r.id,
-    projectId: r.project_id,
-    canonicalName: r.canonical_name,
-    displayName: r.display_name ?? r.canonical_name,
-    discipline: r.discipline,
-    status: r.status,
-  }))
+  const fows: FowEntity[] = (fowRows ?? []).map(rowToFowEntity)
 
-  // Load latest submittal register
   const runOutcome = await loadLatestSubmittalRegisterRun(svc, projectId)
   if (runOutcome.status === 'error') {
     return NextResponse.json({ error: runOutcome.error }, { status: 500 })
   }
   const submittals = runOutcome.status === 'found' ? runOutcome.run.items : []
 
-  // Group + compute
-  const grouped = groupSubmittalsByFowEntity(fows, submittals)
+  const grouped = groupSubmittalsByFowSpecSections(fows, submittals)
   const readinesses = fows.map(fow => computeFowReadiness(fow, grouped.get(fow.id) ?? []))
   const ranked = rankFowByReadiness(readinesses)
 
-  // Slim submittal payload for the picker modal — full SubmittalRegisterItem is too heavy
-  const allSubmittals = submittals.map(s => ({
-    id: s.persistedItemId ?? '',
-    title: s.submittalItem,
-    specSection: s.specSection ?? null,
-    lifecycleStatus: s.lifecycleStatus ?? 'draft',
-    fowEntityId: s.fowEntityId ?? null,
-  })).filter(s => s.id)
+  // Count submittals linked to ≥1 FOW
+  const linkedSubmittalIds = new Set<string>()
+  for (const list of grouped.values()) {
+    for (const s of list) if (s.persistedItemId) linkedSubmittalIds.add(s.persistedItemId)
+  }
 
   return NextResponse.json({
     features: ranked,
     totals: {
       fowCount: fows.length,
-      submittalsLinked: submittals.filter(s => s.fowEntityId).length,
-      submittalsUnlinked: submittals.filter(s => !s.fowEntityId).length,
+      submittalsLinked: linkedSubmittalIds.size,
+      submittalsUnlinked: submittals.filter(s => s.persistedItemId && !linkedSubmittalIds.has(s.persistedItemId)).length,
     },
-    allSubmittals,
   })
 }
 
-/**
- * POST /api/projects/[id]/features-of-work
- * Body: { name: string, discipline?: string }
- * Creates (or returns existing) FOW entity for the project.
- */
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
@@ -113,28 +126,44 @@ export async function POST(
     .single()
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  let body: { name?: string; discipline?: string }
+  let body: {
+    name?: string
+    specSections?: string[]
+    trade?: string | null
+    subcontractor?: string | null
+    sequence?: number
+    status?: FowReviewStatus
+    discipline?: string
+  }
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
 
   const name = typeof body.name === 'string' ? body.name.trim() : ''
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
 
-  const discipline = typeof body.discipline === 'string' ? body.discipline : 'general'
   const canonicalName = normalizeFowName(name)
+  const discipline = typeof body.discipline === 'string' ? body.discipline : 'general'
+  const status: FowReviewStatus = body.status ?? 'active'
 
   const svc = createServiceRoleClient()
 
-  // Idempotent: return existing FOW with this canonical name if present
+  // Idempotent on canonical name
   const { data: existing } = await svc
     .from('project_entities')
-    .select('id, project_id, canonical_name, display_name, discipline, status')
+    .select('id, project_id, canonical_name, display_name, discipline, status, metadata')
     .eq('project_id', projectId)
     .eq('entity_type', 'feature_of_work')
     .eq('canonical_name', canonicalName)
     .maybeSingle()
 
   if (existing) {
-    return NextResponse.json({ fow: existing, created: false })
+    return NextResponse.json({ fow: rowToFowEntity(existing), created: false })
+  }
+
+  const metadata: FowMetadata = {
+    specSections: Array.isArray(body.specSections) ? body.specSections : [],
+    trade: body.trade ?? null,
+    subcontractor: body.subcontractor ?? null,
+    sequence: typeof body.sequence === 'number' ? body.sequence : 0,
   }
 
   const { data: inserted, error } = await svc
@@ -145,13 +174,15 @@ export async function POST(
       discipline,
       canonical_name: canonicalName,
       display_name: name,
-      status: 'planned',
+      status,
       extraction_source: 'user_created',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      metadata: metadata as any,
     })
-    .select('id, project_id, canonical_name, display_name, discipline, status')
+    .select('id, project_id, canonical_name, display_name, discipline, status, metadata')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ fow: inserted, created: true }, { status: 201 })
+  return NextResponse.json({ fow: rowToFowEntity(inserted), created: true }, { status: 201 })
 }
