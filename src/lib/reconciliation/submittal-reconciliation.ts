@@ -69,7 +69,8 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 
 function normalizeSpecSection(s: string | null | undefined): string {
   if (!s) return ''
-  return s.toUpperCase().replace(/[^0-9]/g, '')
+  // Strip non-digits, cap at 6 (drops sub-section suffixes), left-pad (fixes missing leading zeros)
+  return s.replace(/[^0-9]/g, '').slice(0, 6).padStart(6, '0')
 }
 
 // ---------------------------------------------------------------------------
