@@ -80,11 +80,10 @@ export function FowReadinessTab({ projectId }: FowReadinessTabProps) {
 
   if (!data || data.features.length === 0) {
     return (
-      <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 space-y-1">
-        <p className="text-sm font-medium text-amber-800">No features of work yet.</p>
-        <p className="text-xs text-amber-700">
-          FOW entities are created from submittal data via the backfill script.
-          Run <code className="px-1 py-0.5 rounded bg-amber-100 text-amber-900 font-mono">node scripts/backfill-fow-entities.mjs</code> to populate from existing submittals.
+      <div className="rounded-md bg-gray-50 border border-gray-200 px-4 py-6 text-center space-y-1">
+        <p className="text-sm font-medium text-gray-700">No features of work yet</p>
+        <p className="text-xs text-gray-500">
+          Features of work appear here as submittals are tagged to specific work activities.
         </p>
       </div>
     )
