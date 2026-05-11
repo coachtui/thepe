@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       activity_documents: {
@@ -1938,6 +1963,99 @@ export type Database = {
           },
         ]
       }
+      reconciliation_decisions: {
+        Row: {
+          decided_at: string
+          decided_by: string | null
+          decision: string
+          external_row_id: string
+          generated_item_id: string
+          id: string
+          session_id: string
+        }
+        Insert: {
+          decided_at?: string
+          decided_by?: string | null
+          decision: string
+          external_row_id: string
+          generated_item_id: string
+          id?: string
+          session_id: string
+        }
+        Update: {
+          decided_at?: string
+          decided_by?: string | null
+          decision?: string
+          external_row_id?: string
+          generated_item_id?: string
+          id?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reconciliation_decisions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "reconciliation_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reconciliation_sessions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          external_rows: Json
+          id: string
+          project_id: string
+          source_file_name: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          external_rows?: Json
+          id?: string
+          project_id: string
+          source_file_name: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          external_rows?: Json
+          id?: string
+          project_id?: string
+          source_file_name?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reconciliation_sessions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_quantity_summary"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "reconciliation_sessions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reconciliation_sessions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "utility_length_summary"
+            referencedColumns: ["project_id"]
+          },
+        ]
+      }
       rfis: {
         Row: {
           assigned_to: string | null
@@ -3432,8 +3550,10 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },
 } as const
-

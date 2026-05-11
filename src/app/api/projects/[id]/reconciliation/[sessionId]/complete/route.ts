@@ -53,8 +53,7 @@ export async function POST(
     .single()
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = createServiceRoleClient() as any
+  const svc = createServiceRoleClient()
 
   // Load session
   const { data: session, error: sessionErr } = await svc
@@ -77,7 +76,7 @@ export async function POST(
 
   if (decisionsErr) return NextResponse.json({ error: decisionsErr.message }, { status: 500 })
 
-  const externalRows = (session.external_rows as NormalizedExternalRow[]) ?? []
+  const externalRows = (session.external_rows as unknown as NormalizedExternalRow[]) ?? []
   const extById = new Map(externalRows.map(r => [r.externalId, r]))
 
   let updatedCount = 0

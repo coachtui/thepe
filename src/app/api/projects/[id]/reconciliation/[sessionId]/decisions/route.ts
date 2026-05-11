@@ -43,8 +43,7 @@ export async function POST(
     return NextResponse.json({ error: 'decision must be confirmed or rejected' }, { status: 400 })
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = createServiceRoleClient() as any
+  const svc = createServiceRoleClient()
 
   // Verify session belongs to this project
   const { data: session } = await svc

@@ -29,8 +29,7 @@ export async function GET(
     .single()
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = createServiceRoleClient() as any
+  const svc = createServiceRoleClient()
 
   const { data: session, error: sessionErr } = await svc
     .from('reconciliation_sessions')
@@ -81,15 +80,14 @@ export async function POST(
     return NextResponse.json({ error: 'source_file_name and external_rows are required' }, { status: 400 })
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = createServiceRoleClient() as any
+  const svc = createServiceRoleClient()
 
   const { data: session, error } = await svc
     .from('reconciliation_sessions')
     .insert({
       project_id: projectId,
       source_file_name: body.source_file_name,
-      external_rows: body.external_rows,
+      external_rows: body.external_rows as unknown as import('@/lib/db/supabase/types').Json,
       created_by: user.id,
     })
     .select('id, source_file_name, status, created_at')
