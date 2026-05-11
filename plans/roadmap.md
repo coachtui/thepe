@@ -1,7 +1,7 @@
 # Roadmap — thepe
 
 High-level phase sequence and status. Updated by CTO Builder only.
-Last updated: 2026-03-14 (Phase 7 checklist tightened; 7F scoped)
+Last updated: 2026-05-10 (Phase 8 graph layer designed; sequencing decision pending)
 
 ---
 
@@ -15,8 +15,9 @@ Last updated: 2026-03-14 (Phase 7 checklist tightened; 7F scoped)
 | Phase 4 | Architectural floor plans + schedule linkage | COMPLETE | 2026-03-11 |
 | Phase 5 | Structural + MEP + coordination reasoning | COMPLETE | 2026-03-11 |
 | Phase 6 | Spec + RFI + submittal ingestion | COMPLETE | 2026-03-11 |
-| **Phase 7** | **Project-scoped memory architecture** | **IN PROGRESS** | Design done 2026-03-13 |
-| Phase 8 | TBD — vision processing wiring (spec/rfi/submittal extractors) | PLANNED | — |
+| Phase 7 | Project-scoped memory architecture | DESIGN COMPLETE | Design done 2026-03-13, no code |
+| **Phase 8** | **Operational graph layer — project entities + typed relations** | **DESIGN COMPLETE** | Design done 2026-05-10 |
+| Phase 9 | TBD — likely specialist routing payoffs (chat queries graph) | PLANNED | — |
 
 ---
 
@@ -33,9 +34,23 @@ Last updated: 2026-03-14 (Phase 7 checklist tightened; 7F scoped)
 
 ---
 
+## Phase 8 Sub-Phases
+
+| Sub-phase | Name | Status |
+|---|---|---|
+| 8A | FOW entity promotion + readiness view | NOT STARTED |
+| 8B | Schedule activities as entities | DESIGNED, not detailed |
+| 8C | Inspections as entities | DESIGNED, not detailed |
+| 8D | Procurement as entities | DESIGNED, not detailed |
+
+Full design: `plans/phase8-graph-layer.md`
+
+---
+
 ## Pending Decisions
 
-- **Phase 8 scope:** Wire spec-extractor.ts, rfi-extractor.ts, submittal-extractor.ts into auto-process pipeline (same integration as demo-extractor.ts) — OR — implement Phase 6D (Spec → Drawing governs linkage) first. Needs CTO Builder session to decide.
+- **Phase 7 vs Phase 8 sequencing.** Phase 7 (chat memory + corrections + recheck) and Phase 8 (operational graph) are independent. Phase 8 builds the structured retrieval layer that Phase 7 later queries. Recommended order: **Phase 8A first**, then Phase 7A bug fixes in parallel, then full Phase 7. Needs user decision.
+- **Original Phase 8 (vision wiring) is now folded forward.** The prior "wire spec-extractor.ts into auto-process" task is still real but not a phase — it's a single PR-sized task that can ship anytime independent of phases 7/8.
 
 ---
 
