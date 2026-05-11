@@ -55,6 +55,7 @@ export interface SubmittalRegisterItem {
   sourcePage?: number | null
   sourceExcerpt?: string | null
   relatedFOW?: string | null
+  fowEntityId?: string | null   // UUID into project_entities (entity_type='feature_of_work'); Phase 8A
   scheduleActivity?: string | null
   activityStartDate?: string | null    // ISO date YYYY-MM-DD
   activityNeedByDate?: string | null   // ISO date YYYY-MM-DD

@@ -24,32 +24,21 @@ The routed-specialists architecture (see `memory/project_routed_specialists_arch
 ## Task Checklist
 
 ### Schema + persistence
-- [ ] **Migration `00053_fow_entities_and_relations.sql`**
-  - Create `project_features_of_work` (id, project_id, name, discipline, status, description, metadata JSONB, timestamps)
-  - Create `entity_relations` (id, project_id, source_type, source_id, target_type, target_id, relation_type, confidence, provenance JSONB)
-  - UNIQUE constraint on `(project_id, source_type, source_id, target_type, target_id, relation_type)`
-  - Indexes on `(project_id, source_type, source_id)` and `(project_id, target_type, target_id)`
-  - RLS enabled — project members read, service role writes
-- [ ] **Apply migration to Supabase + regenerate `src/lib/db/supabase/types.ts`**
+- [x] **No migration needed** — reuse existing `project_entities` table (entity_type='feature_of_work', discipline='general'). Link via `submittal_register_items.item_payload.fowEntityId`. The existing `project_entities` table from Phase 1/2 already provides the entity primitive.
+- [x] **Added `fowEntityId?: string | null` to `SubmittalRegisterItem` type** in `src/lib/chat/submittal-register.ts`
 
 ### Pure logic
-- [ ] **Create `src/lib/graph/fow-readiness.ts`**
-  - `getFowReadiness(supabase, projectId, fowId)` — return FOW + required submittals + blocker counts + readiness %
-  - `listFowWithReadiness(supabase, projectId)` — array of above for every FOW, sorted worst-first
-  - Pure — accepts a Supabase client; no side effects
-- [ ] **Create `scripts/fow-graph-harness.mjs`** — pure module tests with fixtures
-  - Test backfill produces expected unique FOW entities from a fixture submittal set
-  - Test `getFowReadiness` returns correct counts/percentages
-  - Test relation queries return expected neighborhoods
-  - Wire `graph:harness` npm script
+- [x] **Created `src/lib/graph/fow-readiness.ts`** — pure: `computeFowReadiness`, `rankFowByReadiness`, `groupSubmittalsByFowEntity`, `normalizeFowName`, `extractUniqueFowsFromSubmittals`
+- [x] **Created `scripts/fow-graph-harness.mjs`** — 34/34 passing
+- [x] **Wired `graph:harness` npm script**
 
 ### Backfill
 - [ ] **Create `scripts/backfill-fow-entities.mjs`**
-  - For each project: gather unique non-null `featureOfWork` strings from `submittal_register_items.item_payload`
+  - For each project: gather unique non-null `item_payload.relatedFOW` strings from `submittal_register_items`
   - Normalize whitespace + case, dedupe
-  - Insert `project_features_of_work` rows (one per unique normalized name)
-  - Insert `entity_relations` rows linking each submittal to its FOW (`relation_type='submittal_required_for_fow'`, `provenance.source='backfill_from_string_field'`)
-  - Idempotent — re-runnable without duplicating
+  - Insert `project_entities` rows (entity_type='feature_of_work', discipline='general', canonical_name=normalized, display_name=original)
+  - Update each submittal's `item_payload.fowEntityId` to point at the new FOW row
+  - Idempotent — skip if `fowEntityId` already set, skip if matching FOW entity already exists
 
 ### API
 - [ ] **Create `GET /api/projects/[id]/features-of-work/route.ts`**

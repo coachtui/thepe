@@ -10,7 +10,8 @@
     "lint": "next lint",
     "qa:harness": "node --no-warnings scripts/qa-submittal-harness.mjs",
     "ingestion:harness": "node --no-warnings scripts/ingestion-harness.mjs",
-    "reconciliation:harness": "node --no-warnings scripts/reconciliation-harness.mjs"
+    "reconciliation:harness": "node --no-warnings scripts/reconciliation-harness.mjs",
+    "graph:harness": "node --no-warnings scripts/fow-graph-harness.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.28",
