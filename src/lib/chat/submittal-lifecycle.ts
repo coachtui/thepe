@@ -73,6 +73,39 @@ export function getNextStatuses(
   return TRANSITIONS[from] ?? []
 }
 
+// Shortest legal path from `from` to `to` over the TRANSITIONS graph.
+// Returns the intermediate statuses (excluding `from`, including `to`) to step through.
+// Returns null when `to` is unreachable from `from`.
+// If from === to, returns [] (no steps needed).
+export function findTransitionPath(
+  from: SubmittalLifecycleStatus,
+  to: SubmittalLifecycleStatus
+): SubmittalLifecycleStatus[] | null {
+  if (from === to) return []
+  const queue: SubmittalLifecycleStatus[] = [from]
+  const cameFrom = new Map<SubmittalLifecycleStatus, SubmittalLifecycleStatus>()
+  const visited = new Set<SubmittalLifecycleStatus>([from])
+  while (queue.length > 0) {
+    const node = queue.shift()!
+    for (const next of TRANSITIONS[node] ?? []) {
+      if (visited.has(next)) continue
+      visited.add(next)
+      cameFrom.set(next, node)
+      if (next === to) {
+        const path: SubmittalLifecycleStatus[] = []
+        let cursor: SubmittalLifecycleStatus | undefined = to
+        while (cursor && cursor !== from) {
+          path.unshift(cursor)
+          cursor = cameFrom.get(cursor)
+        }
+        return path
+      }
+      queue.push(next)
+    }
+  }
+  return null
+}
+
 export type TransitionResult =
   | { ok: true; entry: LifecycleHistoryEntry }
   | { ok: false; error: string }

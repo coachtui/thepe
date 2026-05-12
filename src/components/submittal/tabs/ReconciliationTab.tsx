@@ -6,11 +6,17 @@ import { getSubmittalItemKey } from '@/lib/chat/submittal-coverage-qa'
 import type { NormalizedExternalRow } from '@/lib/reconciliation/submittal-log-normalizer'
 import { parseSubmittalLog } from '@/lib/reconciliation/submittal-log-normalizer'
 import type { ReconciliationFinding, ReconciliationResult } from '@/lib/reconciliation/submittal-reconciliation'
-import { reconcileRegisters, applyMatchDecision } from '@/lib/reconciliation/submittal-reconciliation'
+import { reconcileRegisters, applyMatchDecision, normalizeExternalStatus } from '@/lib/reconciliation/submittal-reconciliation'
+import {
+  findTransitionPath,
+  STATUS_LABELS,
+  type SubmittalLifecycleStatus,
+} from '@/lib/chat/submittal-lifecycle'
 
 interface ReconciliationTabProps {
   projectId: string
   generatedItems: SubmittalRegisterItem[]
+  onRegisterUpdated?: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -223,23 +229,28 @@ function FindingSection({
   title,
   findings,
   emptyMsg,
+  headerAction,
   children,
 }: {
   title: string
   findings: ReconciliationFinding[]
   emptyMsg?: string
+  headerAction?: React.ReactNode
   children?: (f: ReconciliationFinding) => React.ReactNode
 }) {
   if (findings.length === 0 && !emptyMsg) return null
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-gray-800 mb-2">
-        {title}
-        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-          {findings.length}
-        </span>
-      </h3>
+      <div className="flex items-center justify-between mb-2 gap-3">
+        <h3 className="text-sm font-semibold text-gray-800">
+          {title}
+          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+            {findings.length}
+          </span>
+        </h3>
+        {headerAction}
+      </div>
       {findings.length === 0 ? (
         <p className="text-sm text-gray-400 italic">{emptyMsg}</p>
       ) : (
@@ -259,7 +270,7 @@ function FindingSection({
 // Main tab component
 // ---------------------------------------------------------------------------
 
-export function ReconciliationTab({ projectId, generatedItems }: ReconciliationTabProps) {
+export function ReconciliationTab({ projectId, generatedItems, onRegisterUpdated }: ReconciliationTabProps) {
   const [externalRows, setExternalRows] = useState<NormalizedExternalRow[] | null>(null)
   const [result, setResult] = useState<ReconciliationResult | null>(null)
   const [parsing, setParsing] = useState(false)
@@ -272,6 +283,10 @@ export function ReconciliationTab({ projectId, generatedItems }: ReconciliationT
   const [loadingSession, setLoadingSession] = useState(true)
   const [completing, setCompleting] = useState(false)
   const [completeResult, setCompleteResult] = useState<{ updatedCount: number; skippedCount: number } | null>(null)
+  const [adoptingFindingIds, setAdoptingFindingIds] = useState<Set<string>>(new Set())
+  const [adoptErrors, setAdoptErrors] = useState<Map<string, string>>(new Map())
+  const [bulkAdopting, setBulkAdopting] = useState(false)
+  const [bulkAdoptSummary, setBulkAdoptSummary] = useState<{ resolved: number; refused: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load the most recent persisted session on mount
@@ -411,6 +426,119 @@ export function ReconciliationTab({ projectId, generatedItems }: ReconciliationT
     setReviewFinding(null)
   }, [projectId, sessionId])
 
+  // Resolve current + target lifecycle status for a status-mismatch finding.
+  // Returns null when the finding's referenced rows can't be located.
+  const resolveStatusPair = useCallback((finding: ReconciliationFinding): {
+    itemId: string
+    current: SubmittalLifecycleStatus
+    target: SubmittalLifecycleStatus
+  } | null => {
+    if (finding.type !== 'status_mismatch') return null
+    if (!finding.generatedItemId || !finding.externalRowId) return null
+    const genItem = genItemByKey.get(finding.generatedItemId)
+    const extRow = extRowById.get(finding.externalRowId)
+    if (!genItem?.persistedItemId || !extRow) return null
+    const target = normalizeExternalStatus(extRow.status) as SubmittalLifecycleStatus | null
+    if (!target) return null
+    const current = (genItem.lifecycleStatus ?? 'draft') as SubmittalLifecycleStatus
+    return { itemId: genItem.persistedItemId, current, target }
+  }, [genItemByKey, extRowById])
+
+  // Walk the legal transition path from current → target by calling the
+  // lifecycle API once per step. Returns true when every step succeeded.
+  const adoptOne = useCallback(async (finding: ReconciliationFinding): Promise<boolean> => {
+    const pair = resolveStatusPair(finding)
+    if (!pair) {
+      setAdoptErrors(prev => new Map(prev).set(finding.id, 'Cannot locate item or external status'))
+      return false
+    }
+    const path = findTransitionPath(pair.current, pair.target)
+    if (path === null) {
+      setAdoptErrors(prev => new Map(prev).set(
+        finding.id,
+        `No legal path from ${STATUS_LABELS[pair.current]} to ${STATUS_LABELS[pair.target]}`,
+      ))
+      return false
+    }
+    if (path.length === 0) {
+      // Already matches — drop the finding.
+      setResult(prev => prev ? {
+        ...prev,
+        statusMismatches: prev.statusMismatches.filter(f => f.id !== finding.id),
+      } : prev)
+      return true
+    }
+
+    for (const next of path) {
+      const res = await fetch(`/api/projects/${projectId}/submittal-register/lifecycle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          item_id: pair.itemId,
+          to_status: next,
+          note: 'Adopted from external log reconciliation',
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: 'Lifecycle update failed' }))
+        setAdoptErrors(prev => new Map(prev).set(
+          finding.id,
+          body.error ?? `Lifecycle update failed at ${STATUS_LABELS[next]}`,
+        ))
+        return false
+      }
+    }
+
+    setResult(prev => prev ? {
+      ...prev,
+      statusMismatches: prev.statusMismatches.filter(f => f.id !== finding.id),
+    } : prev)
+    setAdoptErrors(prev => {
+      const next = new Map(prev)
+      next.delete(finding.id)
+      return next
+    })
+    return true
+  }, [projectId, resolveStatusPair])
+
+  const handleAdoptLogStatus = useCallback(async (finding: ReconciliationFinding) => {
+    setAdoptingFindingIds(prev => new Set(prev).add(finding.id))
+    try {
+      const ok = await adoptOne(finding)
+      if (ok) onRegisterUpdated?.()
+    } finally {
+      setAdoptingFindingIds(prev => {
+        const next = new Set(prev)
+        next.delete(finding.id)
+        return next
+      })
+    }
+  }, [adoptOne, onRegisterUpdated])
+
+  const handleAdoptAllLogStatuses = useCallback(async () => {
+    if (!result || result.statusMismatches.length === 0) return
+    const findings = [...result.statusMismatches]
+    setBulkAdopting(true)
+    setBulkAdoptSummary(null)
+    let resolved = 0
+    let refused = 0
+    for (const f of findings) {
+      setAdoptingFindingIds(prev => new Set(prev).add(f.id))
+      const ok = await adoptOne(f)
+      setAdoptingFindingIds(prev => {
+        const next = new Set(prev)
+        next.delete(f.id)
+        return next
+      })
+      if (ok) resolved++
+      else refused++
+    }
+    setBulkAdoptSummary({ resolved, refused })
+    setBulkAdopting(false)
+    if (resolved > 0) onRegisterUpdated?.()
+  }, [result, adoptOne, onRegisterUpdated])
+
   const handleComplete = useCallback(async () => {
     if (!sessionId) return
     setCompleting(true)
@@ -422,13 +550,14 @@ export function ReconciliationTab({ projectId, generatedItems }: ReconciliationT
         const data = await res.json()
         setSessionStatus('complete')
         setCompleteResult({ updatedCount: data.updatedCount, skippedCount: data.skippedCount })
+        if (data.updatedCount > 0) onRegisterUpdated?.()
       }
     } catch {
       // Non-fatal
     } finally {
       setCompleting(false)
     }
-  }, [projectId, sessionId])
+  }, [projectId, sessionId, onRegisterUpdated])
 
   const handleExport = useCallback(async () => {
     if (!result) return
@@ -709,13 +838,73 @@ export function ReconciliationTab({ projectId, generatedItems }: ReconciliationT
       </FindingSection>
 
       {/* Status mismatches */}
-      <FindingSection title="Status Mismatches" findings={result.statusMismatches}>
-        {(f) => (
-          <div key={f.id} className="px-4 py-3">
-            <p className="text-sm text-gray-800">{f.message}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{f.suggestedAction}</p>
+      <FindingSection
+        title="Status Mismatches"
+        findings={result.statusMismatches}
+        headerAction={result.statusMismatches.length > 0 ? (
+          <div className="flex items-center gap-2">
+            {bulkAdoptSummary && (
+              <span className="text-xs text-gray-500">
+                {bulkAdoptSummary.resolved} adopted
+                {bulkAdoptSummary.refused > 0 && `, ${bulkAdoptSummary.refused} refused`}
+              </span>
+            )}
+            <button
+              onClick={handleAdoptAllLogStatuses}
+              disabled={bulkAdopting}
+              className="px-3 py-1.5 text-xs border border-red-300 rounded-md text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {bulkAdopting ? 'Adopting…' : 'Adopt all log statuses'}
+            </button>
           </div>
-        )}
+        ) : undefined}
+      >
+        {(f) => {
+          const pair = resolveStatusPair(f)
+          const adopting = adoptingFindingIds.has(f.id)
+          const err = adoptErrors.get(f.id)
+          const path = pair ? findTransitionPath(pair.current, pair.target) : null
+          const cannotAdopt = !pair || path === null
+          return (
+            <div key={f.id} className="px-4 py-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-gray-800">{f.message}</p>
+                  {pair && (
+                    <div className="flex items-center gap-1.5 mt-1.5 text-xs">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                        Register: {STATUS_LABELS[pair.current]}
+                      </span>
+                      <span className="text-gray-400">→</span>
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                        Log: {STATUS_LABELS[pair.target]}
+                      </span>
+                      {path && path.length > 1 && (
+                        <span className="text-gray-500 ml-1">
+                          ({path.length} steps)
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {err && (
+                    <p className="text-xs text-red-600 mt-1.5">{err}</p>
+                  )}
+                  {!err && cannotAdopt && (
+                    <p className="text-xs text-gray-500 mt-1.5">{f.suggestedAction}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleAdoptLogStatus(f)}
+                  disabled={adopting || cannotAdopt}
+                  title={cannotAdopt ? 'No legal lifecycle path — resolve manually' : undefined}
+                  className="shrink-0 px-3 py-1.5 text-xs border border-red-300 rounded-md text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {adopting ? 'Adopting…' : 'Adopt log status'}
+                </button>
+              </div>
+            </div>
+          )
+        }}
       </FindingSection>
 
       {/* External only */}

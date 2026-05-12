@@ -235,6 +235,7 @@ export function SubmittalsCommandCenter({ projectId }: SubmittalsCommandCenterPr
               <ReconciliationTab
                 projectId={projectId}
                 generatedItems={data.items}
+                onRegisterUpdated={() => load('refresh')}
               />
             )}
           </>

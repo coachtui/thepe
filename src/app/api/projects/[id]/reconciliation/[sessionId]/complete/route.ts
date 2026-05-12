@@ -16,6 +16,7 @@ import { createServiceRoleClient } from '@/lib/db/supabase/service'
 import {
   ALL_LIFECYCLE_STATUSES,
   buildTransition,
+  findTransitionPath,
   timestampFieldForStatus,
   type SubmittalLifecycleStatus,
   type LifecycleHistoryEntry,
@@ -106,20 +107,33 @@ export async function POST(
     const payload = item.item_payload as Record<string, unknown>
     const fromStatus = (payload.lifecycleStatus as SubmittalLifecycleStatus | undefined) ?? 'draft'
 
-    const result = buildTransition(fromStatus, toStatus, membership.role ?? undefined, 'Updated via reconciliation')
-    if (!result.ok) { skippedCount++; continue }
+    const path = findTransitionPath(fromStatus, toStatus)
+    if (path === null || path.length === 0) { skippedCount++; continue }
 
-    const history: LifecycleHistoryEntry[] = Array.isArray(payload.lifecycleStatusHistory)
+    const historyAdditions: LifecycleHistoryEntry[] = []
+    const timestampUpdates: Record<string, string> = {}
+    let cursor = fromStatus
+    let walkFailed = false
+    for (const next of path) {
+      const stepResult = buildTransition(cursor, next, membership.role ?? undefined, 'Updated via reconciliation')
+      if (!stepResult.ok) { walkFailed = true; break }
+      historyAdditions.push(stepResult.entry)
+      const tsField = timestampFieldForStatus(next)
+      if (tsField) timestampUpdates[tsField] = stepResult.entry.changedAt
+      cursor = next
+    }
+    if (walkFailed) { skippedCount++; continue }
+
+    const existingHistory: LifecycleHistoryEntry[] = Array.isArray(payload.lifecycleStatusHistory)
       ? (payload.lifecycleStatusHistory as LifecycleHistoryEntry[])
       : []
 
     const updatedPayload: Record<string, unknown> = {
       ...payload,
-      lifecycleStatus: toStatus,
-      lifecycleStatusHistory: [...history, result.entry],
+      lifecycleStatus: cursor,
+      lifecycleStatusHistory: [...existingHistory, ...historyAdditions],
+      ...timestampUpdates,
     }
-    const tsField = timestampFieldForStatus(toStatus)
-    if (tsField) updatedPayload[tsField] = result.entry.changedAt
 
     const { error: updateErr } = await svc
       .from('submittal_register_items')
